@@ -53,6 +53,11 @@ def render(result: SearchResult) -> str:
                 if site := airline_site(code):
                     out.append(f"    book direct ({code}): {site}")
         out += [f"  ⚠ {w}" for w in t.warnings]
+    if result.airlines:
+        out.append("\nAIRLINES SEEN (cheapest fare, routes)")
+        for a in result.airlines[:14]:
+            flag = "" if a.included else "  [excluded by filter]"
+            out.append(f"  {a.name} ({a.code}) from {a.cheapest:,.0f}: " + ", ".join(r.replace(">", "→") + (" nonstop" if r in a.nonstop else "") for r in a.routes) + flag)
     via = ", ".join(f"{name} x{n}" for name, n in sorted(result.sources.items())) or "no live lookups"
     out.append(f"\n[{result.api_calls} lookups via {via} | {result.cache_hits} cached | {result.elapsed_s}s]")
     out += [f"⚠ {w}" for w in result.warnings]

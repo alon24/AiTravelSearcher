@@ -32,3 +32,17 @@ def google_flights_link(origin: str, dest: str, day: date, return_day: date | No
     q = f"Flights from {origin} to {dest} on {day.isoformat()}"
     q += f" through {return_day.isoformat()}" if return_day else " one way"
     return "https://www.google.com/travel/flights?q=" + quote(q)
+
+
+# Common carriers, for filter suggestions in the UI (results always show the names the provider returned).
+KNOWN_AIRLINES = {
+    "LY": "El Al", "W4": "Wizz Air", "W6": "Wizz Air", "FR": "Ryanair", "RK": "Ryanair UK", "U2": "easyJet", "LS": "Jet2",
+    "6H": "Israir", "IZ": "Arkia", "BZ": "Bluebird Airways", "TK": "Turkish Airlines", "PC": "Pegasus", "A3": "Aegean",
+    "OA": "Olympic Air", "OS": "Austrian", "LH": "Lufthansa", "EW": "Eurowings", "AF": "Air France", "KL": "KLM",
+    "BA": "British Airways", "VY": "Vueling", "IB": "Iberia", "AZ": "ITA Airways", "LX": "SWISS", "SN": "Brussels Airlines",
+    "SK": "SAS", "DY": "Norwegian", "AY": "Finnair", "LO": "LOT", "RO": "TAROM", "OK": "Czech Airlines", "EK": "Emirates",
+    "QR": "Qatar Airways", "EY": "Etihad", "MS": "EgyptAir", "RJ": "Royal Jordanian", "CY": "Cyprus Airways", "U8": "Tus Air",
+    "GQ": "SKY express", "HV": "Transavia", "V7": "Volotea", "AA": "American", "DL": "Delta", "UA": "United", "B6": "JetBlue",
+    "WN": "Southwest", "F9": "Frontier", "NK": "Spirit", "AC": "Air Canada", "SQ": "Singapore Airlines", "TG": "Thai Airways",
+    "AI": "Air India", "ET": "Ethiopian", "KE": "Korean Air", "NH": "ANA", "JL": "Japan Airlines",
+}

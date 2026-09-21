@@ -15,7 +15,7 @@ from pydantic import BaseModel, ValidationError
 from .cache import OfferCache
 from .engine import BudgetExceeded, FlightSearchEngine
 from .history import History
-from .links import AIRLINE_SITES
+from .links import AIRLINE_SITES, KNOWN_AIRLINES
 from .models import SearchRequest, SearchResult
 from .providers import get_provider
 from .report import render
@@ -87,6 +87,8 @@ class SimpleSearch(BaseModel):
     top: str = ""
     adults: str = ""
     children_ages: str = ""  # comma-separated ages, e.g. "5,8"
+    exclude_airlines: str = ""  # comma-separated IATA codes, e.g. "FR,W4"
+    only_airlines: str = ""
 
 
 def _csv(s: str) -> list[str]:
@@ -118,6 +120,7 @@ def to_request(s: SimpleSearch) -> SearchRequest:
         connect_destinations=_flag(s.connect_destinations),
         adults=int(s.adults) if s.adults.strip() else 1,
         children_ages=[int(x) for x in s.children_ages.replace(",", " ").split()],
+        airlines_exclude=_csv(s.exclude_airlines), airlines_include=_csv(s.only_airlines),
         currency=s.currency.strip().upper() or "USD", **kw,
     )
 
@@ -160,7 +163,7 @@ async def _run_job(sid: str, req: SearchRequest) -> None:
 
 @app.get("/api/config")
 async def config() -> dict:
-    return {"provider": os.getenv("FLIGHTAGENT_PROVIDER", "mock"), "airline_sites": AIRLINE_SITES}
+    return {"provider": os.getenv("FLIGHTAGENT_PROVIDER", "mock"), "airline_sites": AIRLINE_SITES, "airlines": KNOWN_AIRLINES}
 
 
 @app.post("/api/estimate")
@@ -200,4 +203,13 @@ async def delete_search(sid: str) -> dict[str, bool]:
 
 
 # Static UI last, so it never shadows the API routes.
-app.mount("/", StaticFiles(directory=Path(__file__).parent / "web", html=True), name="web")
+class _RevalidatingStatic(StaticFiles):
+    """UI files change with every release: make browsers revalidate (cheap 304) instead of heuristically caching."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
+app.mount("/", _RevalidatingStatic(directory=Path(__file__).parent / "web", html=True), name="web")

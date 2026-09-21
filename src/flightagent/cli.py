@@ -39,6 +39,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--buffer", type=float, default=4, help="self-transfer buffer, hours")
     p.add_argument("--adults", type=int, default=1)
     p.add_argument("--children", type=lambda s: [int(x) for x in _csv(s)], default=[], metavar="AGES", help="children's ages, e.g. 5,8")
+    p.add_argument("--exclude-airlines", type=_csv, default=[], metavar="CODES", help="e.g. FR,W4")
+    p.add_argument("--only-airlines", type=_csv, default=[], metavar="CODES")
     p.add_argument("--currency", default="USD")
     p.add_argument("--vot", type=float, default=10, help="value of an hour of travel, in currency")
     p.add_argument("--top", type=int, default=5)
@@ -57,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
         max_travel_min_per_direction=int(a.max_travel * 60) if a.max_travel else None,
         allow_mixed_airlines=not a.same_airline,
         allow_self_transfer=bool(a.self_transfer), self_transfer_hubs=a.self_transfer,
-        self_transfer_buffer_min=int(a.buffer * 60), currency=a.currency, adults=a.adults, children_ages=a.children,
+        self_transfer_buffer_min=int(a.buffer * 60), currency=a.currency, adults=a.adults, children_ages=a.children, airlines_exclude=a.exclude_airlines, airlines_include=a.only_airlines,
         value_of_time_per_hour=a.vot, top_n=a.top, max_api_calls=a.max_calls,
     )
     try:

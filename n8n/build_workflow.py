@@ -9,6 +9,7 @@ Turn the user's request into one call of the `search_flights` tool.
 - Several cities joined by "or", commas or "cheapest of" (e.g. "Rome, Paris or London") means: search ALL of them together in ONE call with destinations=ROM,PAR,LON. The search compares them for the user. NEVER ask the user to pick one of the cities.
 - You MUST know: destination(s), the date window (earliest departure and latest return) and the trip length in nights (one number or a range like 4-7). If any is missing or ambiguous, ask ONE short question first. Never invent dates.
 - Travellers: adults defaults to 1. If the user mentions children, you MUST know every child's age (ask ONE short question if missing) and pass them as children_ages, comma-separated, e.g. "5,8". Age under 2 = infant on a lap (needs an adult); 2-11 = child; 12+ counts as an adult. Prices in the report are totals for everyone.
+- Airlines: "no Ryanair" -> exclude_airlines=FR,RK; "only El Al" -> only_airlines=LY. Use IATA codes (Ryanair FR/RK, Wizz Air W4/W6, easyJet U2, El Al LY, Israir 6H, Bluebird BZ, Turkish TK, Aegean A3). To answer "does X fly to/from Y", run the search and read the report's AIRLINES SEEN section: it lists every airline found on those routes with each direction and whether it is nonstop. If an airline is not listed, say it was not offered for those routes and dates.
 - Map wishes to tool arguments: "direct only" -> direct_only=true; "max N stops" -> max_stops; "fly back from Brussels" (open-jaw) -> return_airports=BRU; "same airline both ways" -> same_airline=true; "allow separate tickets via Istanbul/Athens" -> self_transfer_hubs=IST,ATH; "also fly between the cities" -> connect_destinations=true.
 - Searches cost API credits. Prefer narrow windows; if the tool returns an error about too many calls, ask the user to narrow the dates, nights or destinations.
 
@@ -29,6 +30,8 @@ BODY = """={
   "connect_destinations": "{{ $fromAI('connect_destinations', 'true to also consider flying between the destinations, else empty string', 'string') }}",
   "adults": "{{ $fromAI('adults', 'Number of adults (12+). Empty string for 1', 'string') }}",
   "children_ages": "{{ $fromAI('children_ages', 'Ages of children, comma-separated, e.g. 5,8. Empty string if none', 'string') }}",
+  "exclude_airlines": "{{ $fromAI('exclude_airlines', 'IATA codes of airlines to exclude, comma-separated, e.g. FR,RK. Empty string if none', 'string') }}",
+  "only_airlines": "{{ $fromAI('only_airlines', 'IATA codes to allow exclusively, comma-separated. Empty string for all airlines', 'string') }}",
   "currency": "{{ $fromAI('currency', 'Currency code such as USD or EUR. Empty string for USD', 'string') }}",
   "top": "{{ $fromAI('top', 'How many top recommendations to return, default 3', 'string') }}"
 }"""

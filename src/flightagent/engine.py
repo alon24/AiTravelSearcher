@@ -4,11 +4,11 @@ import asyncio
 import itertools
 import time
 from collections import Counter, defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from .cache import OfferCache
 from .links import AIRLINE_SITES
-from .models import DailyBest, LegView, Offer, SearchRequest, SearchResult, Trip
+from .models import AirlineInfo, DailyBest, LegView, Offer, SearchRequest, SearchResult, Segment, Trip
 from .providers.base import FlightProvider
 
 Key = tuple[str, str, date]  # (origin, destination, day)
@@ -52,6 +52,7 @@ class FlightSearchEngine:
                 leg_cache[key] = self._leg_options(req, key, raw)
             return leg_cache[key]
 
+        airlines = self._airline_summary(req, raw)
         trips: list[Trip] = []
         for kind, label, dep, ret, keyset in shapes:
             per_leg = [options(k) for k in keyset]
@@ -73,7 +74,7 @@ class FlightSearchEngine:
         return SearchResult(
             request=req, daily=daily, top=top,
             api_calls=self.api_calls, cache_hits=self.cache_hits, warnings=warnings,
-            sources=dict(self.sources), elapsed_s=round(time.perf_counter() - started, 1),
+            airlines=airlines, sources=dict(self.sources), elapsed_s=round(time.perf_counter() - started, 1),
         )
 
     def estimate(self, req: SearchRequest) -> dict[str, int]:
@@ -184,14 +185,15 @@ class FlightSearchEngine:
 
     def _leg_options(self, req: SearchRequest, key: Key, raw: dict[Key, list[Offer]]) -> list[Offer]:
         o, d, day = key
-        candidates = list(raw.get((o, d, day), []))
+        ok_raw = lambda k: [x for x in raw.get(k, []) if self._airline_ok(req, x)]  # noqa: E731
+        candidates = ok_raw((o, d, day))
         if req.allow_self_transfer:
             for h in req.self_transfer_hubs:
                 if h in (o, d):
                     continue
-                first = sorted(raw.get((o, h, day), []), key=lambda x: x.price)[:5]
+                first = sorted(ok_raw((o, h, day)), key=lambda x: x.price)[:5]
                 second = sorted(
-                    raw.get((h, d, day), []) + raw.get((h, d, day + timedelta(days=1)), []),
+                    ok_raw((h, d, day)) + ok_raw((h, d, day + timedelta(days=1))),
                     key=lambda x: x.price)[:8]
                 for a, b in itertools.product(first, second):
                     gap = int((b.departs - a.arrives).total_seconds() // 60)
@@ -207,8 +209,35 @@ class FlightSearchEngine:
         return ok[:TOP_PER_LEG]
 
     @staticmethod
+    def _airline_ok(req: SearchRequest, c: Offer) -> bool:
+        codes = {s.airline_code for s in c.segments}
+        if req.airlines_include and not codes <= set(req.airlines_include):
+            return False
+        return not codes & set(req.airlines_exclude)
+
+    def _airline_summary(self, req: SearchRequest, raw: dict[Key, list[Offer]]) -> list[AirlineInfo]:
+        """Every airline the provider returned (before filtering), with the routes it flies."""
+        info: dict[str, dict] = {}
+        for offers in raw.values():
+            for o in offers:
+                route = f"{o.origin}>{o.destination}"
+                for code in {s.airline_code for s in o.segments}:
+                    a = info.setdefault(code, {"name": "", "offers": 0, "cheapest": o.price, "routes": set(), "nonstop": set()})
+                    a["name"] = a["name"] or next(s.airline for s in o.segments if s.airline_code == code) or code
+                    a["offers"] += 1
+                    a["cheapest"] = min(a["cheapest"], o.price)
+                    a["routes"].add(route)
+                    if o.stops == 0:
+                        a["nonstop"].add(route)
+        probe = lambda code: self._airline_ok(req, Offer(origin="", destination="", price=0, currency="", segments=[  # noqa: E731
+            Segment(airline_code=code, flight_number="", origin="", destination="", departs=datetime.min, arrives=datetime.min)]))
+        return sorted((AirlineInfo(code=c, name=a["name"], offers=a["offers"], cheapest=a["cheapest"], routes=sorted(a["routes"]),
+                                    nonstop=sorted(a["nonstop"]), included=probe(c)) for c, a in info.items()),
+                      key=lambda x: (x.cheapest, x.name))
+
+    @staticmethod
     def _passes(req: SearchRequest, c: Offer) -> bool:
-        if c.stops > req.max_stops_per_leg:
+        if c.stops > req.max_stops_per_leg or not FlightSearchEngine._airline_ok(req, c):
             return False
         if any(not (req.min_layover_min <= lay <= req.max_layover_min) for lay in c.layovers_min):
             return False

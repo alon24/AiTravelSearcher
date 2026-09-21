@@ -358,3 +358,38 @@ def test_simple_endpoint_reports_validation_errors_briefly(monkeypatch, tmp_path
     r = TestClient(app).post("/search/simple", json={"destinations": "ROM", "from_date": "2026-10-01", "to_date": "2026-10-09",
                                                       "nights": "4", "adults": "1", "children_ages": "0,1"}).json()
     assert r["error"] == "Each infant under 2 needs their own adult (one lap infant per adult)"
+
+
+def test_airline_filters_apply_after_fetching_and_report_who_flies_where():
+    def fn(o, d, day):
+        return [offer(o, d, at(day), 50, code="FR"), offer(o, d, at(day, 12), 90, code="LY"),
+                Offer(origin=o, destination=d, price=70, currency="USD", segments=[
+                    seg(o, "IST", at(day, 6), 120, "TK"), seg("IST", d, at(day, 6) + timedelta(minutes=300), 120, "TK")])]
+    p = Fake(fn)
+    engine = FlightSearchEngine(p, OfferCache(":memory:"))
+    base = run(engine, req(max_stops_per_leg=1))
+    assert base.daily[0].cheapest.price == 100 and base.daily[0].cheapest.airlines == ["FR"]
+    calls = len(p.calls)
+    no_fr = run(engine, req(max_stops_per_leg=1, airlines_exclude=["fr"]))
+    assert len(p.calls) == calls and no_fr.api_calls == 0                       # filters cost no lookups
+    assert no_fr.daily[0].cheapest.airlines == ["TK"] and no_fr.daily[0].cheapest.price == 140
+    only_ly = run(engine, req(max_stops_per_leg=1, airlines_include=["LY"]))
+    assert only_ly.daily[0].cheapest.airlines == ["LY"] and only_ly.daily[0].cheapest.price == 180
+    none = run(engine, req(max_stops_per_leg=1, airlines_include=["XX"]))
+    assert none.daily == [] and any("No itinerary" in w for w in none.warnings)
+    # the airline list is unfiltered, says who flies which direction, and flags what the filter removed
+    byc = {a.code: a for a in no_fr.airlines}
+    assert set(byc) == {"FR", "LY", "TK"} and byc["FR"].included is False and byc["TK"].included is True
+    assert byc["FR"].cheapest == 50 and set(byc["FR"].nonstop) == {"TLV>ROM", "ROM>TLV"}
+    assert byc["TK"].nonstop == [] and set(byc["TK"].routes) == {"TLV>ROM", "ROM>TLV"}
+    from flightagent.report import render
+    assert "Ryanair" not in render(no_fr) and "FR) from 50" in render(no_fr) and "[excluded by filter]" in render(no_fr)
+
+
+def test_ui_files_are_revalidated_not_heuristically_cached():
+    from fastapi.testclient import TestClient
+    from flightagent.api import app
+
+    with TestClient(app) as c:
+        for path in ("/", "/app.js", "/style.css"):
+            assert c.get(path).headers["cache-control"] == "no-cache"

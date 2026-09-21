@@ -8,6 +8,7 @@ from pathlib import Path
 
 URL = "https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat"
 OUT = Path(__file__).resolve().parents[1] / "src/flightagent/web/airports.json"
+TZ_OUT = Path(__file__).resolve().parents[1] / "src/flightagent/data/airport_tz.json"
 DAT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/airports.dat")
 
 EXTRA = [("BER", "Berlin", "Berlin Brandenburg Airport", "Germany")]  # missing from the OpenFlights snapshot
@@ -24,6 +25,11 @@ GROUPS = {"ROM": ("Rome", "Italy"), "LON": ("London", "United Kingdom"), "PAR": 
           "MIL": ("Milan", "Italy"), "STO": ("Stockholm", "Sweden"), "MOW": ("Moscow", "Russia"), "TYO": ("Tokyo", "Japan"),
           "WAS": ("Washington", "United States"), "CHI": ("Chicago", "United States"), "BUH": ("Bucharest", "Romania"),
           "BJS": ("Beijing", "China"), "OSA": ("Osaka", "Japan"), "SAO": ("Sao Paulo", "Brazil"), "BUE": ("Buenos Aires", "Argentina")}
+
+EXTRA_TZ = {"BER": "Europe/Berlin", "ROM": "Europe/Rome", "LON": "Europe/London", "PAR": "Europe/Paris", "NYC": "America/New_York",
+            "MIL": "Europe/Rome", "STO": "Europe/Stockholm", "MOW": "Europe/Moscow", "TYO": "Asia/Tokyo", "WAS": "America/New_York",
+            "CHI": "America/Chicago", "BUH": "Europe/Bucharest", "BJS": "Asia/Shanghai", "OSA": "Asia/Tokyo", "SAO": "America/Sao_Paulo",
+            "BUE": "America/Argentina/Buenos_Aires"}
 
 # Alternate spellings, local names and Hebrew names. Matching is diacritic- and case-insensitive.
 ALIASES = {
@@ -65,16 +71,21 @@ def main():
     if not DAT.exists():
         print("downloading", URL)
         DAT.write_bytes(urllib.request.urlopen(URL, timeout=60).read())
-    out = []
+    out, tz = [], {}
     for row in csv.reader(DAT.open(encoding="utf-8")):
         iata, typ = row[4], row[12]
         if typ != "airport" or len(iata) != 3 or iata == "\\N" or iata in GROUPS:
             continue
         out.append([iata, row[2], row[1], row[3], 1 if iata in POPULAR else 0, ALIASES.get(iata, [])])
+        if row[11] and row[11] != "\\N":
+            tz[iata] = row[11]
+    tz.update(EXTRA_TZ)
     for code, city, name, country in EXTRA:
         out.append([code, city, name, country, 1 if code in POPULAR else 0, ALIASES.get(code, [])])
     for code, (city, country) in GROUPS.items():
         out.append([code, city, "All airports", country, 2, ALIASES.get(code, [])])
+    TZ_OUT.parent.mkdir(parents=True, exist_ok=True)
+    TZ_OUT.write_text(json.dumps(tz, separators=(",", ":")), encoding="utf-8")
     OUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print(f"{len(out)} rows, {sum(1 for o in out if o[4] == 1)} popular, {sum(1 for o in out if o[5])} with aliases -> {OUT}")
 

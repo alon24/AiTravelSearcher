@@ -94,6 +94,13 @@
           <div class="field"><label for="laymin">Layover between (hours)</label>
             <div class="nights"><div class="input"><input type="number" id="laymin" min="0" step="0.5" aria-label="Minimum layover hours"></div><span class="to">to</span><div class="input"><input type="number" id="laymax" min="1" step="1" aria-label="Maximum layover hours"></div></div></div>
           <div class="field"><label for="vot">Value of an hour of travel: <b id="vot-out"></b></label><input type="range" id="vot" min="0" max="60" step="1"><span class="hint">Higher = long trips ranked lower in "best value"</span></div>
+          <div class="field wide"><label for="air-in">Airlines</label>
+            <div class="seg" role="radiogroup" aria-label="Airline filter mode">
+              <label><input type="radio" name="airmode" value="exclude" checked>Exclude</label>
+              <label><input type="radio" name="airmode" value="only">Only</label>
+            </div>
+            <div class="ac" id="ac-air"></div>
+            <span class="hint">Type an airline or its code (Ryanair, FR). After a search you also get the full list of airlines on your routes.</span></div>
           <div class="field"><label for="top">Top picks to show</label><div class="input"><input type="number" id="top" min="1" max="20"></div></div>
           <div class="field"><label for="maxcalls">Max lookups per search</label><div class="input"><input type="number" id="maxcalls" min="1" max="5000"></div></div>
         </div>

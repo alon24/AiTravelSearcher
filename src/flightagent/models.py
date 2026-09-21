@@ -36,6 +36,9 @@ class SearchRequest(BaseModel):
     # Multi-stop: minimum nights in each city
     min_nights_per_stop: int = 1
 
+    # Airline filters (IATA codes). Applied after fetching, so changing them costs no new lookups.
+    airlines_include: list[str] = Field(default_factory=list)  # empty = any airline
+    airlines_exclude: list[str] = Field(default_factory=list)
     adults: int = Field(default=1, ge=1, le=9)
     # Ages of children on the travel date. Google's categories: <2 infant on lap, 2-11 child, 12+ adult.
     children_ages: list[int] = Field(default_factory=list)
@@ -53,6 +56,8 @@ class SearchRequest(BaseModel):
         self.destinations = [d.upper() for d in self.destinations]
         self.return_airports = [d.upper() for d in self.return_airports]
         self.self_transfer_hubs = [d.upper() for d in self.self_transfer_hubs]
+        self.airlines_include = sorted({a.strip().upper() for a in self.airlines_include if a.strip()})
+        self.airlines_exclude = sorted({a.strip().upper() for a in self.airlines_exclude if a.strip()})
         if self.window_end <= self.window_start:
             raise ValueError("window_end must be after window_start")
         if self.max_nights < self.min_nights:
@@ -195,12 +200,25 @@ class DailyBest(BaseModel):
     best_value: Trip
 
 
+class AirlineInfo(BaseModel):
+    """An airline seen in the provider's results for this search, before any airline filter."""
+
+    code: str
+    name: str
+    offers: int                # itineraries it appears in
+    cheapest: float
+    routes: list[str]          # "TLV>FCO": itineraries it appears in (connections included)
+    nonstop: list[str]         # routes where it has a nonstop flight
+    included: bool = True      # False when the current filters remove it
+
+
 class SearchResult(BaseModel):
     request: SearchRequest
     daily: list[DailyBest]
     top: list[Trip]
     api_calls: int
     cache_hits: int
+    airlines: list[AirlineInfo] = Field(default_factory=list)
     sources: dict[str, int] = Field(default_factory=dict)  # provider -> lookups it served
     elapsed_s: float = 0.0
     warnings: list[str] = Field(default_factory=list)
