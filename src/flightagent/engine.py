@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import itertools
-from collections import defaultdict
+import time
+from collections import Counter, defaultdict
 from datetime import date, timedelta
 
 from .cache import OfferCache
@@ -35,6 +36,8 @@ class FlightSearchEngine:
 
     async def search(self, req: SearchRequest) -> SearchResult:
         self.api_calls = self.cache_hits = 0
+        self.sources: Counter[str] = Counter()
+        started = time.perf_counter()
         shapes = self._plan_shapes(req)
         keys = self._required_keys(req, shapes)
         raw, warnings = await self._prefetch(req, keys)
@@ -61,6 +64,7 @@ class FlightSearchEngine:
         return SearchResult(
             request=req, daily=daily, top=top,
             api_calls=self.api_calls, cache_hits=self.cache_hits, warnings=warnings,
+            sources=dict(self.sources), elapsed_s=round(time.perf_counter() - started, 1),
         )
 
     # ---------------------------------------------------------------- planning
@@ -135,6 +139,7 @@ class FlightSearchEngine:
                     errors.append(f"{k[0]}->{k[1]} {k[2]}: {e}")
                     return
                 self.api_calls += 1
+                self.sources[getattr(offers, "source", "") or self.provider.name] += 1
                 raw[k] = offers
                 if self.cache and offers:  # never cache "no flights": it may be a bad code, not a fact
                     self.cache.put(self._cache_key(req, k), offers)

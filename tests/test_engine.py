@@ -253,7 +253,11 @@ def test_fallback_provider_and_selection(monkeypatch):
     backup = Fake(lambda o, d, day: [offer(o, d, at(day), 99)])
     got = asyncio.run(FallbackProvider(Boom(), backup).one_way("TLV", "ROM", date(2026, 10, 5),
                                                              currency="USD", adults=1, max_stops=1))
-    assert got[0].price == 99
+    assert got[0].price == 99 and got.source == "fake"
+    r = run(FlightSearchEngine(FallbackProvider(Boom(), backup)), req())
+    assert r.sources == {"fake": r.api_calls} and r.elapsed_s >= 0
+    from flightagent.report import render
+    assert "lookups via fake x" in render(r)
     monkeypatch.setenv("SERPAPI_API_KEY", "k")
     assert get_provider("gflights,serpapi").name == "gflights+serpapi"
     assert get_provider("mock").name == "mock"

@@ -174,6 +174,8 @@ class SearchResult(BaseModel):
     top: list[Trip]
     api_calls: int
     cache_hits: int
+    sources: dict[str, int] = Field(default_factory=dict)  # provider -> lookups it served
+    elapsed_s: float = 0.0
     warnings: list[str] = Field(default_factory=list)
 
 

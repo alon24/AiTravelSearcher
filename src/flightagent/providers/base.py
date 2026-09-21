@@ -6,6 +6,12 @@ from typing import Protocol
 from ..models import Offer
 
 
+class Offers(list):
+    """A list of offers that remembers which provider produced it (used by FallbackProvider)."""
+
+    source: str = ""
+
+
 class FlightProvider(Protocol):
     """Anything that can price a one-way trip. Everything else (round trips, open-jaw,
     mixed airlines, self-transfer) is composed from one-way offers by the engine."""
@@ -26,6 +32,9 @@ class FallbackProvider:
 
     async def one_way(self, origin, dest, day, **kw):
         try:
-            return await self.primary.one_way(origin, dest, day, **kw)
+            res, src = await self.primary.one_way(origin, dest, day, **kw), self.primary.name
         except Exception:
-            return await self.backup.one_way(origin, dest, day, **kw)
+            res, src = await self.backup.one_way(origin, dest, day, **kw), self.backup.name
+        out = Offers(res)
+        out.source = getattr(res, "source", "") or src
+        return out
