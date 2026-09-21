@@ -54,6 +54,14 @@ class History:
         )
         self.db.commit()
 
+    def update_search(self, sid: str, request_json: str, result_json: str, best_price: float | None, next_check: float | None) -> None:
+        """The airline filter changed in place: keep the same history entry, with the new request and its result."""
+        self.db.execute(
+            "UPDATE searches SET request=?, result=?, best_price=?, next_check=?, updated=? WHERE id=? AND status='done'",
+            (request_json, result_json, best_price, next_check, time.time(), sid),
+        )
+        self.db.commit()
+
     def postpone(self, sid: str, next_check: float) -> None:
         self.db.execute("UPDATE searches SET next_check=? WHERE id=?", (next_check, sid))
         self.db.commit()

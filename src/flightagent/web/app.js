@@ -425,7 +425,8 @@ function renderResult(row, opts = {}) {
         (q.airlines_exclude || []).length || (q.airlines_include || []).length ? h("span", { class: "badge warn" }, `${(q.airlines_include || []).length ? "Only" : "Excluding"}: ${((q.airlines_include || []).length ? q.airlines_include : q.airlines_exclude).map(c => (config.airlines || {})[c] || c).join(", ")}`) : null,
         (q.carry_on_bags || q.checked_bags) ? h("span", { class: "badge run", title: "Google adds estimated bag fees only where it has them (mostly US and Europe)" }, `🧳 est. fees for ${[q.carry_on_bags ? "cabin bag" : "", q.checked_bags ? "checked bag" : ""].filter(Boolean).join(" + ")} included`) : null,
         q.currency !== displayCurrency ? h("button", { type: "button", class: "badge warn conv-toggle", onclick: () => setShowOriginal(!showOriginal), title: `Searched in ${q.currency}. Shown in ${shownCur(q.currency)} at 1 ${shownCur(q.currency)} = ${(rates[q.currency] / rates[shownCur(q.currency)]).toFixed(3)} ${q.currency} (${ratesInfo.source}${ratesInfo.date ? `, ${ratesInfo.date}` : ""}). The airline's own price in that currency may differ a little.` }, showOriginal ? `Showing original ${q.currency} · click to convert to ${displayCurrency}` : `≈ Converted from ${q.currency} · click to see the original`) : null,
-        h("span", { class: "badge run" }, `${res.elapsed_s}s`), h("span", {}, ago(row.created)))),
+        h("span", { class: "badge run" }, `${res.elapsed_s}s`), h("span", {}, ago(row.created)),
+        res.data_from && Date.now() / 1000 - res.data_from > 1800 ? h("span", { class: "badge warn", title: "Filtering reuses saved flights. Press Search again to fetch fresh prices." }, `Flight data from ${ago(res.data_from)} · Search again to refresh`) : null)),
     h("div", { class: "actions" },
       h("button", { class: "btn", type: "button", onclick: () => { writeForm(requestToForm(q)); onFormChange(); window.scrollTo({ top: 0, behavior: "smooth" }); } }, "Edit"),
       h("button", { class: "btn", type: "button", onclick: () => submitSearch(q) }, "Search again"))));
@@ -434,18 +435,18 @@ function renderResult(row, opts = {}) {
     // Keep everything needed to change the filter: an airline filter that leaves no trips must not make the controls vanish.
     const filtered = (q.airlines_include || []).length || (q.airlines_exclude || []).length;
     const rest = [
-      airlineBar(res, q),
+      airlineBar(res, q, row),
       h("div", { class: "note" }, filtered
         ? "No trips match this airline filter. That airline may fly only one direction on these dates, or its flights may have no price (those are listed but never ranked). Every airline found is listed below: change the filter to continue."
         : "No trips matched. Try more stops, a wider window or a longer layover limit."),
-      filtered ? h("div", { class: "actions" }, h("button", { type: "button", class: "btn", onclick: () => submitSearch({ ...q, airlines_include: [], airlines_exclude: [] }) }, "Remove the airline filter")) : null,
-      airlinePanel(res, q, cur), unpricedPanel(res, row)].filter(Boolean);
+      filtered ? h("div", { class: "actions" }, h("button", { type: "button", class: "btn", onclick: () => applyAirlineFilter(row, [], []) }, "Remove the airline filter")) : null,
+      airlinePanel(res, q, cur, row), unpricedPanel(res, row)].filter(Boolean);
     box.append(...rest);
     if ((res.unpriced || []).length) watchRecheck(row);
     return;
   }
 
-  const bar = airlineBar(res, q);
+  const bar = airlineBar(res, q, row);
   if (bar) box.append(bar);
 
   // ---- derived picks
@@ -494,7 +495,7 @@ function renderResult(row, opts = {}) {
     if (view.pickOpen) pickDetail.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
-  const airPanel = airlinePanel(res, q, cur);
+  const airPanel = airlinePanel(res, q, cur, row);
   if (airPanel) box.append(airPanel);
   const unpricedPanelEl = unpricedPanel(res, row);
   if (unpricedPanelEl) { box.append(unpricedPanelEl); watchRecheck(row); }
@@ -663,65 +664,75 @@ function airlineTags(root, { onChange }) {
   return { get: () => [...values], set: arr => { values = [...arr]; draw(); } };
 }
 
-// Always-visible airline filter under the results header: a chip per airline found. Click a chip to exclude it, "only" to
-// keep just that airline, "Show all" to clear. Applying reuses the flights already fetched, so it is instant and free.
-function airlineBar(res, q) {
+// ---- Airline filter. ONE filter state (the form's Airlines field) drives everything: the chips under the results header,
+// the airline panel and the next "Find flights". Changing it re-filters the results IN PLACE from the flights already saved
+// (no lookups, no progress screen), and says how old that data is.
+let filterSeq = 0, airPanelOpen = null;
+function syncFormFilter(include, exclude) {
+  const only = include.length > 0;
+  ($$("input[name=airmode]").find(r => r.value === (only ? "only" : "exclude")) || {}).checked = true;
+  ac.air.set(only ? include : exclude);
+  onFormChange();
+}
+async function applyAirlineFilter(row, include, exclude) {
+  syncFormFilter(include, exclude);
+  const seq = ++filterSeq, box = $("#results");
+  box.classList.add("dim");
+  try {
+    const fresh = await post(`/api/searches/${row.id}/filter`, { airlines_include: include, airlines_exclude: exclude });
+    if (seq === filterSeq && current === row.id) { renderResult(fresh, { keepScroll: true }); refreshHistory(); }
+  } catch (e) { toast(e.message); }
+  finally { if (seq === filterSeq) box.classList.remove("dim"); }
+}
+const excludeAfterToggle = (list, code) => {
+  const sel = new Set(list.filter(a => a.included).map(a => a.code));
+  sel.has(code) ? sel.delete(code) : sel.add(code);
+  return list.filter(a => !sel.has(a.code)).map(a => a.code);
+};
+
+// Chip bar under the results header: click a chip to exclude/include that airline, "only" to keep just it, "Show all" to clear.
+function airlineBar(res, q, row) {
   const list = res.airlines || [];
   if (list.length < 1) return null;
-  const sel = new Set(list.filter(a => a.included).map(a => a.code));
   const active = (q.airlines_include || []).length || (q.airlines_exclude || []).length;
-  const apply = h("button", { type: "button", class: "btn small", disabled: true }, "Apply");
-  const chips = h("div", { class: "ab-chips" });
-  const dirty = () => list.some(a => sel.has(a.code) !== a.included);
-  function draw() {
-    chips.replaceChildren(...list.map(a => h("span", { class: "ab-chip" + (sel.has(a.code) ? "" : " off") },
-      h("button", { type: "button", class: "ab-name", "aria-pressed": String(sel.has(a.code)), title: sel.has(a.code) ? `Exclude ${a.name}` : `Include ${a.name}`,
-        onclick: () => { sel.has(a.code) ? sel.delete(a.code) : sel.add(a.code); draw(); } }, a.name),
-      h("button", { type: "button", class: "ab-solo", title: `Only ${a.name}`, onclick: () => submitSearch({ ...q, airlines_include: [a.code], airlines_exclude: [] }) }, "only"))));
-    apply.disabled = !dirty();
-  }
-  apply.addEventListener("click", () => submitSearch({ ...q, airlines_include: [], airlines_exclude: list.filter(a => !sel.has(a.code)).map(a => a.code) }));
-  draw();
-  return h("div", { class: "ab" }, h("span", { class: "af-label" }, "Airlines"), chips, apply,
-    active ? h("button", { type: "button", class: "btn small ghost", onclick: () => submitSearch({ ...q, airlines_include: [], airlines_exclude: [] }) }, "Show all") : null,
-    h("span", { class: "hint" }, active ? `Filter on: ${sel.size} of ${list.length} airlines used` : `${list.length} airlines found`));
+  const used = list.filter(a => a.included).length;
+  return h("div", { class: "ab" }, h("span", { class: "af-label" }, "Airlines"),
+    h("div", { class: "ab-chips" }, list.map(a => h("span", { class: "ab-chip" + (a.included ? "" : " off") },
+      h("button", { type: "button", class: "ab-name", "aria-pressed": String(a.included), title: a.included ? `Exclude ${a.name}` : `Include ${a.name}`,
+        onclick: () => applyAirlineFilter(row, [], excludeAfterToggle(list, a.code)) }, a.name),
+      h("button", { type: "button", class: "ab-solo", title: `Only ${a.name}`, onclick: () => applyAirlineFilter(row, [a.code], []) }, "only")))),
+    active ? h("button", { type: "button", class: "btn small ghost", onclick: () => applyAirlineFilter(row, [], []) }, "Show all") : null,
+    h("span", { class: "hint" }, active ? `Filter on: ${used} of ${list.length} airlines used` : `${list.length} airlines found`));
 }
 
-// All airlines found on the searched routes; untick to exclude, or press "Only". Applying re-uses cached flights (free).
-function airlinePanel(res, q, cur) {
+// The detailed airline list (prices and directions). It shares the same filter, and remembers whether you opened it.
+function airlinePanel(res, q, cur, row) {
   const list = res.airlines || [];
   if (!list.length) return null;
-  const sel = new Set(list.filter(a => a.included).map(a => a.code));
-  const apply = h("button", { type: "button", class: "btn small", disabled: true }, "Apply filter");
   const search = h("input", { type: "search", class: "air-search", placeholder: "Does an airline fly here? Type a name or code…", "aria-label": "Find an airline" });
   const host = h("div", { class: "air-list" });
-  const dirty = () => list.some(a => sel.has(a.code) !== a.included);
   const routeChip = (a, r) => h("span", { class: "rt" + (a.nonstop.includes(r) ? " ns" : "") }, `${r.replace(">", " → ")} · ${a.nonstop.includes(r) ? "nonstop" : "with a stop"}${(a.no_price_routes || []).includes(r) ? " · no price" : ""}`);
   function draw() {
     const term = search.value.trim().toLowerCase();
     const shown = list.filter(a => !term || a.name.toLowerCase().includes(term) || a.code.toLowerCase().includes(term));
-    apply.disabled = !dirty();
-    host.replaceChildren(...(shown.length ? shown.map(a => {
-      const row = h("div", { class: "air-row" + (sel.has(a.code) ? "" : " off") },
-        h("label", { class: "air-name" }, h("input", { type: "checkbox", checked: sel.has(a.code), "aria-label": `Include ${a.name}`, onchange: e => {
-          e.target.checked ? sel.add(a.code) : sel.delete(a.code); row.classList.toggle("off", !e.target.checked); apply.disabled = !dirty(); } }),
-          h("span", { class: "an" }, a.name), h("span", { class: "ac2" }, a.code), !a.included ? h("span", { class: "badge fail" }, "excluded") : null),
-        h("span", { class: "ap2" + (a.cheapest == null ? " np" : "") }, a.cheapest == null ? "no price shown" : `from ${money(a.cheapest, cur)}`),
-        h("span", { class: "routes" }, a.routes.map(r => routeChip(a, r))),
-        h("button", { type: "button", class: "btn small ghost", onclick: () => submitSearch({ ...q, airlines_include: [a.code], airlines_exclude: [] }) }, "Only"));
-      return row;
-    }) : [h("div", { class: "note" }, term ? `No airline matching “${search.value.trim()}” was listed for these routes and dates. It may not fly them, or Google may not sell it there.` : "No airlines found.")]));
+    host.replaceChildren(...(shown.length ? shown.map(a => h("div", { class: "air-row" + (a.included ? "" : " off") },
+      h("label", { class: "air-name" }, h("input", { type: "checkbox", checked: a.included, "aria-label": `Include ${a.name}`, onchange: () => applyAirlineFilter(row, [], excludeAfterToggle(list, a.code)) }),
+        h("span", { class: "an" }, a.name), h("span", { class: "ac2" }, a.code), !a.included ? h("span", { class: "badge fail" }, "excluded") : null),
+      h("span", { class: "ap2" + (a.cheapest == null ? " np" : "") }, a.cheapest == null ? "no price shown" : `from ${money(a.cheapest, cur)}`),
+      h("span", { class: "routes" }, a.routes.map(r => routeChip(a, r))),
+      h("button", { type: "button", class: "btn small ghost", onclick: () => applyAirlineFilter(row, [a.code], []) }, "Only")))
+      : [h("div", { class: "note" }, term ? `No airline matching “${search.value.trim()}” was listed for these routes and dates. It may not fly them, or Google may not sell it there.` : "No airlines found.")]));
   }
   search.addEventListener("input", draw);
-  apply.addEventListener("click", () => submitSearch({ ...q, airlines_include: [], airlines_exclude: list.filter(a => !sel.has(a.code)).map(a => a.code) }));
   const excluded = list.filter(a => !a.included).length;
   draw();
-  return h("details", { class: "card panel air-panel", open: excluded > 0 ? true : null },
-    h("summary", {}, `Airlines on these routes (${list.length})`, excluded ? h("span", { class: "badge warn" }, `${excluded} excluded`) : null),
-    h("p", { class: "air-help" }, "Every airline Google listed for these routes and dates. Untick to exclude, or press Only. Applying reuses the flights already fetched, so it's instant and free."),
-    h("div", { class: "air-tools" }, search,
-      h("button", { type: "button", class: "btn small", onclick: () => { list.forEach(a => sel.add(a.code)); draw(); } }, "Select all"), apply),
-    host);
+  const summary = h("summary", {}, `Airlines on these routes (${list.length})`, excluded ? h("span", { class: "badge warn" }, `${excluded} excluded`) : null);
+  const panel = h("details", { class: "card panel air-panel", open: (airPanelOpen ?? excluded > 0) ? true : null },
+    summary,
+    h("p", { class: "air-help" }, "Every airline Google listed for these routes and dates. Tick or untick to filter: it applies instantly to everything on this page and to your next search."),
+    h("div", { class: "air-tools" }, search), host);
+  summary.addEventListener("click", () => { airPanelOpen = !panel.open; });     // remember what you chose across re-renders
+  return panel;
 }
 
 // Flights Google lists but shows no fare for (often airlines that sell only on their own site, e.g. HiSky).

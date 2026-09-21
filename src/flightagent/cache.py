@@ -31,11 +31,16 @@ class OfferCache:
         row = self.db.execute("SELECT ts, expires FROM offers WHERE key=?", (key,)).fetchone()
         return bool(row) and self._fresh(*row)
 
-    def get(self, key: str) -> list[Offer] | None:
+    def get_entry(self, key: str, stale: bool = False) -> tuple[list[Offer], float] | None:
+        """(offers, time they were fetched). With stale=True an expired entry is still returned."""
         row = self.db.execute("SELECT ts, payload, expires FROM offers WHERE key=?", (key,)).fetchone()
-        if not row or not self._fresh(row[0], row[2]):
+        if not row or not (stale or self._fresh(row[0], row[2])):
             return None
-        return [Offer.model_validate(o) for o in json.loads(row[1])]
+        return [Offer.model_validate(o) for o in json.loads(row[1])], row[0]
+
+    def get(self, key: str) -> list[Offer] | None:
+        entry = self.get_entry(key)
+        return entry[0] if entry else None
 
     def remember_fares(self, fares: dict[str, float]) -> None:
         """Last price seen per flight. Google sometimes drops a fare it showed earlier, so we keep the last one."""

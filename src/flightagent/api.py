@@ -245,6 +245,31 @@ async def _recheck(sid: str) -> dict[str, int]:
         _rechecking.discard(sid)
 
 
+class FilterBody(BaseModel):
+    airlines_include: list[str] = []
+    airlines_exclude: list[str] = []
+
+
+@app.post("/api/searches/{sid}/filter")
+async def filter_search(sid: str, body: FilterBody) -> dict:
+    """Change the airline filter of a finished search in place, instantly: the result is recomputed from the flights
+    already saved (even ones past their expiry: `data_from` tells the UI how old they are), with no new lookups."""
+    hist = history()
+    row = hist.get(sid)
+    if not row or row["status"] != "done":
+        raise HTTPException(404, "search not found or not finished")
+    try:
+        req = SearchRequest(**{**row["request"], "airlines_include": body.airlines_include, "airlines_exclude": body.airlines_exclude, "stale_ok": True})
+        result = await build_engine().search(req)
+    except (ValidationError, RuntimeError) as e:
+        raise HTTPException(422, str(e))
+    stored = req.model_copy(update={"stale_ok": False})
+    best = min((d.cheapest.price for d in result.daily), default=None)
+    hist.update_search(sid, stored.model_dump_json(), result.model_dump_json(), best,
+                       next_check_time([u.date for u in result.unpriced], row["rechecks"], time.time()))
+    return hist.get(sid)
+
+
 @app.post("/api/searches/{sid}/recheck")
 async def recheck_search(sid: str) -> dict:
     """Ask again about flights that had no price. Returns how many were unpriced before and after."""

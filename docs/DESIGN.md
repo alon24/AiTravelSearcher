@@ -160,6 +160,13 @@ served each lookup.
 - **Mix & match** (main page, `web/mix.js`): every flight on the selected day and on a chosen return day, from the cache the
   search filled (`GET /api/searches/{id}/flights`), any outbound with any return, with total, gap check and bag info.
 
+### Airline filter (one state, instant)
+- The form's Airlines field is the single filter state. The chips under the results header, the airline panel, the Mix & match
+  lists and the next "Find flights" all read and write it, so it never gets out of sync.
+- Changing it calls `POST /api/searches/{id}/filter`, which recomputes the result **in place** from the flights already saved
+  (`stale_ok`: even expired ones), with no lookups, and keeps the same history entry. `SearchResult.data_from` says how old the
+  data is; the UI shows "Flight data from 3h ago: Search again to refresh" past 30 minutes.
+
 ### Current providers
 | Name | Source | Cost | Notes |
 |---|---|---|---|

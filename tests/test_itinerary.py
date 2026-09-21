@@ -258,3 +258,35 @@ def test_search_flight_lists_and_unpriced_obey_the_airline_filter(monkeypatch, t
         assert filtered["filter"] == {"include": [keep], "exclude": []}
         again = c.get(f"/api/searches/{sid1}/flights", params={**q, "all": 1}).json()
         assert len(again["flights"]) == len(everything["flights"]) and again["hidden_by_filter"] == 0
+
+
+def test_filter_endpoint_is_instant_and_works_from_expired_data(monkeypatch, tmp_path):
+    import time
+    from fastapi.testclient import TestClient
+    import flightagent.api as api
+
+    monkeypatch.setenv("FLIGHTAGENT_PROVIDER", "mock")
+    monkeypatch.setenv("FLIGHTAGENT_CACHE_DB", str(tmp_path / "c.sqlite"))
+    body = {"destinations": ["ROM"], "window_start": "2026-10-01", "window_end": "2026-10-08", "min_nights": 3, "max_nights": 3}
+    with TestClient(api.app) as c:
+        sid = c.post("/api/searches", json=body).json()["id"]
+        for _ in range(80):
+            row = c.get(f"/api/searches/{sid}").json()
+            if row["status"] == "done":
+                break
+            time.sleep(0.1)
+        codes = [a["code"] for a in row["result"]["airlines"]]
+        assert len(codes) >= 2
+        # let every saved flight expire: filtering must still work, with zero lookups, and say how old the data is
+        import sqlite3
+        with sqlite3.connect(str(tmp_path / "c.sqlite")) as db:
+            db.execute("UPDATE offers SET expires = 1")
+        r = c.post(f"/api/searches/{sid}/filter", json={"airlines_exclude": [codes[0]]}).json()
+        assert r["request"]["airlines_exclude"] == [codes[0]] and r["request"]["stale_ok"] is False
+        assert r["result"]["api_calls"] == 0 and r["result"]["cache_hits"] > 0 and r["result"]["data_from"]
+        assert all(codes[0] not in t["airlines"] for d in r["result"]["daily"] for t in (d["cheapest"], d["best_value"]))
+        assert next(a for a in r["result"]["airlines"] if a["code"] == codes[0])["included"] is False
+        assert len(c.get("/api/searches").json()) == 1                      # same history entry, not a new one
+        back = c.post(f"/api/searches/{sid}/filter", json={}).json()
+        assert back["request"]["airlines_exclude"] == [] and all(a["included"] for a in back["result"]["airlines"])
+        assert c.post("/api/searches/nope/filter", json={}).status_code == 404

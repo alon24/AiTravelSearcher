@@ -35,6 +35,7 @@ class BudgetExceeded(RuntimeError):
 class FlightSearchEngine:
     def __init__(self, provider: FlightProvider, cache: OfferCache | None = None, concurrency: int = 8):
         self._on_progress = None
+        self.oldest_ts: float | None = None
         self.api_calls = self.cache_hits = 0
         self.sources: Counter[str] = Counter()
         self.provider = provider
@@ -50,6 +51,7 @@ class FlightSearchEngine:
         self._on_progress = on_progress
         self.api_calls = self.cache_hits = 0
         self.sources: Counter[str] = Counter()
+        self.oldest_ts: float | None = None
         started = time.perf_counter()
         shapes = self._plan_shapes(req)
         keys = self._required_keys(req, shapes)
@@ -88,7 +90,7 @@ class FlightSearchEngine:
         return SearchResult(
             request=req, daily=daily, top=top,
             api_calls=self.api_calls, cache_hits=self.cache_hits, warnings=warnings,
-            airlines=airlines, unpriced=unpriced, sources=dict(self.sources), elapsed_s=round(time.perf_counter() - started, 1),
+            airlines=airlines, unpriced=unpriced, data_from=self.oldest_ts, sources=dict(self.sources), elapsed_s=round(time.perf_counter() - started, 1),
         )
 
     def estimate(self, req: SearchRequest) -> dict[str, int]:
@@ -165,7 +167,8 @@ class FlightSearchEngine:
         raw: dict[Key, list[Offer]] = {}
         missing: list[Key] = []
         for k in keys:
-            cached = self.cache.get(self._cache_key(req, k)) if self.cache else None
+            entry = self.cache.get_entry(self._cache_key(req, k), stale=req.stale_ok) if self.cache else None
+            cached = entry[0] if entry else None
             if cached is not None and req.refresh_unpriced and any(not o.priced for o in cached):
                 cached = None            # a recheck was asked for: do not trust a cached "no price"
             if cached is None:
@@ -173,6 +176,7 @@ class FlightSearchEngine:
             else:
                 raw[k] = cached
                 self.cache_hits += 1
+                self.oldest_ts = entry[1] if self.oldest_ts is None else min(self.oldest_ts, entry[1])
         if len(missing) > req.max_api_calls:
             raise BudgetExceeded(len(missing), req.max_api_calls)
 

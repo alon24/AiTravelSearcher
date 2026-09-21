@@ -37,6 +37,7 @@ class SearchRequest(BaseModel):
     min_nights_per_stop: int = 1
 
     # Airline filters (IATA codes). Applied after fetching, so changing them costs no new lookups.
+    stale_ok: bool = False           # use saved flights even if expired (instant re-filtering; the result says how old they are)
     refresh_unpriced: bool = False   # ignore cached results that contain unpriced flights (recheck them now)
     airlines_include: list[str] = Field(default_factory=list)  # empty = any airline
     airlines_exclude: list[str] = Field(default_factory=list)
@@ -251,6 +252,7 @@ class SearchResult(BaseModel):
     api_calls: int
     cache_hits: int
     airlines: list[AirlineInfo] = Field(default_factory=list)
+    data_from: float | None = None     # unix time of the oldest flight data used (None = all fetched just now)
     unpriced: list[UnpricedFlight] = Field(default_factory=list)
     sources: dict[str, int] = Field(default_factory=dict)  # provider -> lookups it served
     elapsed_s: float = 0.0
