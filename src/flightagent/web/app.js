@@ -166,6 +166,7 @@ function readForm() {
     start: $("#start").value, end: $("#end").value, nmin: num("nmin", 0) - unitOff(), nmax: num("nmax", 0) - unitOff(), unit,
     stops: +($$("input[name=stops]").find(r => r.checked)?.value ?? 1), currency: $$("input[name=currency]").find(r => r.checked)?.value || "ILS", adults: num("adults", 1),
     airmode: $$("input[name=airmode]").find(r => r.checked)?.value || "exclude", airlines: ac.air.get(),
+    bags: $$("input[name=bags]").find(r => r.checked)?.value || "none",
     kids: [...kids], connect: $("#connect").checked, same: $("#same").checked, st: $("#st").checked, buffer: num("buffer", 4),
     maxtravel: $("#maxtravel").value, laymin: num("laymin", 1.5), laymax: num("laymax", 72), vot: num("vot", 10), top: num("top", 5), maxcalls: num("maxcalls", 400),
   };
@@ -178,6 +179,7 @@ function writeForm(f) {
   const r = $$("input[name=stops]").find(x => +x.value === f.stops) || $$("input[name=stops]")[1]; r.checked = true;
   ($$("input[name=currency]").find(r => r.value === f.currency) || $$("input[name=currency]")[0]).checked = true; $("#adults").value = f.adults;
   kids = [...(f.kids || [])]; renderKids();
+  ($$("input[name=bags]").find(r => r.value === (f.bags || "none")) || {}).checked = true;
   ac.air.set(f.airlines || []); ($$("input[name=airmode]").find(r => r.value === (f.airmode || "exclude")) || {}).checked = true;
   $("#connect").checked = f.connect; $("#same").checked = f.same; $("#st").checked = f.st; $("#buffer").value = f.buffer;
   $("#maxtravel").value = f.maxtravel; $("#laymin").value = f.laymin; $("#laymax").value = f.laymax;
@@ -205,12 +207,14 @@ function toRequest(f) {
     allow_mixed_airlines: !f.same, allow_self_transfer: f.st && f.hubs.length > 0, self_transfer_hubs: f.hubs,
     self_transfer_buffer_min: Math.round(f.buffer * 60), adults: f.adults, children_ages: f.kids, currency: f.currency,
     airlines_exclude: f.airmode === "exclude" ? f.airlines : [], airlines_include: f.airmode === "only" ? f.airlines : [],
+    carry_on_bags: f.bags === "cabin" || f.bags === "both" ? 1 : 0, checked_bags: f.bags === "checked" || f.bags === "both" ? 1 : 0,
     value_of_time_per_hour: f.vot, self_transfer_penalty: PENALTY[f.currency] ?? 40, top_n: f.top, max_api_calls: f.maxcalls,
   } };
 }
 function requestToForm(q) {
   return { from: [q.origin], to: q.destinations, back: q.return_airports, start: q.window_start, end: q.window_end,
     nmin: q.min_nights, nmax: q.max_nights, stops: Math.min(q.max_stops_per_leg, 2), currency: q.currency, adults: q.adults, kids: q.children_ages || [],
+    bags: q.carry_on_bags && q.checked_bags ? "both" : q.carry_on_bags ? "cabin" : q.checked_bags ? "checked" : "none",
     airmode: (q.airlines_include || []).length ? "only" : "exclude", airlines: (q.airlines_include || []).length ? q.airlines_include : (q.airlines_exclude || []),
     connect: q.connect_destinations, same: !q.allow_mixed_airlines, st: q.allow_self_transfer, hubs: q.self_transfer_hubs,
     buffer: q.self_transfer_buffer_min / 60, maxtravel: q.max_travel_min_per_direction ? q.max_travel_min_per_direction / 60 : "",
@@ -398,6 +402,7 @@ function renderResult(row, opts = {}) {
       h("div", { class: "res-sub" }, `${fmtShort(day(q.window_start))} – ${fmtShort(day(q.window_end))} · ${nights}`,
         h("span", { class: "badge ok" }, `${res.api_calls + res.cache_hits} lookups${via ? ` · ${via}` : ""}${res.cache_hits ? ` · ${res.cache_hits} cached` : ""}`),
         paxCount(q) > 1 && h("span", { class: "badge run" }, `${paxLabel(q)} · totals`),
+        (q.carry_on_bags || q.checked_bags) ? h("span", { class: "badge run", title: "Google adds estimated bag fees only where it has them (mostly US and Europe)" }, `🧳 est. fees for ${[q.carry_on_bags ? "cabin bag" : "", q.checked_bags ? "checked bag" : ""].filter(Boolean).join(" + ")} included`) : null,
         q.currency !== displayCurrency ? h("button", { type: "button", class: "badge warn conv-toggle", onclick: () => setShowOriginal(!showOriginal), title: `Searched in ${q.currency}. Shown in ${shownCur(q.currency)} at 1 ${shownCur(q.currency)} = ${(rates[q.currency] / rates[shownCur(q.currency)]).toFixed(3)} ${q.currency} (${ratesInfo.source}${ratesInfo.date ? `, ${ratesInfo.date}` : ""}). The airline's own price in that currency may differ a little.` }, showOriginal ? `Showing original ${q.currency} · click to convert to ${displayCurrency}` : `≈ Converted from ${q.currency} · click to see the original`) : null,
         h("span", { class: "badge run" }, `${res.elapsed_s}s`), h("span", {}, ago(row.created)))),
     h("div", { class: "actions" },
@@ -473,6 +478,9 @@ function renderResult(row, opts = {}) {
       h("div", { class: "actions" }, h("div", { class: "tabs", role: "group", "aria-label": "Metric" }, metricBtns), h("div", { class: "tabs", role: "group", "aria-label": "View" }, tabBtns))),
     legendHost, chartHost, tableHost));
 
+  const mixHost = h("div", { class: "mm" });
+  box.append(h("div", { class: "card panel" }, h("div", { class: "panel-head" }, h("div", {}, h("h3", {}, "Mix & match flights"),
+    h("p", {}, "Every flight for the day you picked on the chart. Choose any outbound with any return: the total and the time between them update.")))), mixHost);
   const detailHost = h("div", { class: "trips" });
   box.append(h("div", {}, h("h3", { style: "margin:6px 0 12px;font-size:18px;letter-spacing:-.02em" }, "Selected day"), detailHost));
   if (res.top.length) box.append(h("div", {}, h("h3", { style: "margin:6px 0 12px;font-size:18px;letter-spacing:-.02em" }, "Top picks overall"),
@@ -485,6 +493,7 @@ function renderResult(row, opts = {}) {
     detailHost.replaceChildren(...[trip ? tripCard(trip, cur, paxCount(q)) : h("div", { class: "note" }, "Pick a day on the chart."),
       extra.length ? h("div", { class: "note" }, h("b", {}, "Also flying that day, but Google shows no price: "),
         extra.map(u => `${u.flights} ${u.airline} ${fmtTime(day(u.departs))}→${fmtTime(day(u.arrives))} (${u.origin}→${u.destination})`).join("  ·  ")) : null].filter(Boolean));
+    MixMatch.render(mixHost, { row, q, res, trip, outDate: view.sel, days: [...byDay.keys()].sort(), onPickDay: date => select(date), paxLabel: paxLabel(q) });
   }
   const days = (() => {
     const first = day(daily[0].depart_date), last = day(daily[daily.length - 1].depart_date), out = [];

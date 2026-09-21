@@ -173,3 +173,56 @@ def test_rates_endpoint_uses_ecb_then_falls_back(monkeypatch):
         fb = c.get("/api/rates").json()
         assert fb["source"] == "approximate fallback" and set(fb["rates"]) == {"USD", "ILS", "GBP", "EUR"}
     api._RATES.update(at=0.0, data=None)
+
+
+def test_bags_are_part_of_the_cache_key_and_reach_the_provider():
+    import asyncio
+    from datetime import date
+
+    from flightagent.cache import OfferCache
+    from flightagent.engine import FlightSearchEngine
+    from flightagent.models import Offer, SearchRequest, Segment
+
+    seen = []
+
+    class P:
+        name = "p"
+
+        async def one_way(self, o, d, day, *, currency, adults, max_stops, carry_on_bags=0, checked_bags=0, **kw):
+            seen.append((carry_on_bags, checked_bags))
+            dep = datetime.combine(day, datetime.min.time()) + timedelta(hours=9)
+            s = Segment(airline_code="FR", flight_number="1", origin=o, destination=d, departs=dep, arrives=dep + timedelta(hours=3))
+            return [Offer(origin=o, destination=d, price=50 + 48 * carry_on_bags + 30 * checked_bags, currency="USD", segments=[s])]
+
+    engine = FlightSearchEngine(P(), OfferCache(":memory:"))
+    base = dict(destinations=["ROM"], window_start=date(2026, 10, 1), window_end=date(2026, 10, 6), min_nights=4, max_nights=4)
+    r0 = asyncio.run(engine.search(SearchRequest(**base)))
+    r1 = asyncio.run(engine.search(SearchRequest(**base, carry_on_bags=1)))
+    assert r0.daily[0].cheapest.price == 100 and r1.daily[0].cheapest.price == 196      # 2 x (50 + 48): a separate cache entry
+    assert (0, 0) in seen and (1, 0) in seen
+    assert any("estimated fees for 1 cabin bag" in w for w in r1.warnings) and not any("estimated fees" in w for w in r0.warnings)
+
+
+def test_search_flights_and_bag_fee_endpoints(monkeypatch, tmp_path):
+    import time
+    from fastapi.testclient import TestClient
+    from flightagent.api import app
+
+    monkeypatch.setenv("FLIGHTAGENT_PROVIDER", "mock")
+    monkeypatch.setenv("FLIGHTAGENT_CACHE_DB", str(tmp_path / "c.sqlite"))
+    body = {"destinations": ["ROM"], "window_start": "2026-10-01", "window_end": "2026-10-08", "min_nights": 3, "max_nights": 3}
+    with TestClient(app) as c:
+        sid = c.post("/api/searches", json=body).json()["id"]
+        for _ in range(60):
+            if c.get(f"/api/searches/{sid}").json()["status"] == "done":
+                break
+            time.sleep(0.1)
+        r = c.get(f"/api/searches/{sid}/flights", params={"origin": "TLV", "dest": "ROM", "date": "2026-10-02"}).json()
+        assert r["flights"] and r["bags"] == "" and [f["price"] for f in r["flights"]] == sorted(f["price"] for f in r["flights"])
+        fees = c.get(f"/api/searches/{sid}/bagfees", params={"origin": "TLV", "dest": "ROM", "date": "2026-10-02"}).json()
+        assert set(fees) == {"available", "fees", "currency", "notes"} and fees["fees"]
+        for label, f in fees["fees"].items():        # the mock charges bag fees only on FR / W6 / U2
+            code = label.split("+")[0][:2]
+            assert (f["cabin"] or 0) == (25 if code in ("FR", "W6", "U2") else 0), (label, f)
+        assert fees["available"] == any(k.split("+")[0][:2] in ("FR", "W6", "U2") for k in fees["fees"])
+        assert c.get("/api/searches/nope/flights", params={"origin": "TLV", "dest": "ROM", "date": "2026-10-02"}).status_code == 404

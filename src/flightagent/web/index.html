@@ -108,6 +108,14 @@
           <div class="field"><label for="laymin">Layover between (hours)</label>
             <div class="nights"><div class="input"><input type="number" id="laymin" min="0" step="0.5" aria-label="Minimum layover hours"></div><span class="to">to</span><div class="input"><input type="number" id="laymax" min="1" step="1" aria-label="Maximum layover hours"></div></div></div>
           <div class="field"><label for="vot">Value of an hour of travel: <b id="vot-out"></b></label><input type="range" id="vot" min="0" max="200" step="1"><span class="hint">Higher = long trips ranked lower in "best value"</span></div>
+          <div class="field wide"><span class="lbl">Bags included in the price</span>
+            <div class="seg" role="radiogroup" aria-label="Bags included in the price">
+              <label><input type="radio" name="bags" value="none" checked>None</label>
+              <label><input type="radio" name="bags" value="cabin">Cabin bag</label>
+              <label><input type="radio" name="bags" value="checked">Checked bag</label>
+              <label><input type="radio" name="bags" value="both">Both</label>
+            </div>
+            <span class="hint">Google adds an estimated fee where it has one (mostly US and European airlines). For most Tel Aviv routes it has none, so prices stay the base fare.</span></div>
           <div class="field wide"><label for="air-in">Airlines</label>
             <div class="seg" role="radiogroup" aria-label="Airline filter mode">
               <label><input type="radio" name="airmode" value="exclude" checked>Exclude</label>
@@ -151,5 +159,6 @@
 <script src="app.js" defer></script>
 <script src="builder.js" defer></script>
 <script src="finder.js" defer></script>
+<script src="mix.js" defer></script>
 </body>
 </html>

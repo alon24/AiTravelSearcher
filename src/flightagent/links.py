@@ -47,3 +47,16 @@ KNOWN_AIRLINES = {
     "WN": "Southwest", "F9": "Frontier", "NK": "Spirit", "AC": "Air Canada", "SQ": "Singapore Airlines", "TG": "Thai Airways",
     "AI": "Air India", "ET": "Ethiopian", "KE": "Korean Air", "NH": "ANA", "JL": "Japan Airlines",
 }
+
+
+# General baggage policy notes for airlines whose base-fare rules are well known. Not from Google and not per fare:
+# airlines change these, so the UI labels them "typical" and tells the user to confirm on the airline's site.
+BAG_NOTES = {
+    "FR": "Typically the base fare covers one small personal bag; a cabin bag and checked bags cost extra.",
+    "RK": "Typically the base fare covers one small personal bag; a cabin bag and checked bags cost extra.",
+    "W4": "Typically the base fare covers one small personal item; a trolley cabin bag and checked bags cost extra.",
+    "W6": "Typically the base fare covers one small personal item; a trolley cabin bag and checked bags cost extra.",
+    "U2": "Typically the base fare covers one small under-seat bag; a larger cabin bag and hold bags cost extra.",
+    "F9": "Typically the base fare covers a personal item only; cabin and checked bags cost extra.",
+    "NK": "Typically the base fare covers a personal item only; cabin and checked bags cost extra.",
+}

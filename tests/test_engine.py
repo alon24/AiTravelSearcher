@@ -307,7 +307,7 @@ def test_engine_passes_passengers_and_caches_them_separately():
     p = Fake(lambda o, d, day: [offer(o, d, at(day), 100)])
     engine = FlightSearchEngine(p, OfferCache(":memory:"))
     run(engine, req(adults=2, children_ages=[0, 6]))
-    assert p.kw == {"adults": 2, "children": 1, "infants": 1}
+    assert p.kw == {"adults": 2, "children": 1, "infants": 1, "carry_on_bags": 0, "checked_bags": 0}
     n = len(p.calls)
     run(engine, req(adults=2, children_ages=[0, 6]))
     assert len(p.calls) == n                        # same travellers: cached

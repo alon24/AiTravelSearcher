@@ -98,32 +98,34 @@ class GoogleFlightsScraper:
 
     async def one_way(
         self, origin: str, dest: str, day: date, *, currency: str, adults: int, max_stops: int,
-        children: int = 0, infants: int = 0,
+        children: int = 0, infants: int = 0, carry_on_bags: int = 0, checked_bags: int = 0,
     ) -> list[Offer]:
-        offers = await self._once(origin, dest, day, currency, adults, max_stops, children, infants)
+        bags = (carry_on_bags, checked_bags)
+        offers = await self._once(origin, dest, day, currency, adults, max_stops, children, infants, *bags)
         # Google sometimes omits a fare it shows on the next request (seen with HiSky): ask again for unpriced flights.
         for _ in range(self.retry_unpriced):
             if all(o.priced for o in offers):
                 break
             await asyncio.sleep(1.0)
-            offers = _merge(offers, await self._once(origin, dest, day, currency, adults, max_stops, children, infants))
+            offers = _merge(offers, await self._once(origin, dest, day, currency, adults, max_stops, children, infants, *bags))
         return offers
 
-    async def _once(self, origin, dest, day, currency, adults, max_stops, children, infants) -> list[Offer]:
+    async def _once(self, origin, dest, day, currency, adults, max_stops, children, infants, carry_on_bags=0, checked_bags=0) -> list[Offer]:
         async with self.sem:
             await asyncio.sleep(random.uniform(*self.delay))
-            html = await asyncio.to_thread(self._fetch, origin, dest, day, currency, adults, max_stops, children, infants)
+            html = await asyncio.to_thread(self._fetch, origin, dest, day, currency, adults, max_stops, children, infants, carry_on_bags, checked_bags)
         return parse_html(html, origin, dest, currency)
 
     @staticmethod
     def _fetch(origin: str, dest: str, day: date, currency: str, adults: int, max_stops: int,
-               children: int = 0, infants: int = 0) -> str:
+               children: int = 0, infants: int = 0, carry_on_bags: int = 0, checked_bags: int = 0) -> str:
         import fast_flights as ff
 
         query = ff.create_query(
             flights=[ff.FlightQuery(date=day.isoformat(), from_airport=origin, to_airport=dest)],
             trip="one-way", currency=currency, language="en-US",
             passengers=_passengers(adults, children, infants), max_stops=max_stops if max_stops < 3 else None,
+            carry_on_bags=carry_on_bags, checked_bags=checked_bags,
         )
         last: Exception | None = None
         for attempt in range(3):

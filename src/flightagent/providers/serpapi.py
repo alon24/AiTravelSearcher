@@ -25,7 +25,7 @@ class SerpApiProvider:
 
     async def one_way(
         self, origin: str, dest: str, day: date, *, currency: str, adults: int, max_stops: int,
-        children: int = 0, infants: int = 0,
+        children: int = 0, infants: int = 0, carry_on_bags: int = 0, checked_bags: int = 0,   # bags: not used by this provider
     ) -> list[Offer]:
         params = {
             "engine": "google_flights", "type": 2, "hl": "en",

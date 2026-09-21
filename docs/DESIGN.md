@@ -148,6 +148,18 @@ served each lookup.
   and builder prices, and a **Show original currency** switch. Original amounts are what Google quoted for that search; we cannot
   know the currency an airline itself sells in, so search in a currency to see Google's price for it.
 
+### Baggage (measured, Sept 2026)
+- Google's flight data has **no baggage field**. The only signal is the fee Google adds to a fare when you ask for bags
+  (`carry_on_bags` / `checked_bags`), which it does only where it has fee data: US carriers (Frontier cabin +$35, Delta and
+  American checked +$45-55) and European low-cost (Ryanair cabin +$48). For **Tel Aviv routes it returned no difference at all**.
+- So the app never claims a bag is free: a fee is shown as an estimate, a zero as "no estimate", and airlines with a
+  well-known base-fare policy (Ryanair, Wizz, easyJet, Frontier, Spirit) get a "bags usually extra" note (`BAG_NOTES`, general
+  policy, not per fare). `GET /api/searches/{id}/bagfees` prices a route/day three times (no bag, cabin, checked); `available`
+  is false when Google returned no difference anywhere.
+- `SearchRequest.carry_on_bags/checked_bags` (form: "Bags included in the price") make Google add those estimates to every fare.
+- **Mix & match** (main page, `web/mix.js`): every flight on the selected day and on a chosen return day, from the cache the
+  search filled (`GET /api/searches/{id}/flights`), any outbound with any return, with total, gap check and bag info.
+
 ### Current providers
 | Name | Source | Cost | Notes |
 |---|---|---|---|

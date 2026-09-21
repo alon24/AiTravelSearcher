@@ -40,6 +40,9 @@ class SearchRequest(BaseModel):
     refresh_unpriced: bool = False   # ignore cached results that contain unpriced flights (recheck them now)
     airlines_include: list[str] = Field(default_factory=list)  # empty = any airline
     airlines_exclude: list[str] = Field(default_factory=list)
+    # Bags whose estimated fees Google adds to the prices (only where Google has fee data: mostly US and Europe).
+    carry_on_bags: int = Field(default=0, ge=0, le=3)
+    checked_bags: int = Field(default=0, ge=0, le=3)
     adults: int = Field(default=1, ge=1, le=9)
     # Ages of children on the travel date. Google's categories: <2 infant on lap, 2-11 child, 12+ adult.
     children_ages: list[int] = Field(default_factory=list)
@@ -84,6 +87,13 @@ class SearchRequest(BaseModel):
     @property
     def pax_adults(self) -> int:
         return self.adults + sum(a >= 12 for a in self.children_ages)
+
+    @property
+    def bags_label(self) -> str:
+        parts = [f"{self.carry_on_bags} cabin bag{'s' if self.carry_on_bags != 1 else ''}"] if self.carry_on_bags else []
+        if self.checked_bags:
+            parts.append(f"{self.checked_bags} checked bag{'s' if self.checked_bags != 1 else ''}")
+        return " + ".join(parts)
 
     @property
     def pax_label(self) -> str:

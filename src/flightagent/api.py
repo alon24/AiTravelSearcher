@@ -21,7 +21,7 @@ from .explore import ExploreResult, explore
 from .geo import airports_by_country, country_airports
 from .history import History
 from .itinerary import ItineraryCheck, analyse
-from .links import AIRLINE_SITES, KNOWN_AIRLINES
+from .links import AIRLINE_SITES, BAG_NOTES, KNOWN_AIRLINES
 from .models import LegView, SearchRequest, SearchResult
 from .polling import next_check_time
 from .providers import get_provider
@@ -200,7 +200,7 @@ async def _run_job(sid: str, req: SearchRequest) -> None:
 
 @app.get("/api/config")
 async def config() -> dict:
-    return {"provider": os.getenv("FLIGHTAGENT_PROVIDER", "mock"), "airline_sites": AIRLINE_SITES, "airlines": KNOWN_AIRLINES}
+    return {"provider": os.getenv("FLIGHTAGENT_PROVIDER", "mock"), "airline_sites": AIRLINE_SITES, "airlines": KNOWN_AIRLINES, "bag_notes": BAG_NOTES}
 
 
 @app.post("/api/estimate")
@@ -357,6 +357,55 @@ async def explore_airlines(b: ExploreBody) -> ExploreResult:
         raise HTTPException(502, str(e))
     result.trimmed = trimmed
     return result
+
+
+def _stored_request(sid: str) -> SearchRequest:
+    row = history().get(sid)
+    if not row:
+        raise HTTPException(404, "search not found")
+    return SearchRequest(**row["request"])
+
+
+@app.get("/api/searches/{sid}/flights")
+async def search_flights(sid: str, origin: str, dest: str, day: date = Query(alias="date")) -> dict:
+    """Every flight on one route and day, priced exactly as this search priced it. Served from the cache the search
+    filled, so it is normally instant; a day the search did not cover is fetched live."""
+    req = _stored_request(sid)
+    try:
+        offers = await build_engine().one_way_options(req, origin.upper(), dest.upper(), day)
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+    views = sorted((leg_view(o) for o in offers), key=lambda v: (not v.priced, v.price, v.duration_min))[:60]
+    return {"origin": origin.upper(), "dest": dest.upper(), "date": day.isoformat(), "travellers": req.pax_label,
+            "currency": req.currency, "bags": req.bags_label, "flights": [v.model_dump(mode="json") for v in views]}
+
+
+def _label(o) -> str:
+    return "+".join(f"{s.airline_code}{s.flight_number}" for s in o.segments)
+
+
+@app.get("/api/searches/{sid}/bagfees")
+async def bag_fees(sid: str, origin: str, dest: str, day: date = Query(alias="date")) -> dict:
+    """Estimated fee for one cabin bag and for one checked bag, per flight, by asking Google for the fare with and
+    without the bag. `available` is False when Google returned no difference for any flight (it has no fee data for
+    that market: common outside the US and Europe), in which case a zero means unknown, not free."""
+    base_req = _stored_request(sid).model_copy(update={"carry_on_bags": 0, "checked_bags": 0})
+    engine, o, d = build_engine(), origin.upper(), dest.upper()
+    try:
+        base = await engine.one_way_options(base_req, o, d, day)
+        cabin = await engine.one_way_options(base_req.model_copy(update={"carry_on_bags": 1}), o, d, day)
+        hold = await engine.one_way_options(base_req.model_copy(update={"checked_bags": 1}), o, d, day)
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+    price = lambda offers: {_label(x): x.price for x in offers if x.priced}  # noqa: E731
+    b, c, h = price(base), price(cabin), price(hold)
+    fees = {}
+    for label, p in b.items():
+        fees[label] = {"cabin": round(c[label] - p, 2) if label in c else None, "checked": round(h[label] - p, 2) if label in h else None}
+    available = any((f["cabin"] or 0) > 0 or (f["checked"] or 0) > 0 for f in fees.values())
+    codes = {s.airline_code for x in base for s in x.segments}
+    return {"available": available, "fees": fees, "currency": base_req.currency,
+            "notes": {code: BAG_NOTES[code] for code in sorted(codes) if code in BAG_NOTES}}
 
 
 class CheckBody(BaseModel):

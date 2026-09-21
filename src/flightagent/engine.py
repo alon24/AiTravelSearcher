@@ -76,6 +76,9 @@ class FlightSearchEngine:
         top = self._top(trips, req.top_n)
         if not trips:
             warnings.append("No itinerary satisfied the constraints.")
+        if req.carry_on_bags or req.checked_bags:
+            warnings.append(f"Prices include Google's estimated fees for {req.bags_label}. Google only has fee data for some airlines and "
+                            "markets (mostly US and Europe); where it has none, the bag is not priced in.")
         if req.children_ages:
             warnings.append(f"Prices are totals for {req.pax_label}. Google prices children by age "
                             "(under 2 = infant on lap, 2-11 = child, 12+ = adult); airlines' own rules can differ.")
@@ -156,7 +159,7 @@ class FlightSearchEngine:
         return ttl
 
     def _cache_key(self, req: SearchRequest, k: Key) -> str:
-        return f"v3|{self.provider.name}|{k[0]}|{k[1]}|{k[2]}|{req.currency}|{req.pax_adults}-{req.pax_children}-{req.pax_infants}|{req.max_stops_per_leg}"
+        return f"v4|{self.provider.name}|{k[0]}|{k[1]}|{k[2]}|{req.currency}|{req.pax_adults}-{req.pax_children}-{req.pax_infants}|b{req.carry_on_bags}{req.checked_bags}|{req.max_stops_per_leg}"
 
     async def _prefetch(self, req: SearchRequest, keys: set[Key]):
         raw: dict[Key, list[Offer]] = {}
@@ -193,6 +196,7 @@ class FlightSearchEngine:
                     offers = await self.provider.one_way(
                         k[0], k[1], k[2], currency=req.currency, adults=req.pax_adults,
                         children=req.pax_children, infants=req.pax_infants, max_stops=req.max_stops_per_leg,
+                        carry_on_bags=req.carry_on_bags, checked_bags=req.checked_bags,
                     )
                 except Exception as e:  # one bad route/day must not sink the whole search
                     errors.append(f"{k[0]}->{k[1]} {k[2]}: {e}")
@@ -275,7 +279,7 @@ class FlightSearchEngine:
     @staticmethod
     def _fare_key(req: SearchRequest, f: Offer) -> str:
         label = "+".join(f"{s.airline_code}{s.flight_number}" for s in f.segments)
-        return f"{req.currency}|{req.pax_adults}-{req.pax_children}-{req.pax_infants}|{label}|{f.departs.isoformat()}"
+        return f"{req.currency}|{req.pax_adults}-{req.pax_children}-{req.pax_infants}|b{req.carry_on_bags}{req.checked_bags}|{label}|{f.departs.isoformat()}"
 
     def _unpriced(self, req: SearchRequest, raw: dict[Key, list[Offer]]) -> list[UnpricedFlight]:
         """Flights the source lists without a fare: shown to the user, never ranked."""
