@@ -26,6 +26,10 @@ class OfferCache:
             return None
         return [Offer.model_validate(o) for o in json.loads(row[1])]
 
+    def has(self, key: str) -> bool:
+        row = self.db.execute("SELECT ts FROM offers WHERE key=?", (key,)).fetchone()
+        return bool(row) and time.time() - row[0] <= self.ttl
+
     def put(self, key: str, offers: list[Offer]) -> None:
         payload = json.dumps([o.model_dump(mode="json") for o in offers])
         self.db.execute(

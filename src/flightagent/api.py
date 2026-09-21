@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 import os
+import uuid
 from datetime import date
+from functools import lru_cache
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .cache import OfferCache
 from .engine import BudgetExceeded, FlightSearchEngine
+from .history import History
+from .links import AIRLINE_SITES
 from .models import SearchRequest, SearchResult
 from .providers import get_provider
 from .report import render
@@ -17,12 +24,29 @@ load_dotenv()
 app = FastAPI(title="Flight Agent")
 
 
+@lru_cache
+def _shared(provider: str, cache_db: str, ttl: str):
+    """One provider + cache for the process, so rate limits and the cache are global."""
+    return get_provider(provider), OfferCache(cache_db, float(ttl))
+
+
 def build_engine() -> FlightSearchEngine:
-    cache = OfferCache(
+    provider, cache = _shared(
+        os.getenv("FLIGHTAGENT_PROVIDER", "mock"),
         os.getenv("FLIGHTAGENT_CACHE_DB", ".cache/offers.sqlite"),
-        float(os.getenv("FLIGHTAGENT_CACHE_TTL_HOURS", "6")),
+        os.getenv("FLIGHTAGENT_CACHE_TTL_HOURS", "6"),
     )
-    return FlightSearchEngine(get_provider(), cache)
+    return FlightSearchEngine(provider, cache)
+
+
+@lru_cache
+def _history(path: str) -> History:
+    return History(path)
+
+
+def history() -> History:
+    cache_db = os.getenv("FLIGHTAGENT_CACHE_DB", ".cache/offers.sqlite")
+    return _history(os.getenv("FLIGHTAGENT_HISTORY_DB") or str(Path(cache_db).with_name("history.sqlite")))
 
 
 async def run(req: SearchRequest) -> SearchResult:
@@ -111,3 +135,63 @@ async def search_simple(s: SimpleSearch) -> dict[str, str]:
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "provider": os.getenv("FLIGHTAGENT_PROVIDER", "mock")}
+
+
+# ---------------------------------------------------------------- web UI API
+
+_jobs: set[asyncio.Task] = set()  # strong refs so running searches are not garbage collected
+
+
+async def _run_job(sid: str, req: SearchRequest) -> None:
+    hist = history()
+    try:
+        result = await build_engine().search(req, on_progress=lambda d, t: hist.progress(sid, d, t))
+        best = min((d.cheapest.price for d in result.daily), default=None)
+        hist.finish(sid, result.model_dump_json(), best)
+    except Exception as e:  # recorded for the UI instead of vanishing in a background task
+        hist.fail(sid, str(e) or type(e).__name__)
+
+
+@app.get("/api/config")
+async def config() -> dict:
+    return {"provider": os.getenv("FLIGHTAGENT_PROVIDER", "mock"), "airline_sites": AIRLINE_SITES}
+
+
+@app.post("/api/estimate")
+async def estimate(req: SearchRequest) -> dict[str, int]:
+    return build_engine().estimate(req)
+
+
+@app.post("/api/searches")
+async def create_search(req: SearchRequest) -> dict[str, str]:
+    est = build_engine().estimate(req)
+    if est["to_fetch"] > req.max_api_calls:
+        raise HTTPException(422, str(BudgetExceeded(est["to_fetch"], req.max_api_calls)))
+    sid = uuid.uuid4().hex[:12]
+    history().create(sid, req)
+    task = asyncio.create_task(_run_job(sid, req))
+    _jobs.add(task)
+    task.add_done_callback(_jobs.discard)
+    return {"id": sid}
+
+
+@app.get("/api/searches")
+async def list_searches() -> list[dict]:
+    return history().list()
+
+
+@app.get("/api/searches/{sid}")
+async def get_search(sid: str) -> dict:
+    row = history().get(sid)
+    if not row:
+        raise HTTPException(404, "search not found")
+    return row
+
+
+@app.delete("/api/searches/{sid}")
+async def delete_search(sid: str) -> dict[str, bool]:
+    return {"deleted": history().delete(sid)}
+
+
+# Static UI last, so it never shadows the API routes.
+app.mount("/", StaticFiles(directory=Path(__file__).parent / "web", html=True), name="web")

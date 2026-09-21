@@ -261,3 +261,32 @@ def test_fallback_provider_and_selection(monkeypatch):
     monkeypatch.setenv("SERPAPI_API_KEY", "k")
     assert get_provider("gflights,serpapi").name == "gflights+serpapi"
     assert get_provider("mock").name == "mock"
+
+
+def test_ui_api_search_history_estimate(monkeypatch, tmp_path):
+    import time
+    from fastapi.testclient import TestClient
+    from flightagent.api import app
+
+    monkeypatch.setenv("FLIGHTAGENT_PROVIDER", "mock")
+    monkeypatch.setenv("FLIGHTAGENT_CACHE_DB", str(tmp_path / "c.sqlite"))
+    body = {"destinations": ["ROM", "PAR"], "window_start": "2026-10-01", "window_end": "2026-10-10",
+            "min_nights": 3, "max_nights": 4}
+    with TestClient(app) as c:
+        est = c.post("/api/estimate", json=body).json()
+        assert est["lookups"] > 0 and est["cached"] == 0 and est["to_fetch"] == est["lookups"]
+        assert c.post("/api/searches", json={**body, "max_api_calls": 3}).status_code == 422
+        sid = c.post("/api/searches", json=body).json()["id"]
+        for _ in range(50):
+            row = c.get(f"/api/searches/{sid}").json()
+            if row["status"] != "running":
+                break
+            time.sleep(0.1)
+        assert row["status"] == "done" and row["result"]["daily"] and row["best_price"] > 0
+        assert row["progress"]["done"] == row["progress"]["total"] == est["lookups"]
+        assert c.post("/api/estimate", json=body).json()["to_fetch"] == 0  # now cached
+        assert [r["id"] for r in c.get("/api/searches").json()] == [sid]
+        assert "result" not in c.get("/api/searches").json()[0]  # list stays light
+        assert c.delete(f"/api/searches/{sid}").json() == {"deleted": True}
+        assert c.get(f"/api/searches/{sid}").status_code == 404
+        assert c.get("/").status_code == 200 and c.get("/health").json()["status"] == "ok"

@@ -26,6 +26,7 @@ class BudgetExceeded(RuntimeError):
 
 class FlightSearchEngine:
     def __init__(self, provider: FlightProvider, cache: OfferCache | None = None, concurrency: int = 8):
+        self._on_progress = None
         self.provider = provider
         self.cache = cache
         self.sem = asyncio.Semaphore(concurrency)
@@ -34,7 +35,9 @@ class FlightSearchEngine:
 
     # ------------------------------------------------------------------ public
 
-    async def search(self, req: SearchRequest) -> SearchResult:
+    async def search(self, req: SearchRequest, on_progress=None) -> SearchResult:
+        """on_progress(done, total) is called as uncached lookups complete."""
+        self._on_progress = on_progress
         self.api_calls = self.cache_hits = 0
         self.sources: Counter[str] = Counter()
         started = time.perf_counter()
@@ -66,6 +69,12 @@ class FlightSearchEngine:
             api_calls=self.api_calls, cache_hits=self.cache_hits, warnings=warnings,
             sources=dict(self.sources), elapsed_s=round(time.perf_counter() - started, 1),
         )
+
+    def estimate(self, req: SearchRequest) -> dict[str, int]:
+        """How many one-way lookups a search needs, and how many are already cached."""
+        keys = self._required_keys(req, self._plan_shapes(req))
+        cached = sum(1 for k in keys if self.cache and self.cache.has(self._cache_key(req, k)))
+        return {"lookups": len(keys), "cached": cached, "to_fetch": len(keys) - cached}
 
     # ---------------------------------------------------------------- planning
 
@@ -127,8 +136,20 @@ class FlightSearchEngine:
             raise BudgetExceeded(len(missing), req.max_api_calls)
 
         errors: list[str] = []
+        done = 0
+        if self._on_progress:
+            self._on_progress(0, len(missing))
 
         async def fetch(k: Key):
+            nonlocal done
+            try:
+                await fetch_one(k)
+            finally:
+                done += 1
+                if self._on_progress:
+                    self._on_progress(done, len(missing))
+
+        async def fetch_one(k: Key):
             async with self.sem:
                 try:
                     offers = await self.provider.one_way(

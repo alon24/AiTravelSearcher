@@ -1,0 +1,523 @@
+"use strict";
+/* Skyhop UI: no build step. All API-derived text goes through textContent (h()/s() helpers). */
+
+// ------------------------------------------------------------------ helpers
+const $ = (sel, root = document) => root.querySelector(sel);
+const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
+const SVGNS = "http://www.w3.org/2000/svg";
+function build(el, props, kids) {
+  for (const [k, v] of Object.entries(props || {})) {
+    if (v == null || v === false) continue;
+    if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat(Infinity)) {
+    if (kid == null || kid === false) continue;
+    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+const h = (tag, props, ...kids) => build(document.createElement(tag), props, kids);
+const s = (tag, props, ...kids) => build(document.createElementNS(SVGNS, tag), props, kids);
+
+const pad = n => String(n).padStart(2, "0");
+const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+const day = str => new Date(str.length === 10 ? str + "T00:00:00" : str);
+const fmtDay = d => d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+const fmtShort = d => d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+const fmtTime = d => d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+const hm = m => `${Math.floor(m / 60)}h ${pad(m % 60)}m`;
+const money = (v, cur) => new Intl.NumberFormat("en-US", { style: "currency", currency: cur || "USD", maximumFractionDigits: 0 }).format(v);
+const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
+function ago(ts) {
+  const m = Math.round((Date.now() / 1000 - ts) / 60);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  if (m < 60 * 24) return `${Math.round(m / 60)}h ago`;
+  return `${Math.round(m / 1440)}d ago`;
+}
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } },
+};
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) {
+    let msg = r.statusText;
+    try { const j = await r.json(); msg = Array.isArray(j.detail) ? j.detail.map(d => d.msg).join("; ") : j.detail || msg; } catch { /* keep */ }
+    throw new Error(msg);
+  }
+  return r.json();
+}
+const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+
+let config = { provider: "mock", airline_sites: {} };
+
+// ------------------------------------------------------------------ airports + autocomplete
+let AIRPORTS = [];
+async function loadAirports() {
+  const rows = await (await fetch("airports.json")).json();
+  AIRPORTS = rows.map(([code, city, name, country, rank]) => ({
+    code, city, name, country, rank, c: city.toLowerCase(),
+    key: `${code} ${city} ${name} ${country}`.toLowerCase(),
+  }));
+}
+function searchAirports(q) {
+  q = q.trim().toLowerCase();
+  if (!q) return [];
+  const out = [];
+  for (const a of AIRPORTS) {
+    const code = a.code.toLowerCase();
+    let sc = 0;
+    if (code === q) sc = 100; else if (code.startsWith(q)) sc = 80; else if (a.c.startsWith(q)) sc = 70;
+    else if (a.c.includes(q)) sc = 45; else if (a.key.includes(q)) sc = 20;
+    if (!sc) continue;
+    out.push([sc + (a.rank === 1 ? 15 : a.rank === 2 ? 22 : 0), a]);
+  }
+  out.sort((x, y) => y[0] - x[0] || x[1].city.localeCompare(y[1].city));
+  return out.slice(0, 8).map(x => x[1]);
+}
+const airport = code => AIRPORTS.find(a => a.code === code);
+
+function autocomplete(root, { id, placeholder, multi, max = 8, onChange }) {
+  let values = [], items = [], active = -1;
+  const input = h("input", { id, type: "text", placeholder, role: "combobox", "aria-expanded": "false", "aria-autocomplete": "list", autocomplete: "off" });
+  const list = h("ul", { class: "ac-list", role: "listbox", hidden: true });
+  root.append(input, list);
+
+  const close = () => { list.hidden = true; input.setAttribute("aria-expanded", "false"); active = -1; };
+  const chip = code => {
+    const a = airport(code);
+    return h("span", { class: "chip" }, a ? `${code} · ${a.city}` : code,
+      h("button", { type: "button", "aria-label": `Remove ${code}`, onclick: e => { e.stopPropagation(); values = values.filter(v => v !== code); draw(); onChange(); } }, "×"));
+  };
+  function draw() {
+    $$(".chip", root).forEach(c => c.remove());
+    values.forEach(code => root.insertBefore(chip(code), input));
+    input.placeholder = multi && values.length ? "Add another…" : values.length ? "Change…" : placeholder;
+  }
+  function pick(code) {
+    code = code.toUpperCase();
+    if (multi) { if (!values.includes(code) && values.length < max) values.push(code); } else values = [code];
+    input.value = ""; close(); draw(); onChange();
+  }
+  function show() {
+    items = searchAirports(input.value);
+    list.replaceChildren(...items.map((a, i) => h("li", { role: "option", "aria-selected": String(i === active), onmousedown: e => { e.preventDefault(); pick(a.code); } },
+      h("span", { class: "ac-code" }, a.code),
+      h("span", {}, h("div", { class: "ac-city" }, a.city), h("div", { class: "ac-sub" }, `${a.name} · ${a.country}`)))));
+    list.hidden = !items.length; input.setAttribute("aria-expanded", String(items.length > 0));
+  }
+  input.addEventListener("input", () => { active = -1; show(); });
+  input.addEventListener("focus", show);
+  input.addEventListener("blur", () => setTimeout(close, 120));
+  input.addEventListener("keydown", e => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault(); if (list.hidden) show();
+      active = (active + (e.key === "ArrowDown" ? 1 : -1) + items.length) % Math.max(items.length, 1);
+      $$("li", list).forEach((li, i) => li.setAttribute("aria-selected", String(i === active)));
+    } else if (e.key === "Enter") {
+      const raw = input.value.trim();
+      if (active >= 0 && items[active]) { e.preventDefault(); pick(items[active].code); }
+      else if (/^[A-Za-z]{3}$/.test(raw)) { e.preventDefault(); pick(raw); }
+      else if (items[0]) { e.preventDefault(); pick(items[0].code); }
+    } else if (e.key === "Backspace" && !input.value && values.length) { values.pop(); draw(); onChange(); }
+    else if (e.key === "Escape") close();
+  });
+  root.addEventListener("click", () => input.focus());
+  return { get: () => [...values], set: arr => { values = [...arr]; draw(); } };
+}
+
+// ------------------------------------------------------------------ form state
+const defaults = () => {
+  const t = new Date(), plus = n => { const d = new Date(t); d.setDate(d.getDate() + n); return iso(d); };
+  return { from: ["TLV"], to: [], back: [], start: plus(21), end: plus(60), nmin: 4, nmax: 7, stops: 1, currency: "USD", adults: 1,
+    connect: false, same: false, st: false, hubs: [], buffer: 4, maxtravel: "", laymin: 1.5, laymax: 72, vot: 10, top: 5, maxcalls: 400 };
+};
+let ac = {};
+const num = (id, fallback) => { const v = parseFloat($(`#${id}`).value); return Number.isFinite(v) ? v : fallback; };
+
+function readForm() {
+  return {
+    from: ac.from.get(), to: ac.to.get(), back: ac.back.get(), hubs: ac.hubs.get(),
+    start: $("#start").value, end: $("#end").value, nmin: num("nmin", 0), nmax: num("nmax", 0),
+    stops: +($$("input[name=stops]").find(r => r.checked)?.value ?? 1), currency: $("#currency").value, adults: num("adults", 1),
+    connect: $("#connect").checked, same: $("#same").checked, st: $("#st").checked, buffer: num("buffer", 4),
+    maxtravel: $("#maxtravel").value, laymin: num("laymin", 1.5), laymax: num("laymax", 72), vot: num("vot", 10), top: num("top", 5), maxcalls: num("maxcalls", 400),
+  };
+}
+function writeForm(f) {
+  ac.from.set(f.from); ac.to.set(f.to); ac.back.set(f.back); ac.hubs.set(f.hubs);
+  $("#start").value = f.start; $("#end").value = f.end; $("#nmin").value = f.nmin; $("#nmax").value = f.nmax;
+  const r = $$("input[name=stops]").find(x => +x.value === f.stops) || $$("input[name=stops]")[1]; r.checked = true;
+  $("#currency").value = f.currency; $("#adults").value = f.adults;
+  $("#connect").checked = f.connect; $("#same").checked = f.same; $("#st").checked = f.st; $("#buffer").value = f.buffer;
+  $("#maxtravel").value = f.maxtravel; $("#laymin").value = f.laymin; $("#laymax").value = f.laymax;
+  $("#vot").value = f.vot; $("#vot-out").textContent = money(f.vot, f.currency) + "/h"; $("#top").value = f.top; $("#maxcalls").value = f.maxcalls;
+}
+function toRequest(f) {
+  const err = m => ({ error: m });
+  if (!f.from[0]) return err("Pick where you're flying from.");
+  if (!f.to.length) return err("Pick at least one destination.");
+  if (!f.start || !f.end) return err("Pick your dates.");
+  const days = (day(f.end) - day(f.start)) / 864e5;
+  if (days <= 0) return err("The return date must be after the departure date.");
+  if (f.nmin < 1 || f.nmax < f.nmin) return err("Nights: the minimum must be at least 1 and no more than the maximum.");
+  if (days < f.nmin) return err(`That window is only ${plural(days, "day")}, shorter than ${plural(f.nmin, "night")}.`);
+  return { req: {
+    origin: f.from[0], destinations: f.to, return_airports: f.back, connect_destinations: f.connect,
+    window_start: f.start, window_end: f.end, min_nights: f.nmin, max_nights: f.nmax,
+    allow_connections: f.stops > 0, max_stops_per_leg: f.stops,
+    min_layover_min: Math.round(f.laymin * 60), max_layover_min: Math.round(f.laymax * 60),
+    max_travel_min_per_direction: f.maxtravel ? Math.round(parseFloat(f.maxtravel) * 60) : null,
+    allow_mixed_airlines: !f.same, allow_self_transfer: f.st && f.hubs.length > 0, self_transfer_hubs: f.hubs,
+    self_transfer_buffer_min: Math.round(f.buffer * 60), adults: f.adults, currency: f.currency,
+    value_of_time_per_hour: f.vot, top_n: f.top, max_api_calls: f.maxcalls,
+  } };
+}
+function requestToForm(q) {
+  return { from: [q.origin], to: q.destinations, back: q.return_airports, start: q.window_start, end: q.window_end,
+    nmin: q.min_nights, nmax: q.max_nights, stops: Math.min(q.max_stops_per_leg, 2), currency: q.currency, adults: q.adults,
+    connect: q.connect_destinations, same: !q.allow_mixed_airlines, st: q.allow_self_transfer, hubs: q.self_transfer_hubs,
+    buffer: q.self_transfer_buffer_min / 60, maxtravel: q.max_travel_min_per_direction ? q.max_travel_min_per_direction / 60 : "",
+    laymin: q.min_layover_min / 60, laymax: q.max_layover_min / 60, vot: q.value_of_time_per_hour, top: q.top_n, maxcalls: q.max_api_calls };
+}
+
+// ------------------------------------------------------------------ estimate + submit
+let estTimer = 0, estSeq = 0, overBudget = false;
+function setEstimate(kind, text) {
+  const el = $("#estimate"); el.className = `estimate ${kind}`; $("#estimate-text").textContent = text;
+}
+function updateGo() { $("#go").disabled = overBudget || busy; }
+async function runEstimate() {
+  const { req, error } = toRequest(readForm());
+  const seq = ++estSeq;
+  if (error) { overBudget = false; setEstimate("idle", error); updateGo(); return; }
+  try {
+    const e = await post("/api/estimate", req);
+    if (seq !== estSeq) return;
+    overBudget = e.to_fetch > req.max_api_calls;
+    const primary = config.provider.split(",")[0].trim();
+    const cost = primary === "serpapi" ? `uses ~${e.to_fetch} SerpApi credits` : primary === "mock" ? "demo data, no cost" : "free";
+    setEstimate(overBudget ? "over" : "ok",
+      overBudget ? `Too big: ${e.to_fetch} lookups needed, max is ${req.max_api_calls}. Narrow the dates or cities.`
+        : `≈ ${e.lookups} lookups · ${e.cached} cached · ${cost}`);
+  } catch (err) { if (seq === estSeq) setEstimate("idle", err.message); overBudget = false; }
+  updateGo();
+}
+function onFormChange() {
+  const f = readForm(); store.set("skyhop.form", f);
+  $("#vot-out").textContent = money(f.vot, f.currency) + "/h";
+  clearTimeout(estTimer); estTimer = setTimeout(runEstimate, 300);
+}
+let busy = false;
+async function submitSearch(req) {
+  busy = true; updateGo();
+  try { const { id } = await post("/api/searches", req); await openSearch(id); }
+  finally { busy = false; updateGo(); }
+}
+function showFormError(msg) { const el = $("#form-error"); el.textContent = msg || ""; el.hidden = !msg; }
+
+// ------------------------------------------------------------------ history
+let current = null, pollTimer = 0;
+async function refreshHistory() {
+  let rows = [];
+  try { rows = await api("/api/searches"); } catch { return; }
+  const box = $("#history");
+  box.replaceChildren(...(rows.length ? rows.map(histItem) : [h("div", { class: "empty-hist" }, "Your searches will show up here.")]));
+}
+function histItem(r) {
+  const q = r.request;
+  const nights = q.min_nights === q.max_nights ? plural(q.min_nights, "night") : `${q.min_nights}–${q.max_nights} nights`;
+  const p = r.progress, pct = p.total ? Math.round(100 * p.done / p.total) : 0;
+  const status = r.status === "running" ? h("span", { class: "badge run" }, p.total ? `${pct}%` : "…")
+    : r.status === "failed" ? h("span", { class: "badge fail" }, "Failed")
+    : r.best_price != null ? h("span", { class: "hi-price" }, `from ${money(r.best_price, r.currency)}`)
+    : h("span", { class: "badge warn" }, "No flights");
+  const open = () => { closeSidebar(); openSearch(r.id, { fillForm: true }); window.scrollTo({ top: 0, behavior: "smooth" }); };
+  return h("div", { class: "hist-item" + (r.id === current ? " active" : ""), role: "button", tabindex: "0", "data-id": r.id,
+    onclick: open, onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } } },
+    h("div", { class: "hi-route" }, `${q.origin} → ${q.destinations.join(", ")}`),
+    h("div", { class: "hi-meta" }, `${fmtShort(day(q.window_start))} – ${fmtShort(day(q.window_end))} · ${nights}`),
+    h("div", { class: "hi-foot" }, status, h("span", {}, ago(r.created))),
+    h("button", { class: "hi-del", type: "button", "aria-label": "Delete this search", onclick: async e => {
+      e.stopPropagation(); await api(`/api/searches/${r.id}`, { method: "DELETE" });
+      if (current === r.id) { current = null; $("#results").replaceChildren(); }
+      refreshHistory();
+    } }, "×"));
+}
+
+async function openSearch(id, opts = {}) {
+  clearTimeout(pollTimer); current = id;
+  let row;
+  try { row = await api(`/api/searches/${id}`); } catch (e) { $("#results").replaceChildren(h("div", { class: "note bad" }, e.message)); return; }
+  if (current !== id) return;
+  if (opts.fillForm) { writeForm(requestToForm(row.request)); store.set("skyhop.form", readForm()); runEstimate(); }
+  refreshHistory();
+  if (row.status === "running") { renderProgress(row); pollTimer = setTimeout(() => openSearch(id), 900); return; }
+  renderResult(row);
+}
+
+// ------------------------------------------------------------------ results
+function renderProgress(row) {
+  const { done, total } = row.progress, q = row.request;
+  const fill = h("div", { class: "bar-fill" + (total ? "" : " indet"), style: total ? `width:${Math.max(4, Math.round(100 * done / total))}%` : null });
+  $("#results").replaceChildren(h("div", { class: "card progress" },
+    h("div", { class: "plane", "aria-hidden": "true" }, "✈️"),
+    h("div", { class: "txt" }, total ? `Checking flights… ${done} of ${total}` : "Warming up…"),
+    h("div", { class: "bar-track", role: "progressbar", "aria-valuenow": total ? done : null, "aria-valuemax": total || null }, fill),
+    h("div", { class: "sub" }, `${q.origin} → ${q.destinations.join(", ")} · every day from ${fmtShort(day(q.window_start))} to ${fmtShort(day(q.window_end))}`)));
+}
+
+function renderResult(row) {
+  const box = $("#results"), q = row.request;
+  box.replaceChildren();
+  if (row.status === "failed") {
+    box.append(h("div", { class: "note bad" }, `This search failed: ${row.error}`),
+      h("div", {}, h("button", { class: "btn", onclick: () => submitSearch(q) }, "Try again")));
+    return;
+  }
+  const res = row.result, cur = q.currency, daily = res.daily;
+  const nights = q.min_nights === q.max_nights ? plural(q.min_nights, "night") : `${q.min_nights}–${q.max_nights} nights`;
+  const via = Object.entries(res.sources || {}).map(([k, n]) => `${k} ×${n}`).join(", ");
+  box.append(h("div", { class: "res-head" },
+    h("div", {},
+      h("h2", {}, `${q.origin} → ${q.destinations.join(", ")}`),
+      h("div", { class: "res-sub" }, `${fmtShort(day(q.window_start))} – ${fmtShort(day(q.window_end))} · ${nights}`,
+        h("span", { class: "badge ok" }, `${res.api_calls + res.cache_hits} lookups${via ? ` · ${via}` : ""}${res.cache_hits ? ` · ${res.cache_hits} cached` : ""}`),
+        h("span", { class: "badge run" }, `${res.elapsed_s}s`), h("span", {}, ago(row.created)))),
+    h("div", { class: "actions" },
+      h("button", { class: "btn", type: "button", onclick: () => { writeForm(requestToForm(q)); onFormChange(); window.scrollTo({ top: 0, behavior: "smooth" }); } }, "Edit"),
+      h("button", { class: "btn", type: "button", onclick: () => submitSearch(q) }, "Search again"))));
+  res.warnings.forEach(w => box.append(h("div", { class: "note" }, w)));
+  if (!daily.length) { box.append(h("div", { class: "note" }, "No trips matched. Try more stops, a wider window or a longer layover limit.")); return; }
+
+  // ---- derived picks
+  const byDay = new Map(daily.map(d => [d.depart_date, d]));
+  const cheapest = daily.reduce((a, b) => (b.cheapest.price < a.cheapest.price ? b : a));
+  const best = daily.reduce((a, b) => (b.best_value.effective_cost < a.best_value.effective_cost ? b : a));
+  const directs = daily.flatMap(d => [d.cheapest, d.best_value].map(t => [d, t])).filter(([, t]) => t.stops === 0);
+  const direct = directs.length ? directs.reduce((a, b) => (b[1].price < a[1].price ? b : a)) : null;
+
+  const view = { metric: "cheapest", tab: "chart", sel: cheapest.depart_date };
+  const tripOf = d => (view.metric === "cheapest" ? d.cheapest : d.best_value);
+  const order = destOrder(q, daily);
+  const colorOf = label => { const i = order.indexOf(label); return `var(--series-${i >= 0 && i < 8 ? i + 1 : "other"})`; };
+
+  const pickCard = (kind, d, t, metric, hero) => h("button", { type: "button", class: "pick" + (hero ? " hero-pick" : ""),
+    onclick: () => { view.metric = metric; select(d.depart_date); syncMetric(); } },
+    h("span", { class: "k" }, kind), h("span", { class: "v" }, money(t.price, cur)),
+    h("span", { class: "d" }, `${t.destination} · ${fmtDay(day(t.depart_date))} → ${fmtDay(day(t.return_date))}`),
+    h("span", { class: "s" }, `${plural(t.nights, "night")} · ${t.stops === 0 ? "direct" : plural(t.stops, "stop")} · ${hm(t.total_travel_min)} in transit`));
+  box.append(h("div", { class: "picks" },
+    pickCard("Cheapest", cheapest, cheapest.cheapest, "cheapest", true),
+    pickCard("Best value", best, best.best_value, "best", false),
+    direct ? pickCard("Cheapest direct", direct[0], direct[1], direct[1] === direct[0].cheapest ? "cheapest" : "best", false)
+      : h("div", { class: "pick" }, h("span", { class: "k" }, "Direct flights"), h("span", { class: "v" }, "None"), h("span", { class: "s" }, "No nonstop trips in this window."))));
+
+  // ---- chart panel
+  const chartHost = h("div", { class: "chart" }), tableHost = h("div", { class: "table-wrap", hidden: true });
+  const legendHost = h("div", { class: "legend" });
+  const metricBtns = [["cheapest", "Cheapest"], ["best", "Best value"]].map(([m, label]) =>
+    h("button", { type: "button", "data-m": m, "aria-pressed": String(view.metric === m), onclick: () => { view.metric = m; syncMetric(); redraw(); drawDetail(); } }, label));
+  const tabBtns = [["chart", "Chart"], ["table", "Table"]].map(([t, label]) =>
+    h("button", { type: "button", "data-t": t, "aria-pressed": String(view.tab === t), onclick: () => { view.tab = t; syncTabs(); redraw(); } }, label));
+  const syncMetric = () => { metricBtns.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.m === view.metric))); redraw(); drawDetail(); };
+  const syncTabs = () => tabBtns.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.t === view.tab)));
+  box.append(h("div", { class: "card panel" },
+    h("div", { class: "panel-head" },
+      h("div", {}, h("h3", {}, view.metric === "cheapest" ? "Price by departure day" : "Price by departure day"),
+        h("p", {}, "Each column is the trip leaving that day. Click one for details.")),
+      h("div", { class: "actions" }, h("div", { class: "tabs", role: "group", "aria-label": "Metric" }, metricBtns), h("div", { class: "tabs", role: "group", "aria-label": "View" }, tabBtns))),
+    legendHost, chartHost, tableHost));
+
+  const detailHost = h("div", { class: "trips" });
+  box.append(h("div", {}, h("h3", { style: "margin:6px 0 12px;font-size:18px;letter-spacing:-.02em" }, "Selected day"), detailHost));
+  if (res.top.length) box.append(h("div", {}, h("h3", { style: "margin:6px 0 12px;font-size:18px;letter-spacing:-.02em" }, "Top picks overall"),
+    h("div", { class: "trips" }, res.top.map(t => tripCard(t, cur)))));
+
+  function select(date) { view.sel = date; redraw(); drawDetail(); }
+  function drawDetail() {
+    const d = byDay.get(view.sel);
+    detailHost.replaceChildren(d ? tripCard(tripOf(d), cur) : h("div", { class: "note" }, "Pick a day on the chart."));
+  }
+  const days = (() => {
+    const first = day(daily[0].depart_date), last = day(daily[daily.length - 1].depart_date), out = [];
+    for (let d = new Date(first); d <= last; d.setDate(d.getDate() + 1)) out.push(iso(d));
+    return out;
+  })();
+  let lastW = 0;
+  function redraw() {
+    const shown = days.map(dt => ({ date: dt, trip: byDay.has(dt) ? tripOf(byDay.get(dt)) : null }));
+    const labels = [...new Set(shown.filter(x => x.trip).map(x => x.trip.destination))].sort((a, b) => order.indexOf(a) - order.indexOf(b));
+    legendHost.replaceChildren(...(labels.length > 1 ? labels.map(l => h("span", {}, h("i", { style: `background:${colorOf(l)}` }), l)) : []));
+    chartHost.hidden = view.tab !== "chart"; tableHost.hidden = view.tab !== "table";
+    if (view.tab === "chart") { lastW = chartHost.clientWidth; drawChart(chartHost, shown, view.sel, colorOf, cur, select); }
+    else drawTable(tableHost, shown.filter(x => x.trip), view.sel, cur, select);
+  }
+  new ResizeObserver(() => { if (view.tab === "chart" && chartHost.clientWidth && Math.abs(chartHost.clientWidth - lastW) > 2) redraw(); }).observe(chartHost);
+  redraw(); drawDetail();
+  box.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// Destination order = colour identity: requested destinations first (fixed), then any other route labels.
+function destOrder(q, daily) {
+  const seen = [...q.destinations];
+  for (const d of daily) for (const t of [d.cheapest, d.best_value]) if (!seen.includes(t.destination)) seen.push(t.destination);
+  return seen;
+}
+
+// ------------------------------------------------------------------ chart (SVG, no libs)
+function niceScale(maxVal) {
+  const rough = maxVal / 4 || 1, pow = 10 ** Math.floor(Math.log10(rough)), f = rough / pow;
+  const step = (f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10) * pow;
+  return { step, max: Math.ceil(maxVal / step) * step };
+}
+const barPath = (x, top, w, base) => {
+  const r = Math.min(4, w / 2, base - top);
+  return `M${x},${base}V${top + r}Q${x},${top} ${x + r},${top}H${x + w - r}Q${x + w},${top} ${x + w},${top + r}V${base}Z`;
+};
+function drawChart(host, shown, sel, colorOf, cur, onSelect) {
+  host.replaceChildren();
+  const W = Math.max(320, host.clientWidth || 640), H = 280, m = { l: 48, r: 8, t: 28, b: 32 };
+  const plotW = W - m.l - m.r, plotH = H - m.t - m.b, N = shown.length, slot = plotW / N, bw = Math.min(24, Math.max(3, slot - 2));
+  const prices = shown.filter(x => x.trip).map(x => x.trip.price), { step, max } = niceScale(Math.max(...prices));
+  const y = v => m.t + plotH - (v / max) * plotH, base = m.t + plotH;
+  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `Price by departure day, ${prices.length} days` });
+  for (let v = 0; v <= max + 1e-9; v += step) {
+    svg.append(s("line", { class: "grid", x1: m.l, x2: W - m.r, y1: y(v), y2: y(v) }),
+      s("text", { class: "tick", x: m.l - 8, y: y(v) + 4, "text-anchor": "end" }, money(v, cur)));
+  }
+  const cheapestI = shown.findIndex(x => x.trip && x.trip.price === Math.min(...prices));
+  const every = Math.max(1, Math.ceil(50 / slot));
+  host.classList.toggle("has-sel", !!sel);
+  const layer = s("g"), hits = s("g");
+  shown.forEach((x, i) => {
+    const cx = m.l + i * slot + slot / 2;
+    if (i % every === 0) svg.append(s("text", { class: "tick", x: cx, y: H - 10, "text-anchor": "middle" }, fmtShort(day(x.date))));
+    if (!x.trip) return;
+    const bx = cx - bw / 2, bar = s("path", { class: "bar" + (x.date === sel ? " sel" : ""), d: barPath(bx, y(x.trip.price), bw, base), fill: colorOf(x.trip.destination) });
+    layer.append(bar);
+    if (i === cheapestI) layer.append(s("text", { class: "vlabel", x: cx, y: y(x.trip.price) - 7, "text-anchor": "middle" }, money(x.trip.price, cur)));
+    const hit = s("rect", { class: "hit", x: m.l + i * slot, y: m.t, width: slot, height: plotH, tabindex: "0", role: "button",
+      "aria-label": `${fmtDay(day(x.date))}: ${money(x.trip.price, cur)} to ${x.trip.destination}, ${x.trip.stops === 0 ? "direct" : plural(x.trip.stops, "stop")}` });
+    const on = ev => { bar.classList.add("hot"); showTip(x, colorOf(x.trip.destination), cur, ev, hit); };
+    const off = () => { bar.classList.remove("hot"); $("#tooltip").hidden = true; };
+    hit.addEventListener("pointerenter", on); hit.addEventListener("pointermove", on); hit.addEventListener("pointerleave", off);
+    hit.addEventListener("focus", on); hit.addEventListener("blur", off);
+    hit.addEventListener("click", () => onSelect(x.date));
+    hit.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelect(x.date); } });
+    hits.append(hit);
+  });
+  svg.append(layer, hits);
+  host.append(svg);
+}
+function showTip(x, color, cur, ev, target) {
+  const t = x.trip, tip = $("#tooltip");
+  tip.replaceChildren(
+    h("div", { class: "t-date" }, `${fmtDay(day(t.depart_date))} → ${fmtDay(day(t.return_date))}`),
+    h("div", { class: "t-val" }, money(t.price, cur)),
+    h("div", { class: "t-row" }, h("span", { class: "key", style: `background:${color}` }), h("b", {}, t.destination), `· ${plural(t.nights, "night")}`),
+    h("div", { class: "t-row" }, `${t.airlines.join(", ")} · ${t.stops === 0 ? "direct" : plural(t.stops, "stop")} · ${hm(t.total_travel_min)}`));
+  tip.hidden = false;
+  const r = target.getBoundingClientRect(), px = ev && ev.clientX ? ev.clientX : r.left + r.width / 2, py = ev && ev.clientY ? ev.clientY : r.top;
+  const w = tip.offsetWidth, hgt = tip.offsetHeight;
+  tip.style.left = `${Math.min(window.innerWidth - w - 8, Math.max(8, px - w / 2))}px`;
+  tip.style.top = `${py - hgt - 14 < 8 ? py + 18 : py - hgt - 14}px`;
+}
+function drawTable(host, rows, sel, cur, onSelect) {
+  const head = ["Depart", "Return", "Nights", "Destination", "Airlines", "Type", "Travel"].map(t => h("th", {}, t));
+  host.replaceChildren(h("table", {}, h("thead", {}, h("tr", {}, head, h("th", { class: "r" }, "Price"))),
+    h("tbody", {}, rows.map(({ date, trip: t }) => h("tr", { class: date === sel ? "sel" : null, tabindex: "0", onclick: () => onSelect(date),
+      onkeydown: e => { if (e.key === "Enter") onSelect(date); } },
+      h("td", {}, fmtDay(day(t.depart_date))), h("td", {}, fmtDay(day(t.return_date))), h("td", {}, t.nights), h("td", {}, t.destination),
+      h("td", {}, t.airlines.join(", ")), h("td", {}, t.stops === 0 ? "Direct" : plural(t.stops, "stop")), h("td", {}, hm(t.total_travel_min)),
+      h("td", { class: "price" }, money(t.price, cur)))))));
+}
+
+// ------------------------------------------------------------------ trip card
+function tripCard(t, cur) {
+  const titles = t.legs.length === 3 ? ["Outbound", "Between cities", "Return"] : ["Outbound", "Return"];
+  const kind = { open_jaw: "Open-jaw", multi_stop: "Multi-city" }[t.kind];
+  return h("article", { class: "card trip" },
+    h("div", { class: "trip-head" },
+      h("div", {}, h("div", { class: "trip-dest" }, t.destination, kind && h("span", { class: "badge run" }, kind), t.self_transfer && h("span", { class: "badge warn" }, "Self-transfer")),
+        h("div", { class: "trip-dates" }, `${fmtDay(day(t.depart_date))} → ${fmtDay(day(t.return_date))} · ${plural(t.nights, "night")}`)),
+      h("div", { class: "trip-price" }, h("div", { class: "p" }, money(t.price, cur)), h("div", { class: "e" }, `value score ${Math.round(t.effective_cost)}`))),
+    t.legs.map((leg, i) => legCard(leg, titles[i] || "Leg", cur)),
+    t.warnings.length ? h("div", { class: "warns" }, t.warnings.map(w => h("div", { class: "warn" + (/^(SELF|Long)/.test(w) ? "" : " info") },
+      h("span", { "aria-hidden": "true" }, /^(SELF|Long)/.test(w) ? "⚠" : "ℹ"), w))) : null);
+}
+function legCard(leg, title, cur) {
+  const first = leg.segments[0], seen = new Map();
+  leg.segments.forEach(s2 => { if (!seen.has(s2.airline_code)) seen.set(s2.airline_code, s2.airline || s2.airline_code); });
+  const rows = leg.segments.flatMap((sg, i) => {
+    const dep = day(sg.departs), arr = day(sg.arrives), lay = leg.layovers_min[i];
+    const out = [h("div", { class: "seg-row" }, h("span", { class: "al" }, `${sg.airline_code}${sg.flight_number}`),
+      h("div", { class: "seg-times" }, h("span", { class: "t" }, fmtTime(dep)), h("span", { class: "a" }, sg.origin), h("span", { class: "arrow" }, "→"),
+        h("span", { class: "t" }, fmtTime(arr), arr.getDate() !== dep.getDate() ? " +1" : ""), h("span", { class: "a" }, sg.destination), h("span", { class: "a" }, sg.airline)))];
+    if (lay != null) out.push(h("div", { class: "layover" }, h("span", { class: "badge " + (lay >= 480 ? "warn" : "ok") }, `${hm(lay)} layover in ${sg.destination}`)));
+    return out;
+  });
+  const links = leg.deep_links.map((u, i) => h("a", { class: "btn small", href: u, target: "_blank", rel: "noopener noreferrer" },
+    leg.deep_links.length > 1 ? `Google Flights · ticket ${i + 1} ↗` : "Google Flights ↗"));
+  const direct = [...seen].filter(([code]) => config.airline_sites[code]).map(([code, name]) =>
+    h("a", { class: "btn small", href: config.airline_sites[code], target: "_blank", rel: "noopener noreferrer" }, `${name} ↗`));
+  return h("div", { class: "leg" },
+    h("div", { class: "leg-top" },
+      h("div", { class: "leg-title" }, title, h("small", {}, `${fmtDay(day(first.departs))} · ${hm(leg.duration_min)} · ${leg.stops === 0 ? "direct" : plural(leg.stops, "stop")}`)),
+      h("strong", {}, money(leg.price, cur))),
+    rows, h("div", { class: "actions" }, links, direct));
+}
+
+// ------------------------------------------------------------------ chrome: theme, sidebar, init
+function isDark() {
+  const t = document.documentElement.dataset.theme;
+  return t ? t === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+}
+function closeSidebar() { $("#sidebar").classList.remove("open"); $("#scrim").hidden = true; }
+
+async function init() {
+  const saved = store.get("skyhop.theme"); if (saved) document.documentElement.dataset.theme = saved;
+  $$(".theme-toggle").forEach(b => b.addEventListener("click", () => {
+    const next = isDark() ? "light" : "dark"; document.documentElement.dataset.theme = next; store.set("skyhop.theme", next);
+  }));
+  $("#menu").addEventListener("click", () => { $("#sidebar").classList.add("open"); $("#scrim").hidden = false; });
+  $("#scrim").addEventListener("click", closeSidebar);
+  try { config = await api("/api/config"); } catch { /* keep defaults */ }
+  await loadAirports();
+  const cfg = { onChange: onFormChange };
+  ac = {
+    from: autocomplete($("#ac-from"), { id: "from-in", placeholder: "City or airport", multi: false, ...cfg }),
+    to: autocomplete($("#ac-to"), { id: "to-in", placeholder: "Rome, Paris, London…", multi: true, ...cfg }),
+    back: autocomplete($("#ac-back"), { id: "back-in", placeholder: "Same as destination", multi: true, ...cfg }),
+    hubs: autocomplete($("#ac-hubs"), { id: "hubs-in", placeholder: "IST, ATH, VIE…", multi: true, ...cfg }),
+  };
+  writeForm({ ...defaults(), ...(store.get("skyhop.form") || {}) });
+  if (day($("#end").value) < new Date()) writeForm({ ...readForm(), start: defaults().start, end: defaults().end });
+  $("#form").addEventListener("input", onFormChange); $("#form").addEventListener("change", onFormChange);
+  $$("[data-step]").forEach(b => b.addEventListener("click", () => {
+    const el = $(`#${b.dataset.for}`), v = (parseFloat(el.value) || 0) + +b.dataset.step;
+    el.value = Math.min(+el.max || 99, Math.max(+el.min || 0, v));
+    if (el.id === "nmin" && +$("#nmax").value < +el.value) $("#nmax").value = el.value;
+    if (el.id === "nmax" && +$("#nmin").value > +el.value) $("#nmin").value = el.value;
+    onFormChange();
+  }));
+  $$("[data-nights]").forEach(b => b.addEventListener("click", () => {
+    const [a, z] = b.dataset.nights.split("-"); $("#nmin").value = a; $("#nmax").value = z; onFormChange();
+  }));
+  $("#new-search").addEventListener("click", () => {
+    clearTimeout(pollTimer); current = null; $("#results").replaceChildren(); writeForm({ ...defaults(), from: readForm().from });
+    onFormChange(); closeSidebar(); window.scrollTo({ top: 0, behavior: "smooth" }); $("#to-in").focus(); refreshHistory();
+  });
+  $("#form").addEventListener("submit", async e => {
+    e.preventDefault();
+    const { req, error } = toRequest(readForm());
+    if (error) { showFormError(error); return; }
+    showFormError("");
+    try { await submitSearch(req); } catch (err) { showFormError(err.message); }
+  });
+  refreshHistory(); runEstimate();
+  setInterval(() => { if (!document.hidden && !pollTimer) refreshHistory(); }, 60000);
+}
+init();

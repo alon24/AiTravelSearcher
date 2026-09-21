@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Skyhop</title>
+<meta name="description" content="Find the cheapest flights across flexible dates and cities.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%236d4aff'/%3E%3Cpath d='M14 36l36-16-10 28-8-10-8 6-2-10z' fill='white'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar" aria-label="Past searches">
+    <div class="brand side-brand"><span class="logo">✈</span><span>Skyhop</span></div>
+    <button class="btn" id="new-search" type="button">＋ New search</button>
+    <div class="side-title">Past searches</div>
+    <div class="hist" id="history"></div>
+  </aside>
+  <div class="scrim" id="scrim" hidden></div>
+
+  <main>
+    <div class="topbar">
+      <button class="btn icon-btn" id="menu" type="button" aria-label="Open past searches">☰</button>
+      <div class="brand"><span class="logo">✈</span><span>Skyhop</span></div>
+      <button class="btn icon-btn theme-toggle" type="button" aria-label="Toggle dark mode">🌓</button>
+    </div>
+
+    <section class="hero" style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start">
+      <div>
+        <h1>Fly somewhere <span>for less.</span></h1>
+        <p>Pick a few cities and a flexible window. Skyhop checks every day, mixes airlines and finds the cheapest trip.</p>
+      </div>
+      <button class="btn icon-btn theme-toggle desk-only" type="button" aria-label="Toggle dark mode">🌓</button>
+    </section>
+
+    <form class="card search" id="form" autocomplete="off" novalidate>
+      <div class="row two">
+        <div class="field"><label for="from-in">From</label><div class="ac" id="ac-from"></div></div>
+        <div class="field"><label for="to-in">To <span class="hint">· add several to compare</span></label><div class="ac" id="ac-to"></div></div>
+      </div>
+
+      <div class="row dates">
+        <div class="field"><label for="start">Earliest departure</label><div class="input"><input type="date" id="start" required></div></div>
+        <div class="field"><label for="end">Latest return</label><div class="input"><input type="date" id="end" required></div></div>
+        <div class="field">
+          <label>Nights</label>
+          <div class="nights">
+            <div class="stepper"><button type="button" data-step="-1" data-for="nmin" aria-label="Fewer minimum nights">−</button><input id="nmin" type="number" min="1" max="60" aria-label="Minimum nights"><button type="button" data-step="1" data-for="nmin" aria-label="More minimum nights">+</button></div>
+            <span class="to">to</span>
+            <div class="stepper"><button type="button" data-step="-1" data-for="nmax" aria-label="Fewer maximum nights">−</button><input id="nmax" type="number" min="1" max="60" aria-label="Maximum nights"><button type="button" data-step="1" data-for="nmax" aria-label="More maximum nights">+</button></div>
+          </div>
+          <div class="presets">
+            <button type="button" class="pill" data-nights="2-3">Weekend</button>
+            <button type="button" class="pill" data-nights="4-7">Week</button>
+            <button type="button" class="pill" data-nights="10-14">Two weeks</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="row opts">
+        <div class="field">
+          <span class="lbl">Stops (each way)</span>
+          <div class="seg" role="radiogroup" aria-label="Stops">
+            <label><input type="radio" name="stops" value="0">Direct</label>
+            <label><input type="radio" name="stops" value="1" checked>Up to 1</label>
+            <label><input type="radio" name="stops" value="2">Up to 2</label>
+          </div>
+        </div>
+        <div class="field"><label for="currency">Currency</label>
+          <select class="input" id="currency"><option>USD</option><option>EUR</option><option>GBP</option><option>ILS</option></select></div>
+        <div class="field"><label for="adults">Travellers</label>
+          <div class="stepper"><button type="button" data-step="-1" data-for="adults" aria-label="Fewer travellers">−</button><input id="adults" type="number" min="1" max="9"><button type="button" data-step="1" data-for="adults" aria-label="More travellers">+</button></div></div>
+      </div>
+
+      <details class="more" id="more">
+        <summary>More options</summary>
+        <div class="more-grid">
+          <div class="field"><label for="back-in">Fly home from <span class="hint">· different airport (open-jaw)</span></label><div class="ac" id="ac-back"></div></div>
+          <div class="field"><label class="switch"><input type="checkbox" id="connect"> Also fly between my destinations</label><span class="hint">Paris → London style multi-stop trips</span></div>
+          <div class="field"><label class="switch"><input type="checkbox" id="same"> Same airline both ways</label><span class="hint">Off = mix airlines to save money</span></div>
+          <div class="field"><label class="switch"><input type="checkbox" id="st"> Allow separate tickets (self-transfer)</label>
+            <div class="ac" id="ac-hubs"></div><span class="hint">Hub airports, e.g. IST, ATH. You re-check bags there.</span></div>
+          <div class="field"><label for="buffer">Self-transfer buffer (hours)</label><div class="input"><input type="number" id="buffer" min="1" max="24" step="0.5"></div></div>
+          <div class="field"><label for="maxtravel">Max travel per direction (hours)</label><div class="input"><input type="number" id="maxtravel" min="1" max="60" placeholder="No limit"></div></div>
+          <div class="field"><label for="laymin">Layover between (hours)</label>
+            <div class="nights"><div class="input"><input type="number" id="laymin" min="0" step="0.5" aria-label="Minimum layover hours"></div><span class="to">to</span><div class="input"><input type="number" id="laymax" min="1" step="1" aria-label="Maximum layover hours"></div></div></div>
+          <div class="field"><label for="vot">Value of an hour of travel: <b id="vot-out"></b></label><input type="range" id="vot" min="0" max="60" step="1"><span class="hint">Higher = long trips ranked lower in "best value"</span></div>
+          <div class="field"><label for="top">Top picks to show</label><div class="input"><input type="number" id="top" min="1" max="20"></div></div>
+          <div class="field"><label for="maxcalls">Max lookups per search</label><div class="input"><input type="number" id="maxcalls" min="1" max="5000"></div></div>
+        </div>
+      </details>
+
+      <div class="form-error" id="form-error" hidden></div>
+      <div class="submit-row">
+        <div class="estimate idle" id="estimate"><span class="dot"></span><span id="estimate-text">Pick where you're going</span></div>
+        <button class="btn primary" id="go" type="submit">Find flights →</button>
+      </div>
+    </form>
+
+    <section id="results" aria-live="polite"></section>
+  </main>
+</div>
+<div class="tooltip" id="tooltip" hidden></div>
+<script src="app.js" defer></script>
+</body>
+</html>
