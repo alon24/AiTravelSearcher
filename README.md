@@ -4,6 +4,10 @@ Flexible-date flight search: multi-destination, open-jaw, multi-stop between des
 mixed airlines out/back and self-transfer connections. Composes trips from **one-way** offers,
 so any provider that can price a one-way flight works.
 
+**Web UI:** run `docker compose up -d --build`, then open http://localhost:8765/ (search form, live progress, past searches).
+
+Docs: [`docs/DESIGN.md`](docs/DESIGN.md) architecture, provider contract and a price-verification proposal; [`docs/STITCH_BRIEF.md`](docs/STITCH_BRIEF.md) UI design brief for Google Stitch.
+
 ```bash
 python -m venv .venv && .venv/bin/pip install -e '.[dev]'
 cp .env.example .env            # FLIGHTAGENT_PROVIDER=mock works offline, no key needed
