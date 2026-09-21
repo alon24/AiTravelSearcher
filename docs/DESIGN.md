@@ -140,6 +140,14 @@ served each lookup.
   between airports of one city (`geo.py`; estimates supplied by us, not measured data).
 - Airline include/exclude filters apply after fetching, so changing them costs no lookups.
 
+### Currency display
+- A search runs in one currency (the button's value at that time) and results are stored in it. The currency button
+  changes the whole screen at once by **converting displayed prices** with `GET /api/rates` (ECB via frankfurter.dev,
+  cached 6 h, approximate fallback), so nothing is re-fetched. `money()` in `app.js` is the single place that converts.
+- Whenever a price is converted it is labelled: a "Converted from ILS" badge, an "originally ₪194" line on pick cards, trip
+  and builder prices, and a **Show original currency** switch. Original amounts are what Google quoted for that search; we cannot
+  know the currency an airline itself sells in, so search in a currency to see Google's price for it.
+
 ### Current providers
 | Name | Source | Cost | Notes |
 |---|---|---|---|

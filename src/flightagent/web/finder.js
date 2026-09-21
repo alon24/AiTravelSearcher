@@ -2,13 +2,14 @@
 /* Airline finder: which airlines fly between an origin and a country's airports? Asks the API, which checks one date for
    every airport, then more dates only for airports that have flights. Uses helpers from app.js. */
 const Finder = (() => {
-  let originAc, airportsAc, busy = false;
+  let originAc, airportsAc, busy = false, last = null;
 
   const routeChip = r => h("span", { class: "rt" + (r.nonstop ? " ns" : ""), title: `Seen on ${r.dates.map(d => fmtShort(day(d))).join(", ")}${r.flights.length ? " · " + r.flights.join(", ") : ""}` },
     `${r.airport} · ${r.nonstop ? "nonstop" : "with a stop"}${r.cheapest != null ? ` · from ${money(r.cheapest, currentCurrency)}` : ""}`);
   let currentCurrency = "ILS";
 
   function showResult(host, res, label) {
+    last = { host, res, label };
     currentCurrency = res.currency;
     const dates = res.dates.map(d => fmtShort(day(d))).join(", ");
     const head = h("div", { class: "res-sub" },
@@ -69,5 +70,5 @@ const Finder = (() => {
         go));
     body.replaceChildren(form, out);
   }
-  return { init };
+  return { init, refresh: () => { if (last && last.host.isConnected) showResult(last.host, last.res, last.label); } };
 })();

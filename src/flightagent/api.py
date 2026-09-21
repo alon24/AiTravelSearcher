@@ -9,6 +9,7 @@ from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
 
+import httpx
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
@@ -291,6 +292,30 @@ async def flights(origin: str, dest: str, day: date = Query(alias="date"), adult
     views = sorted((leg_view(o) for o in offers), key=lambda v: (not v.priced, v.price, v.duration_min))[:40]
     return {"origin": req.origin, "dest": req.destinations[0], "date": day.isoformat(), "travellers": req.pax_label,
             "currency": currency, "flights": [v.model_dump(mode="json") for v in views]}
+
+
+_RATES: dict = {"at": 0.0, "data": None}
+FALLBACK_RATES = {"USD": 1.0, "ILS": 3.0, "GBP": 0.75, "EUR": 0.87}     # rough, measured against Google's own prices
+
+
+@app.get("/api/rates")
+async def rates() -> dict:
+    """USD-based rates used to convert prices already on screen. ECB rates via frankfurter.dev, cached for 6 h;
+    an approximate fallback (retried after 10 min) if the lookup fails."""
+    now = time.time()
+    if _RATES["data"] and now - _RATES["at"] < 6 * 3600:
+        return _RATES["data"]
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get("https://api.frankfurter.dev/v1/latest", params={"base": "USD", "symbols": "ILS,GBP,EUR"})
+            r.raise_for_status()
+            j = r.json()
+        data = {"base": "USD", "rates": {"USD": 1.0, **j["rates"]}, "date": j.get("date"), "source": "ECB via frankfurter.dev"}
+        _RATES.update(at=now, data=data)
+    except Exception:
+        data = {"base": "USD", "rates": FALLBACK_RATES, "date": None, "source": "approximate fallback"}
+        _RATES.update(at=now - 6 * 3600 + 600, data=data)
+    return data
 
 
 @app.get("/api/countries")

@@ -32,7 +32,21 @@ const legEnds = leg => { const a = leg.segments[0], z = leg.segments[leg.segment
 const dayShift = (dep, arr) => Math.round((new Date(arr.getFullYear(), arr.getMonth(), arr.getDate()) - new Date(dep.getFullYear(), dep.getMonth(), dep.getDate())) / 864e5);
 const tmLine = leg => { const e = legEnds(leg), sh = dayShift(e.dep, e.arr); return `${fmtTime(e.dep)} ${e.from} → ${fmtTime(e.arr)} ${e.to}${sh > 0 ? ` +${sh}` : ""}`; };
 const tmShort = leg => { const e = legEnds(leg), sh = dayShift(e.dep, e.arr); return `${fmtTime(e.dep)}→${fmtTime(e.arr)}${sh > 0 ? `+${sh}` : ""}`; };
-const money = (v, cur) => new Intl.NumberFormat("en-US", { style: "currency", currency: cur || "USD", maximumFractionDigits: 0 }).format(v);
+// Money. Prices come in the currency they were searched in; everything on screen is converted to the currency button's
+// choice with today's rate (see /api/rates). `money` is the one place that does it.
+let rates = { USD: 1, ILS: 3, GBP: 0.75, EUR: 0.87 }, ratesInfo = { source: "approximate", date: null }, displayCurrency = "ILS", showOriginal = false;
+const fmtMoney = (v, cur) => new Intl.NumberFormat("en-US", { style: "currency", currency: cur || "USD", maximumFractionDigits: 0 }).format(v);
+const shownCur = cur => (showOriginal ? cur || "USD" : rates[cur] && rates[displayCurrency] ? displayCurrency : cur || "USD");
+const isConverted = cur => shownCur(cur) !== (cur || "USD");
+const toShown = (v, cur) => (isConverted(cur) ? (v / rates[cur]) * rates[displayCurrency] : v);
+// "originally ₪194" line for converted prices, so the amount you would pay in the original currency is never hidden.
+const origNote = (v, cur, cls = "orig") => (isConverted(cur) ? h("span", { class: cls }, `originally ${fmtMoney(v, cur)}`) : null);
+function setShowOriginal(on) {
+  showOriginal = !!on; store.set("skyhop.showOriginal", showOriginal);
+  const t = $("#orig-toggle"); if (t) t.checked = showOriginal;
+  rerenderCurrency();
+}
+const money = (v, cur) => fmtMoney(toShown(v, cur), shownCur(cur));
 const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
 function ago(ts) {
   const m = Math.round((Date.now() / 1000 - ts) / 60);
@@ -56,7 +70,8 @@ async function api(path, opts) {
 }
 const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
-let recheckTimer = 0;
+let recheckTimer = 0, currentRow = null;
+const viewStore = new Map();
 function toast(msg) {
   const t = h("div", { class: "toast", role: "status" }, msg); document.body.append(t); setTimeout(() => t.classList.add("show"), 10);
   setTimeout(() => { t.classList.remove("show"); setTimeout(() => t.remove(), 300); }, 3200);
@@ -158,6 +173,7 @@ function writeForm(f) {
   ac.air.set(f.airlines || []); ($$("input[name=airmode]").find(r => r.value === (f.airmode || "exclude")) || {}).checked = true;
   $("#connect").checked = f.connect; $("#same").checked = f.same; $("#st").checked = f.st; $("#buffer").value = f.buffer;
   $("#maxtravel").value = f.maxtravel; $("#laymin").value = f.laymin; $("#laymax").value = f.laymax;
+  displayCurrency = f.currency;
   $("#vot").value = f.vot; $("#vot-out").textContent = money(f.vot, f.currency) + "/h"; $("#top").value = f.top; $("#maxcalls").value = f.maxcalls;
 }
 function toRequest(f) {
@@ -213,6 +229,15 @@ function renderKids() {
   ].filter(Boolean).join(" ");
 }
 
+// The currency button changes the whole screen: results, history, trip builder and airline finder.
+function rerenderCurrency() {
+  $("#vot-out").textContent = money(readForm().vot, displayCurrency) + "/h";
+  if (currentRow && currentRow.id === current && currentRow.status === "done") renderResult(currentRow, { keepScroll: true });
+  refreshHistory();
+  if (window.Builder) Builder.refresh();
+  if (window.Finder) Finder.refresh();
+}
+
 // ------------------------------------------------------------------ estimate + submit
 let estTimer = 0, estSeq = 0, overBudget = false;
 function setEstimate(kind, text) {
@@ -241,6 +266,7 @@ function onFormChange() {
     if (Math.round(f.vot) === VOT[lastCurrency]) { $("#vot").value = VOT[f.currency]; f = readForm(); }
     lastCurrency = f.currency;
   }
+  if (f.currency !== displayCurrency) { displayCurrency = f.currency; rerenderCurrency(); }
   store.set("skyhop.form", f);
   $("#vot-out").textContent = money(f.vot, f.currency) + "/h";
   clearTimeout(estTimer); estTimer = setTimeout(runEstimate, 300);
@@ -267,7 +293,7 @@ function histItem(r) {
   const p = r.progress, pct = p.total ? Math.round(100 * p.done / p.total) : 0;
   const status = r.status === "running" ? h("span", { class: "badge run" }, p.total ? `${pct}%` : "…")
     : r.status === "failed" ? h("span", { class: "badge fail" }, "Failed")
-    : r.best_price != null ? h("span", { class: "hi-price" }, `from ${money(r.best_price, r.currency)}`)
+    : r.best_price != null ? h("span", { class: "hi-price", title: isConverted(r.currency) ? `Searched in ${r.currency}: ${fmtMoney(r.best_price, r.currency)}` : null }, `from ${money(r.best_price, r.currency)}`)
     : h("span", { class: "badge warn" }, "No flights");
   const open = () => { closeSidebar(); openSearch(r.id, { fillForm: true }); window.scrollTo({ top: 0, behavior: "smooth" }); };
   return h("div", { class: "hist-item" + (r.id === current ? " active" : ""), role: "button", tabindex: "0", "data-id": r.id,
@@ -304,8 +330,9 @@ function renderProgress(row) {
     h("div", { class: "sub" }, `${q.origin} → ${q.destinations.join(", ")} · every day from ${fmtShort(day(q.window_start))} to ${fmtShort(day(q.window_end))}`)));
 }
 
-function renderResult(row) {
+function renderResult(row, opts = {}) {
   clearTimeout(recheckTimer);
+  currentRow = row;
   const box = $("#results"), q = row.request;
   resultsQuery = q;
   box.replaceChildren();
@@ -323,6 +350,7 @@ function renderResult(row) {
       h("div", { class: "res-sub" }, `${fmtShort(day(q.window_start))} – ${fmtShort(day(q.window_end))} · ${nights}`,
         h("span", { class: "badge ok" }, `${res.api_calls + res.cache_hits} lookups${via ? ` · ${via}` : ""}${res.cache_hits ? ` · ${res.cache_hits} cached` : ""}`),
         paxCount(q) > 1 && h("span", { class: "badge run" }, `${paxLabel(q)} · totals`),
+        q.currency !== displayCurrency ? h("button", { type: "button", class: "badge warn conv-toggle", onclick: () => setShowOriginal(!showOriginal), title: `Searched in ${q.currency}. Shown in ${shownCur(q.currency)} at 1 ${shownCur(q.currency)} = ${(rates[q.currency] / rates[shownCur(q.currency)]).toFixed(3)} ${q.currency} (${ratesInfo.source}${ratesInfo.date ? `, ${ratesInfo.date}` : ""}). The airline's own price in that currency may differ a little.` }, showOriginal ? `Showing original ${q.currency} · click to convert to ${displayCurrency}` : `≈ Converted from ${q.currency} · click to see the original`) : null,
         h("span", { class: "badge run" }, `${res.elapsed_s}s`), h("span", {}, ago(row.created)))),
     h("div", { class: "actions" },
       h("button", { class: "btn", type: "button", onclick: () => { writeForm(requestToForm(q)); onFormChange(); window.scrollTo({ top: 0, behavior: "smooth" }); } }, "Edit"),
@@ -337,7 +365,9 @@ function renderResult(row) {
   const directs = daily.flatMap(d => [d.cheapest, d.best_value].map(t => [d, t])).filter(([, t]) => t.stops === 0);
   const direct = directs.length ? directs.reduce((a, b) => (b[1].price < a[1].price ? b : a)) : null;
 
-  const view = { metric: "cheapest", tab: "chart", sel: cheapest.depart_date, pickOpen: null };
+  const view = viewStore.get(row.id) || { metric: "cheapest", tab: "chart", sel: cheapest.depart_date, pickOpen: null };
+  viewStore.set(row.id, view);
+  if (!byDay.has(view.sel)) view.sel = cheapest.depart_date;
   const tripOf = d => (view.metric === "cheapest" ? d.cheapest : d.best_value);
   const order = destOrder(q, daily);
   const colorOf = label => { const i = order.indexOf(label); return `var(--series-${i >= 0 && i < 8 ? i + 1 : "other"})`; };
@@ -349,7 +379,7 @@ function renderResult(row) {
     direct && { key: "direct", label: "Cheapest direct", d: direct[0], t: direct[1], metric: direct[1] === direct[0].cheapest ? "cheapest" : "best", hero: false },
   ].filter(Boolean);
   const pickBtns = picks.map(p => h("button", { type: "button", class: "pick" + (p.hero ? " hero-pick" : ""), "data-pick": p.key, "aria-expanded": "false", onclick: () => openPick(p.key) },
-    h("span", { class: "k" }, p.label), h("span", { class: "v" }, money(p.t.price, cur)),
+    h("span", { class: "k" }, p.label), h("span", { class: "v" }, money(p.t.price, cur)), origNote(p.t.price, cur),
     h("span", { class: "d" }, `${p.t.destination} · ${fmtDay(day(p.t.depart_date))} → ${fmtDay(day(p.t.return_date))}`),
     h("span", { class: "tm" }, h("b", {}, "Out"), `${fmtDay(day(p.t.legs[0].segments[0].departs))} · ${tmLine(p.t.legs[0])}`),
     h("span", { class: "tm" }, h("b", {}, "Back"), `${fmtDay(day(p.t.legs[p.t.legs.length - 1].segments[0].departs))} · ${tmLine(p.t.legs[p.t.legs.length - 1])}`),
@@ -423,8 +453,8 @@ function renderResult(row) {
     else drawTable(tableHost, shown.filter(x => x.trip), view.sel, cur, select);
   }
   new ResizeObserver(() => { if (view.tab === "chart" && chartHost.clientWidth && Math.abs(chartHost.clientWidth - lastW) > 2) redraw(); }).observe(chartHost);
-  redraw(); drawDetail();
-  box.scrollIntoView({ behavior: "smooth", block: "start" });
+  redraw(); drawDetail(); syncPicks();
+  if (!opts.keepScroll) box.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 // Destination order = colour identity: requested destinations first (fixed), then any other route labels.
@@ -448,14 +478,15 @@ function drawChart(host, shown, sel, colorOf, cur, onSelect) {
   host.replaceChildren();
   const W = Math.max(320, host.clientWidth || 640), H = 280, m = { l: 48, r: 8, t: 28, b: 32 };
   const plotW = W - m.l - m.r, plotH = H - m.t - m.b, N = shown.length, slot = plotW / N, bw = Math.min(24, Math.max(3, slot - 2));
-  const prices = shown.filter(x => x.trip).map(x => x.trip.price), { step, max } = niceScale(Math.max(...prices));
+  const target = shownCur(cur), pv = t => toShown(t.price, cur);            // scale and label in the currency being shown
+  const prices = shown.filter(x => x.trip).map(x => pv(x.trip)), { step, max } = niceScale(Math.max(...prices));
   const y = v => m.t + plotH - (v / max) * plotH, base = m.t + plotH;
   const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, role: "img", "aria-label": `Price by departure day, ${prices.length} days` });
   for (let v = 0; v <= max + 1e-9; v += step) {
     svg.append(s("line", { class: "grid", x1: m.l, x2: W - m.r, y1: y(v), y2: y(v) }),
-      s("text", { class: "tick", x: m.l - 8, y: y(v) + 4, "text-anchor": "end" }, money(v, cur)));
+      s("text", { class: "tick", x: m.l - 8, y: y(v) + 4, "text-anchor": "end" }, fmtMoney(v, target)));
   }
-  const cheapestI = shown.findIndex(x => x.trip && x.trip.price === Math.min(...prices));
+  const cheapestI = shown.findIndex(x => x.trip && pv(x.trip) === Math.min(...prices));
   const every = Math.max(1, Math.ceil(50 / slot));
   host.classList.toggle("has-sel", !!sel);
   const layer = s("g"), hits = s("g");
@@ -463,9 +494,9 @@ function drawChart(host, shown, sel, colorOf, cur, onSelect) {
     const cx = m.l + i * slot + slot / 2;
     if (i % every === 0) svg.append(s("text", { class: "tick", x: cx, y: H - 10, "text-anchor": "middle" }, fmtShort(day(x.date))));
     if (!x.trip) return;
-    const bx = cx - bw / 2, bar = s("path", { class: "bar" + (x.date === sel ? " sel" : ""), d: barPath(bx, y(x.trip.price), bw, base), fill: colorOf(x.trip.destination) });
+    const bx = cx - bw / 2, bar = s("path", { class: "bar" + (x.date === sel ? " sel" : ""), d: barPath(bx, y(pv(x.trip)), bw, base), fill: colorOf(x.trip.destination) });
     layer.append(bar);
-    if (i === cheapestI) layer.append(s("text", { class: "vlabel", x: cx, y: y(x.trip.price) - 7, "text-anchor": "middle" }, money(x.trip.price, cur)));
+    if (i === cheapestI) layer.append(s("text", { class: "vlabel", x: cx, y: y(pv(x.trip)) - 7, "text-anchor": "middle" }, fmtMoney(pv(x.trip), target)));
     const hit = s("rect", { class: "hit", x: m.l + i * slot, y: m.t, width: slot, height: plotH, tabindex: "0", role: "button",
       "aria-label": `${fmtDay(day(x.date))}: ${money(x.trip.price, cur)} to ${x.trip.destination}, ${x.trip.stops === 0 ? "direct" : plural(x.trip.stops, "stop")}` });
     const on = ev => { bar.classList.add("hot"); showTip(x, colorOf(x.trip.destination), cur, ev, hit); };
@@ -633,7 +664,7 @@ function tripCard(t, cur, pax = 1) {
     h("div", { class: "trip-head" },
       h("div", {}, h("div", { class: "trip-dest" }, t.destination, kind && h("span", { class: "badge run" }, kind), t.self_transfer && h("span", { class: "badge warn" }, "Self-transfer")),
         h("div", { class: "trip-dates" }, `${fmtDay(day(t.depart_date))} → ${fmtDay(day(t.return_date))} · ${plural(t.nights, "night")}`)),
-      h("div", { class: "trip-price" }, h("div", { class: "p" }, money(t.price, cur)), h("div", { class: "e" }, pax > 1 ? `total for ${plural(pax, "traveller")}` : `value score ${Math.round(t.effective_cost)}`))),
+      h("div", { class: "trip-price" }, h("div", { class: "p" }, money(t.price, cur)), origNote(t.price, cur, "orig block"), h("div", { class: "e" }, pax > 1 ? `total for ${plural(pax, "traveller")}` : `value score ${Math.round(toShown(t.effective_cost, cur))}`))),
     t.legs.map((leg, i) => legCard(leg, titles[i] || "Leg", cur)),
     t.warnings.length ? h("div", { class: "warns" }, t.warnings.map(w => {
       const bad = /^(SELF|Long|Tight|Not enough)/.test(w);
@@ -667,7 +698,7 @@ function legCard(leg, title, cur) {
   return h("div", { class: "leg" },
     h("div", { class: "leg-top" },
       h("div", { class: "leg-title" }, title, h("small", {}, [...seen.values()].join(" · "))),
-      h("strong", {}, money(leg.price, cur))),
+      h("strong", { title: isConverted(cur) ? `Originally ${fmtMoney(leg.price, cur)}` : null }, money(leg.price, cur))),
     legTimes(leg),
     rows, h("div", { class: "actions" }, links, direct,
       h("button", { type: "button", class: "btn small", title: "See every flight that day, including ones with no price", onclick: () => Builder.browse(leg.origin, leg.destination, leg.segments[0].departs.slice(0, 10)) }, "All flights that day"),
@@ -689,6 +720,10 @@ async function init() {
   $("#menu").addEventListener("click", () => { $("#sidebar").classList.add("open"); $("#scrim").hidden = false; });
   $("#scrim").addEventListener("click", closeSidebar);
   try { config = await api("/api/config"); } catch { /* keep defaults */ }
+  try { ratesInfo = await api("/api/rates"); rates = ratesInfo.rates; } catch { /* keep the approximate defaults */ }
+  showOriginal = !!store.get("skyhop.showOriginal");
+  $("#orig-toggle").checked = showOriginal;
+  $("#orig-toggle").addEventListener("change", e => setShowOriginal(e.target.checked));
   await loadAirports();
   const cfg = { onChange: onFormChange };
   document.body.append(h("datalist", { id: "air-list" }, [...new Set(Object.values(config.airlines || {}))].sort().map(n => h("option", { value: n }))));
@@ -702,7 +737,7 @@ async function init() {
   const draft = store.get("skyhop.form") || {};
   if (!store.get("skyhop.ils-default")) { draft.currency = "ILS"; draft.vot = VOT.ILS; store.set("skyhop.ils-default", true); }
   writeForm({ ...defaults(), ...draft });
-  lastCurrency = readForm().currency;
+  lastCurrency = displayCurrency = readForm().currency;
   if (day($("#end").value) < new Date()) writeForm({ ...readForm(), start: defaults().start, end: defaults().end });
   $("#form").addEventListener("input", onFormChange); $("#form").addEventListener("change", onFormChange);
   $$("[data-step]").forEach(b => b.addEventListener("click", () => {

@@ -143,3 +143,33 @@ def test_recheck_endpoint_and_due_schedule(monkeypatch, tmp_path):
         assert h.due(time.time()) == [sid]
         h.postpone(sid, time.time() + 900)
         assert h.due(time.time()) == []
+
+
+def test_rates_endpoint_uses_ecb_then_falls_back(monkeypatch):
+    import flightagent.api as api
+    from fastapi.testclient import TestClient
+
+    class Resp:
+        def raise_for_status(self): pass
+        def json(self): return {"date": "2026-09-21", "rates": {"ILS": 3.0115, "GBP": 0.74656, "EUR": 0.87032}}
+
+    class OK:
+        def __init__(self, **kw): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *a): pass
+        async def get(self, url, params=None): return Resp()
+
+    class Down(OK):
+        async def get(self, url, params=None): raise RuntimeError("offline")
+
+    api._RATES.update(at=0.0, data=None)
+    monkeypatch.setattr(api.httpx, "AsyncClient", OK)
+    with TestClient(api.app) as c:
+        r = c.get("/api/rates").json()
+        assert r["rates"]["ILS"] == 3.0115 and r["rates"]["USD"] == 1.0 and r["source"].startswith("ECB")
+        assert c.get("/api/rates").json() == r                       # cached
+        api._RATES.update(at=0.0, data=None)
+        monkeypatch.setattr(api.httpx, "AsyncClient", Down)
+        fb = c.get("/api/rates").json()
+        assert fb["source"] == "approximate fallback" and set(fb["rates"]) == {"USD", "ILS", "GBP", "EUR"}
+    api._RATES.update(at=0.0, data=None)

@@ -7,6 +7,14 @@ const Builder = (() => {
   let legs = [], editingId = null, check = null, checkSeq = 0, opened = false, els = {};
   const drafts = {}, options = {}, filters = {};
   const uid = () => Math.random().toString(36).slice(2, 9);
+  // Legs may have been priced in different currencies: total them in the currency being shown.
+  // "₪776" or "₪500 + $80": what the legs cost in the currencies they were searched in (only when that differs from what is shown).
+  const originalTotals = fl => {
+    const by = {};
+    fl.forEach(l => { if (l.flight.priced !== false) by[l.currency] = (by[l.currency] || 0) + l.flight.price; });
+    return Object.keys(by).some(c => isConverted(c)) ? Object.entries(by).map(([c, v]) => fmtMoney(v, c)).join(" + ") : "";
+  };
+  const totalOf = fl => fl.reduce((s, l) => s + (l.flight.priced === false ? 0 : toShown(l.flight.price, l.currency)), 0);
   const flightLegs = () => legs.filter(l => l.flight);
   const save = () => store.set(KEY, { legs });
   const cityOf = code => { const a = airport(code); return a ? a.city : ""; };
@@ -85,7 +93,7 @@ const Builder = (() => {
         h("div", { class: "r" }, h("div", { class: "big" }, fmtTime(e.arr), sh > 0 ? h("sup", {}, `+${sh}`) : null), h("div", { class: "ap" }, e.to), h("div", { class: "dt" }, fmtDay(e.arr)))),
       h("div", { class: "fs-meta" }, h("span", { class: "fs-air" }, names.join(" · ")), h("span", { class: "fs-codes" }, f.segments.map(s => `${s.airline_code}${s.flight_number}`).join(" + ")),
         f.layovers_min.length ? h("span", { class: "badge ok" }, f.layovers_min.map((m, i) => `${hm(m)} in ${f.segments[i].destination}`).join(", ")) : null),
-      cur ? h("div", { class: "fs-price" + (f.priced === false ? " np" : "") }, f.priced === false ? "No price shown" : money(f.price, cur)) : null);
+      cur ? h("div", { class: "fs-price" + (f.priced === false ? " np" : "") }, f.priced === false ? "No price shown" : money(f.price, cur), f.priced === false ? null : origNote(f.price, cur, "orig block")) : null);
   }
 
   function gapBlock(g) {
@@ -149,11 +157,11 @@ const Builder = (() => {
   }
 
   function summaryText() {
-    const fl = flightLegs(), cur = fl[0]?.currency || "USD", pax = [...new Set(fl.map(l => l.pax).filter(Boolean))];
-    const lines = [`Skyhop trip${pax.length ? ` · ${pax.join(" / ")}` : ""} · total ${money(fl.reduce((s, l) => s + (l.flight.priced === false ? 0 : l.flight.price), 0), cur)}${fl.some(l => l.flight.priced === false) ? " + unpriced flight(s)" : ""}`];
+    const fl = flightLegs(), pax = [...new Set(fl.map(l => l.pax).filter(Boolean))];
+    const lines = [`Skyhop trip${pax.length ? ` · ${pax.join(" / ")}` : ""} · total ${fmtMoney(totalOf(fl), displayCurrency)}${originalTotals(fl) ? ` (originally ${originalTotals(fl)})` : ""}${fl.some(l => l.flight.priced === false) ? " + unpriced flight(s)" : ""}`];
     fl.forEach((l, i) => {
       const f = l.flight, e = legEnds(f);
-      lines.push(`${i + 1}) ${fmtDay(e.dep)}  ${e.from} ${fmtTime(e.dep)} → ${e.to} ${fmtTime(e.arr)}  ${[...new Set(f.segments.map(s => s.airline || s.airline_code))].join(" + ")} ${f.segments.map(s => s.airline_code + s.flight_number).join("+")}  ${f.priced === false ? "price not shown" : money(f.price, cur)}`);
+      lines.push(`${i + 1}) ${fmtDay(e.dep)}  ${e.from} ${fmtTime(e.dep)} → ${e.to} ${fmtTime(e.arr)}  ${[...new Set(f.segments.map(s => s.airline || s.airline_code))].join(" + ")} ${f.segments.map(s => s.airline_code + s.flight_number).join("+")}  ${f.priced === false ? "price not shown" : money(f.price, l.currency)}`);
       const g = fl[i + 1] ? gapBetween(l, fl[i + 1]) : null;
       if (g) lines.push(`   ↳ ${g.headline}${g.detail ? " " + g.detail : ""}`);
     });
@@ -162,7 +170,7 @@ const Builder = (() => {
 
   function render() {
     if (!els.body) return;
-    const fl = flightLegs(), cur = fl[0]?.currency || "USD", total = fl.reduce((s, l) => s + (l.flight.priced === false ? 0 : l.flight.price), 0), unp = fl.filter(l => l.flight.priced === false).length;
+    const fl = flightLegs(), total = totalOf(fl), unp = fl.filter(l => l.flight.priced === false).length;
     $("#tb-count").textContent = fl.length; $("#tb-launch").classList.toggle("has", fl.length > 0);
     const body = [];
     if (!legs.length) {
@@ -192,7 +200,8 @@ const Builder = (() => {
     els.body.replaceChildren(...body);
     const pax = [...new Set(fl.map(l => l.pax).filter(Boolean))];
     els.foot.replaceChildren(
-      h("div", { class: "tb-total" }, h("div", { class: "k" }, `Total for ${plural(fl.length, "flight")}`), h("div", { class: "v" }, fl.length ? money(total, cur) : "—"),
+      h("div", { class: "tb-total" }, h("div", { class: "k" }, `Total for ${plural(fl.length, "flight")}`), h("div", { class: "v" }, fl.length ? fmtMoney(total, displayCurrency) : "—"),
+        originalTotals(fl) ? h("div", { class: "pax" }, `originally ${originalTotals(fl)}`) : null,
         unp ? h("div", { class: "pax" }, `+ ${plural(unp, "flight")} with no price shown: check the airline's site`) : null,
         pax.length ? h("div", { class: "pax" }, pax.join(" / ") + (pax.length > 1 ? " (legs priced for different travellers!)" : "")) : null),
       check && !check.error && check.warnings.length ? h("div", { class: "warn info" }, h("span", { "aria-hidden": "true" }, "ℹ"), check.warnings[0]) : null,
@@ -229,5 +238,5 @@ const Builder = (() => {
     open();
     findFlights(leg);
   }
-  return { init, open, close, addFlight, addTrip, browse };
+  return { init, open, close, addFlight, addTrip, browse, refresh: () => render() };
 })();
