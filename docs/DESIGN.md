@@ -36,7 +36,7 @@ Non-goals: booking, payment, fare rules, baggage pricing, seat selection.
 |---|---|
 | `SearchRequest` | Validated input. Codes are upper-cased. `allow_connections=false` forces `max_stops_per_leg=0`. |
 | `Segment` | One flight: airline code/name, flight number, origin, destination, local dep/arr time, `duration_min` (real flying time). |
-| `Offer` | One purchasable one-way ticket, or a self-transfer bundle (`self_transfer=True`, `hub` set). `price` is the **total for all adults**, in `currency`. |
+| `Offer` | One purchasable one-way ticket, or a self-transfer bundle (`self_transfer=True`, `hub` set). `price` is the **total for all travellers**, in `currency`. |
 | `LegView`, `Trip` | A leg as presented, and a full itinerary (2 legs, or 3 for multi-stop) with total price, stops, travel time, warnings and `effective_cost`. |
 | `DailyBest` | For one departure day: the cheapest trip and the best-value trip. |
 | `SearchResult` | `daily`, `top`, `api_calls`, `cache_hits`, `sources` (provider -> lookups served), `elapsed_s`, `warnings`. |
@@ -71,7 +71,8 @@ open-jaw ground transport, different airlines out/back.
 class FlightProvider(Protocol):
     name: str
     async def one_way(self, origin: str, dest: str, day: date, *,
-                      currency: str, adults: int, max_stops: int) -> list[Offer]: ...
+                      currency: str, adults: int, max_stops: int,
+                      children: int = 0, infants: int = 0) -> list[Offer]: ...
 ```
 
 A provider **must**:
@@ -82,7 +83,8 @@ A provider **must**:
    quota, layout change, bad credentials). The engine treats an exception as "unknown", not "none".
    Never return `[]` for an error: it hides failures and would be treated as a real answer.
 3. Fill `Segment.duration_min` with real flying minutes when the source has it.
-4. Return `price` as the total for all `adults` in the requested `currency`, and set `Offer.provider`.
+4. Return `price` as the total for all travellers (`adults` + `children` + lap `infants`) in the requested
+   `currency`, and set `Offer.provider`. Ages are mapped by the engine: under 2 infant, 2-11 child, 12+ adult.
 5. Use local departure/arrival times and IATA airport codes in segments.
 6. Honour `max_stops` (0 to 3) or tolerate the engine filtering afterwards. The engine re-filters anyway.
 7. Cope with **city codes** (`ROM`, `LON`, `PAR`, `NYC`). Either accept them (gflights) or expand them to
