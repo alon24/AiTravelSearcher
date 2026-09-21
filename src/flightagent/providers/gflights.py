@@ -18,7 +18,13 @@ def _time(value: list[int | None] | None) -> tuple[int, int]:
 def parse_groups(groups: list[list], origin: str, dest: str, currency: str) -> list[Offer]:
     offers = []
     for entry in groups:
-        flight, price = entry[0], entry[1][0][1]
+        flight = entry[0]
+        try:
+            price = entry[1][0][1]
+        except (IndexError, TypeError):
+            price = None
+        if not price:
+            continue  # Google lists some flights it cannot price (sold out / not on sale): skip, don't crash
         segs = []
         for s in flight[2]:
             dep_h, dep_m = _time(s[8])
@@ -57,6 +63,17 @@ def parse_html(html: str, origin: str, dest: str, currency: str) -> list[Offer]:
     return parse_groups(groups, origin, dest, currency)
 
 
+def _passengers(adults: int, children: int, infants: int):
+    """Passenger list for the query. fast-flights names wire value 3 INFANT_IN_SEAT and 4 INFANT_ON_LAP, but
+    measured against Google, value 3 is priced as a lap infant (fare = adult-only fare) and value 4 as an infant
+    with its own seat (roughly a second full fare), so the library's names are swapped. We send raw values."""
+    from types import SimpleNamespace
+
+    from fast_flights.pb import flights_pb2 as pb
+    return SimpleNamespace(pb=lambda: [*[pb.Passenger.Value("ADULT")] * adults, *[pb.Passenger.Value("CHILD")] * children,
+                                       *[3] * infants])
+
+
 class GoogleFlightsScraper:
     """Free provider: scrapes Google Flights pages (no API key). Uses fast-flights only for its
     browser-impersonating HTTP client and query encoding. Keep the request rate low.
@@ -69,21 +86,23 @@ class GoogleFlightsScraper:
         self.delay = delay
 
     async def one_way(
-        self, origin: str, dest: str, day: date, *, currency: str, adults: int, max_stops: int
+        self, origin: str, dest: str, day: date, *, currency: str, adults: int, max_stops: int,
+        children: int = 0, infants: int = 0,
     ) -> list[Offer]:
         async with self.sem:
             await asyncio.sleep(random.uniform(*self.delay))
-            html = await asyncio.to_thread(self._fetch, origin, dest, day, currency, adults, max_stops)
+            html = await asyncio.to_thread(self._fetch, origin, dest, day, currency, adults, max_stops, children, infants)
         return parse_html(html, origin, dest, currency)
 
     @staticmethod
-    def _fetch(origin: str, dest: str, day: date, currency: str, adults: int, max_stops: int) -> str:
+    def _fetch(origin: str, dest: str, day: date, currency: str, adults: int, max_stops: int,
+               children: int = 0, infants: int = 0) -> str:
         import fast_flights as ff
 
         query = ff.create_query(
             flights=[ff.FlightQuery(date=day.isoformat(), from_airport=origin, to_airport=dest)],
             trip="one-way", currency=currency, language="en-US",
-            passengers=ff.Passengers(adults=adults), max_stops=max_stops if max_stops < 3 else None,
+            passengers=_passengers(adults, children, infants), max_stops=max_stops if max_stops < 3 else None,
         )
         last: Exception | None = None
         for attempt in range(3):

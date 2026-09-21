@@ -101,6 +101,19 @@ served each lookup.
 4. Compare against an existing provider on the same routes and dates (section 8) before trusting it.
 5. Add rate limits, a timeout, and an error message that names the route and day.
 
+### Airline coverage and passengers (measured, Sept 2026)
+- The engine searches **routes and days, never airlines**: Google returns every carrier it sells for that route.
+  Observed on real queries: Ryanair (FR, RK), Wizz Air (W4/W6), easyJet (U2), Jet2 (LS), JetBlue (B6), Southwest (WN),
+  Frontier (F9), Bluebird Airways (BZ), Israir, El Al, Aegean, ITA and more. A carrier is only missing if Google does
+  not sell it on that route.
+- Prices are **totals for all travellers**. Children are priced by age (under 2 infant, 2-11 child, 12+ adult).
+  Some airlines price children like adults; others (e.g. Swiss) charge less.
+- **Infants:** fast-flights swaps the wire values for lap and seat infants. Measured against Google, value 3 is a lap
+  infant (fare equals the adult-only fare) and 4 an infant with its own seat, so the scraper sends raw values.
+  With a lap infant Google returned about half as many itineraries: airlines that do not carry infants are hidden.
+- Google lists some flights **without a price**; the parser skips them (a crash here once forced whole route-days onto the paid fallback).
+- The cache key is versioned (`v2|`) so a provider-semantics change never serves stale prices.
+
 ### Current providers
 | Name | Source | Cost | Notes |
 |---|---|---|---|

@@ -71,8 +71,14 @@
         </div>
         <div class="field"><label for="currency">Currency</label>
           <select class="input" id="currency"><option>USD</option><option>EUR</option><option>GBP</option><option>ILS</option></select></div>
-        <div class="field"><label for="adults">Travellers</label>
+        <div class="field"><label for="adults">Adults</label>
           <div class="stepper"><button type="button" data-step="-1" data-for="adults" aria-label="Fewer travellers">−</button><input id="adults" type="number" min="1" max="9"><button type="button" data-step="1" data-for="adults" aria-label="More travellers">+</button></div></div>
+      </div>
+
+      <div class="field kids-field">
+        <label>Children <span class="hint">· add each child's age on the travel date</span></label>
+        <div class="kids-list" id="kids-list"></div>
+        <div class="kids-row"><button type="button" class="pill" id="add-kid">＋ Add a child</button><span class="hint" id="kids-note"></span></div>
       </div>
 
       <details class="more" id="more">

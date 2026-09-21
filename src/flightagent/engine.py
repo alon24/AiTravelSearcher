@@ -64,6 +64,12 @@ class FlightSearchEngine:
         top = self._top(trips, req.top_n)
         if not trips:
             warnings.append("No itinerary satisfied the constraints.")
+        if req.children_ages:
+            warnings.append(f"Prices are totals for {req.pax_label}. Google prices children by age "
+                            "(under 2 = infant on lap, 2-11 = child, 12+ = adult); airlines' own rules can differ.")
+        if req.pax_infants:
+            warnings.append("Travelling with an infant under 2 (on a lap): infant fees and rules differ by airline, may not be in "
+                            "these prices, and Google may hide airlines that do not carry infants. Confirm on the airline's site.")
         return SearchResult(
             request=req, daily=daily, top=top,
             api_calls=self.api_calls, cache_hits=self.cache_hits, warnings=warnings,
@@ -120,7 +126,7 @@ class FlightSearchEngine:
     # ------------------------------------------------------------------- fetch
 
     def _cache_key(self, req: SearchRequest, k: Key) -> str:
-        return f"{self.provider.name}|{k[0]}|{k[1]}|{k[2]}|{req.currency}|{req.adults}|{req.max_stops_per_leg}"
+        return f"v2|{self.provider.name}|{k[0]}|{k[1]}|{k[2]}|{req.currency}|{req.pax_adults}-{req.pax_children}-{req.pax_infants}|{req.max_stops_per_leg}"
 
     async def _prefetch(self, req: SearchRequest, keys: set[Key]):
         raw: dict[Key, list[Offer]] = {}
@@ -153,8 +159,8 @@ class FlightSearchEngine:
             async with self.sem:
                 try:
                     offers = await self.provider.one_way(
-                        k[0], k[1], k[2], currency=req.currency, adults=req.adults,
-                        max_stops=req.max_stops_per_leg,
+                        k[0], k[1], k[2], currency=req.currency, adults=req.pax_adults,
+                        children=req.pax_children, infants=req.pax_infants, max_stops=req.max_stops_per_leg,
                     )
                 except Exception as e:  # one bad route/day must not sink the whole search
                     errors.append(f"{k[0]}->{k[1]} {k[2]}: {e}")

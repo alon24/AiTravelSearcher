@@ -25,8 +25,9 @@ class Fake:
     def __init__(self, fn):
         self.fn, self.calls = fn, []
 
-    async def one_way(self, o, d, day, *, currency, adults, max_stops):
+    async def one_way(self, o, d, day, *, currency, adults, max_stops, **kw):
         self.calls.append((o, d, day))
+        self.kw = {"adults": adults, **kw}
         return self.fn(o, d, day)
 
 
@@ -290,3 +291,70 @@ def test_ui_api_search_history_estimate(monkeypatch, tmp_path):
         assert c.delete(f"/api/searches/{sid}").json() == {"deleted": True}
         assert c.get(f"/api/searches/{sid}").status_code == 404
         assert c.get("/").status_code == 200 and c.get("/health").json()["status"] == "ok"
+
+
+def test_passenger_ages_map_to_google_categories():
+    r = req(adults=2, children_ages=[0, 5, 11, 12, 16])
+    assert (r.pax_adults, r.pax_children, r.pax_infants) == (4, 2, 1)
+    assert r.pax_label == "2 adults, children aged 0, 5, 11, 12, 16"
+    for bad in (dict(children_ages=[18]), dict(children_ages=[-1]), dict(adults=1, children_ages=[0, 1]),
+                dict(adults=5, children_ages=[3] * 5), dict(adults=0)):
+        with pytest.raises(ValueError):
+            req(**bad)
+
+
+def test_engine_passes_passengers_and_caches_them_separately():
+    p = Fake(lambda o, d, day: [offer(o, d, at(day), 100)])
+    engine = FlightSearchEngine(p, OfferCache(":memory:"))
+    run(engine, req(adults=2, children_ages=[0, 6]))
+    assert p.kw == {"adults": 2, "children": 1, "infants": 1}
+    n = len(p.calls)
+    run(engine, req(adults=2, children_ages=[0, 6]))
+    assert len(p.calls) == n                        # same travellers: cached
+    res = run(engine, req(adults=2))                # different travellers must not reuse that cache
+    assert len(p.calls) > n and res.api_calls > 0
+    kids = run(engine, req(adults=2, children_ages=[0, 6]))
+    assert any("infant" in w.lower() for w in kids.warnings) and any("totals" in w for w in kids.warnings)
+    from flightagent.report import render
+    assert render(kids).startswith("Travellers: 2 adults, children aged 0, 6")
+
+
+def test_gflights_skips_unpriced_flights_instead_of_crashing():
+    import json
+    from pathlib import Path
+    from flightagent.providers.gflights import parse_groups
+
+    fx = json.loads((Path(__file__).parent / "fixtures" / "gflights_tlv_fco_2026-10-05.json").read_text())
+    unpriced = [fx["best"][0][0], [[], "token"]]     # Google lists it but shows no price
+    offers = parse_groups(fx["best"] + fx["other"] + [unpriced], "TLV", "FCO", "USD")
+    assert len(offers) == 9
+
+
+def test_serpapi_sends_passengers(monkeypatch):
+    sent = {}
+
+    async def fake_get(self, params):
+        sent.update(params)
+        return {"error": "Google Flights hasn't returned any results for this query."}
+    monkeypatch.setattr(SerpApiProvider, "_get", fake_get)
+    asyncio.run(SerpApiProvider("k").one_way("TLV", "FCO", date(2026, 10, 5), currency="USD", adults=2, max_stops=1, children=1, infants=1))
+    assert (sent["adults"], sent["children"], sent["infants_on_lap"]) == (2, 1, 1)
+
+
+def test_gflights_encodes_lap_infants_with_measured_wire_value():
+    from flightagent.providers.gflights import _passengers
+
+    # ADULT=1, CHILD=2; lap infant is wire value 3 (measured: priced as adult-only fare), not the library's name for 4
+    assert _passengers(2, 1, 1).pb() == [1, 1, 2, 3]
+    assert _passengers(1, 0, 0).pb() == [1]
+
+
+def test_simple_endpoint_reports_validation_errors_briefly(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+    from flightagent.api import app
+
+    monkeypatch.setenv("FLIGHTAGENT_PROVIDER", "mock")
+    monkeypatch.setenv("FLIGHTAGENT_CACHE_DB", str(tmp_path / "c.sqlite"))
+    r = TestClient(app).post("/search/simple", json={"destinations": "ROM", "from_date": "2026-10-01", "to_date": "2026-10-09",
+                                                      "nights": "4", "adults": "1", "children_ages": "0,1"}).json()
+    assert r["error"] == "Each infant under 2 needs their own adult (one lap infant per adult)"

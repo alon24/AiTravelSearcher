@@ -153,6 +153,15 @@ select.input {
 .seg label:has(input:checked) { background: var(--brand); color: #fff; box-shadow: 0 6px 16px -6px rgba(196, 76, 255, .7); }
 .seg label:has(input:focus-visible) { outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent); }
 
+.kids-field { gap: 8px; }
+.kids-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.kids-list:empty { display: none; }
+.kid { display: inline-flex; align-items: center; gap: 6px; background: var(--card-2); border: 1.5px solid var(--line-2); border-radius: 14px; padding: 3px 6px 3px 12px; font-weight: 700; font-size: 13px; text-transform: none; letter-spacing: 0; color: var(--ink); }
+.kid select { border: 0; background: transparent; font-weight: 800; padding: 8px 2px; outline: 0; cursor: pointer; color: var(--ink); }
+.kid button { border: 0; background: transparent; width: 24px; height: 24px; border-radius: 50%; color: var(--muted); font-size: 16px; line-height: 1; }
+.kid button:hover { background: var(--bad-bg); color: var(--bad-ink); }
+.kids-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.kids-row .hint { flex: 1; min-width: 200px; }
 details.more { border-top: 1px dashed var(--line-2); padding-top: 14px; }
 details.more summary { cursor: pointer; font-weight: 700; color: var(--accent-ink); list-style: none; display: flex; align-items: center; gap: 8px; }
 details.more summary::before { content: "▸"; transition: transform .15s; }

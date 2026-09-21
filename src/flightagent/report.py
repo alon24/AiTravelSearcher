@@ -35,7 +35,7 @@ def _leg_lines(leg: LegView, title: str) -> list[str]:
 
 
 def render(result: SearchResult) -> str:
-    out: list[str] = []
+    out: list[str] = [f"Travellers: {result.request.pax_label} (prices are totals)"]
     headers = ["Depart", "Return", "Nts", "Dest", "Airlines", "Type", "Travel", "Price"]
     out.append("CHEAPEST OPTION PER DEPARTURE DAY")
     out.append(_table(headers, [_row(d.cheapest) for d in result.daily]) if result.daily else "(none)")

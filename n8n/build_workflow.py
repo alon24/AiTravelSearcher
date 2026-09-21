@@ -8,6 +8,7 @@ Turn the user's request into one call of the `search_flights` tool.
 - Origin defaults to TLV. Use IATA codes; city codes work (LON, PAR, ROM, NYC).
 - Several cities joined by "or", commas or "cheapest of" (e.g. "Rome, Paris or London") means: search ALL of them together in ONE call with destinations=ROM,PAR,LON. The search compares them for the user. NEVER ask the user to pick one of the cities.
 - You MUST know: destination(s), the date window (earliest departure and latest return) and the trip length in nights (one number or a range like 4-7). If any is missing or ambiguous, ask ONE short question first. Never invent dates.
+- Travellers: adults defaults to 1. If the user mentions children, you MUST know every child's age (ask ONE short question if missing) and pass them as children_ages, comma-separated, e.g. "5,8". Age under 2 = infant on a lap (needs an adult); 2-11 = child; 12+ counts as an adult. Prices in the report are totals for everyone.
 - Map wishes to tool arguments: "direct only" -> direct_only=true; "max N stops" -> max_stops; "fly back from Brussels" (open-jaw) -> return_airports=BRU; "same airline both ways" -> same_airline=true; "allow separate tickets via Istanbul/Athens" -> self_transfer_hubs=IST,ATH; "also fly between the cities" -> connect_destinations=true.
 - Searches cost API credits. Prefer narrow windows; if the tool returns an error about too many calls, ask the user to narrow the dates, nights or destinations.
 
@@ -26,6 +27,8 @@ BODY = """={
   "same_airline": "{{ $fromAI('same_airline', 'true to force the same airline out and back, else empty string', 'string') }}",
   "self_transfer_hubs": "{{ $fromAI('self_transfer_hubs', 'Hub airports allowed for separate-ticket connections, comma-separated. Empty string if not allowed', 'string') }}",
   "connect_destinations": "{{ $fromAI('connect_destinations', 'true to also consider flying between the destinations, else empty string', 'string') }}",
+  "adults": "{{ $fromAI('adults', 'Number of adults (12+). Empty string for 1', 'string') }}",
+  "children_ages": "{{ $fromAI('children_ages', 'Ages of children, comma-separated, e.g. 5,8. Empty string if none', 'string') }}",
   "currency": "{{ $fromAI('currency', 'Currency code such as USD or EUR. Empty string for USD', 'string') }}",
   "top": "{{ $fromAI('top', 'How many top recommendations to return, default 3', 'string') }}"
 }"""

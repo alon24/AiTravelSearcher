@@ -36,7 +36,9 @@ class SearchRequest(BaseModel):
     # Multi-stop: minimum nights in each city
     min_nights_per_stop: int = 1
 
-    adults: int = 1
+    adults: int = Field(default=1, ge=1, le=9)
+    # Ages of children on the travel date. Google's categories: <2 infant on lap, 2-11 child, 12+ adult.
+    children_ages: list[int] = Field(default_factory=list)
     currency: str = "USD"
 
     # Best-value scoring: effective_cost = price + value_of_time * hours + penalties
@@ -57,7 +59,32 @@ class SearchRequest(BaseModel):
             raise ValueError("max_nights must be >= min_nights")
         if not self.allow_connections:
             self.max_stops_per_leg = 0
+        if any(not 0 <= a <= 17 for a in self.children_ages):
+            raise ValueError("children_ages must be between 0 and 17")
+        if self.adults + len(self.children_ages) > 9:
+            raise ValueError("At most 9 travellers per search")
+        if self.pax_infants > self.pax_adults:
+            raise ValueError("Each infant under 2 needs their own adult (one lap infant per adult)")
         return self
+
+    @property
+    def pax_infants(self) -> int:
+        return sum(a < 2 for a in self.children_ages)
+
+    @property
+    def pax_children(self) -> int:
+        return sum(2 <= a <= 11 for a in self.children_ages)
+
+    @property
+    def pax_adults(self) -> int:
+        return self.adults + sum(a >= 12 for a in self.children_ages)
+
+    @property
+    def pax_label(self) -> str:
+        label = f"{self.adults} adult{'s' if self.adults != 1 else ''}"
+        if self.children_ages:
+            label += ", children aged " + ", ".join(str(a) for a in sorted(self.children_ages))
+        return label
 
 
 class Segment(BaseModel):

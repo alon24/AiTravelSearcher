@@ -27,7 +27,8 @@ class MockProvider:
     name = "mock"
 
     async def one_way(
-        self, origin: str, dest: str, day: date, *, currency: str, adults: int, max_stops: int
+        self, origin: str, dest: str, day: date, *, currency: str, adults: int, max_stops: int,
+        children: int = 0, infants: int = 0,
     ) -> list[Offer]:
         route = _rng("route", *sorted([origin, dest]))
         base = route.uniform(50, 220)
@@ -47,7 +48,7 @@ class MockProvider:
                 ))
                 t = t + fly + timedelta(minutes=r.choice([45, 75, 120, 240, 600, 1080]))
             return Offer(
-                origin=origin, destination=dest, price=round(price * adults, 2),
+                origin=origin, destination=dest, price=round(price * (adults + children) + 20 * infants, 2),
                 currency=currency, segments=segs, provider=self.name,
                 deep_links=[google_flights_link(origin, dest, day)],
             )

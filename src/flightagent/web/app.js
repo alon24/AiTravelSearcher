@@ -119,9 +119,10 @@ function autocomplete(root, { id, placeholder, multi, max = 8, onChange }) {
 const defaults = () => {
   const t = new Date(), plus = n => { const d = new Date(t); d.setDate(d.getDate() + n); return iso(d); };
   return { from: ["TLV"], to: [], back: [], start: plus(21), end: plus(60), nmin: 4, nmax: 7, stops: 1, currency: "USD", adults: 1,
-    connect: false, same: false, st: false, hubs: [], buffer: 4, maxtravel: "", laymin: 1.5, laymax: 72, vot: 10, top: 5, maxcalls: 400 };
+    kids: [], connect: false, same: false, st: false, hubs: [], buffer: 4, maxtravel: "", laymin: 1.5, laymax: 72, vot: 10, top: 5, maxcalls: 400 };
 };
 let ac = {};
+let kids = [];   // ages of the children in the form
 const num = (id, fallback) => { const v = parseFloat($(`#${id}`).value); return Number.isFinite(v) ? v : fallback; };
 
 function readForm() {
@@ -129,7 +130,7 @@ function readForm() {
     from: ac.from.get(), to: ac.to.get(), back: ac.back.get(), hubs: ac.hubs.get(),
     start: $("#start").value, end: $("#end").value, nmin: num("nmin", 0), nmax: num("nmax", 0),
     stops: +($$("input[name=stops]").find(r => r.checked)?.value ?? 1), currency: $("#currency").value, adults: num("adults", 1),
-    connect: $("#connect").checked, same: $("#same").checked, st: $("#st").checked, buffer: num("buffer", 4),
+    kids: [...kids], connect: $("#connect").checked, same: $("#same").checked, st: $("#st").checked, buffer: num("buffer", 4),
     maxtravel: $("#maxtravel").value, laymin: num("laymin", 1.5), laymax: num("laymax", 72), vot: num("vot", 10), top: num("top", 5), maxcalls: num("maxcalls", 400),
   };
 }
@@ -138,6 +139,7 @@ function writeForm(f) {
   $("#start").value = f.start; $("#end").value = f.end; $("#nmin").value = f.nmin; $("#nmax").value = f.nmax;
   const r = $$("input[name=stops]").find(x => +x.value === f.stops) || $$("input[name=stops]")[1]; r.checked = true;
   $("#currency").value = f.currency; $("#adults").value = f.adults;
+  kids = [...(f.kids || [])]; renderKids();
   $("#connect").checked = f.connect; $("#same").checked = f.same; $("#st").checked = f.st; $("#buffer").value = f.buffer;
   $("#maxtravel").value = f.maxtravel; $("#laymin").value = f.laymin; $("#laymax").value = f.laymax;
   $("#vot").value = f.vot; $("#vot-out").textContent = money(f.vot, f.currency) + "/h"; $("#top").value = f.top; $("#maxcalls").value = f.maxcalls;
@@ -149,6 +151,9 @@ function toRequest(f) {
   if (!f.start || !f.end) return err("Pick your dates.");
   const days = (day(f.end) - day(f.start)) / 864e5;
   if (days <= 0) return err("The return date must be after the departure date.");
+  const infants = f.kids.filter(a => a < 2).length, adultsEff = f.adults + f.kids.filter(a => a >= 12).length;
+  if (f.adults + f.kids.length > 9) return err("At most 9 travellers per search.");
+  if (infants > adultsEff) return err("Each child under 2 needs their own adult (one lap infant per adult).");
   if (f.nmin < 1 || f.nmax < f.nmin) return err("Nights: the minimum must be at least 1 and no more than the maximum.");
   if (days < f.nmin) return err(`That window is only ${plural(days, "day")}, shorter than ${plural(f.nmin, "night")}.`);
   return { req: {
@@ -158,16 +163,36 @@ function toRequest(f) {
     min_layover_min: Math.round(f.laymin * 60), max_layover_min: Math.round(f.laymax * 60),
     max_travel_min_per_direction: f.maxtravel ? Math.round(parseFloat(f.maxtravel) * 60) : null,
     allow_mixed_airlines: !f.same, allow_self_transfer: f.st && f.hubs.length > 0, self_transfer_hubs: f.hubs,
-    self_transfer_buffer_min: Math.round(f.buffer * 60), adults: f.adults, currency: f.currency,
+    self_transfer_buffer_min: Math.round(f.buffer * 60), adults: f.adults, children_ages: f.kids, currency: f.currency,
     value_of_time_per_hour: f.vot, top_n: f.top, max_api_calls: f.maxcalls,
   } };
 }
 function requestToForm(q) {
   return { from: [q.origin], to: q.destinations, back: q.return_airports, start: q.window_start, end: q.window_end,
-    nmin: q.min_nights, nmax: q.max_nights, stops: Math.min(q.max_stops_per_leg, 2), currency: q.currency, adults: q.adults,
+    nmin: q.min_nights, nmax: q.max_nights, stops: Math.min(q.max_stops_per_leg, 2), currency: q.currency, adults: q.adults, kids: q.children_ages || [],
     connect: q.connect_destinations, same: !q.allow_mixed_airlines, st: q.allow_self_transfer, hubs: q.self_transfer_hubs,
     buffer: q.self_transfer_buffer_min / 60, maxtravel: q.max_travel_min_per_direction ? q.max_travel_min_per_direction / 60 : "",
     laymin: q.min_layover_min / 60, laymax: q.max_layover_min / 60, vot: q.value_of_time_per_hour, top: q.top_n, maxcalls: q.max_api_calls };
+}
+
+// ------------------------------------------------------------------ travellers
+const paxCount = q => q.adults + (q.children_ages || []).length;
+function paxLabel(q) {
+  const ages = q.children_ages || [];
+  return plural(q.adults, "adult") + (ages.length ? `, children aged ${[...ages].sort((a, b) => a - b).join(", ")}` : "");
+}
+const ageLabel = a => (a === 0 ? "Under 1" : a === 1 ? "1" : a >= 12 ? `${a} (adult fare)` : String(a));
+function renderKids() {
+  $("#kids-list").replaceChildren(...kids.map((age, i) => h("label", { class: "kid" }, `Child ${i + 1}`,
+    h("select", { "aria-label": `Age of child ${i + 1}`, onchange: e => { kids[i] = +e.target.value; renderKids(); onFormChange(); } },
+      Array.from({ length: 18 }, (_, a) => h("option", { value: a, selected: a === age }, ageLabel(a)))),
+    h("button", { type: "button", "aria-label": `Remove child ${i + 1}`, onclick: () => { kids.splice(i, 1); renderKids(); onFormChange(); } }, "×"))));
+  const inf = kids.filter(a => a < 2).length, adult = kids.filter(a => a >= 12).length;
+  $("#kids-note").textContent = [
+    inf ? `${plural(inf, "infant")} under 2 ${inf === 1 ? "travels" : "travel"} on a lap: fares and airline rules vary, and some airlines may not appear.` : "",
+    adult ? `${plural(adult, "child")} aged 12+ counted as adult.` : "",
+    !kids.length ? "Children are priced by age; leave empty if you're flying with adults only." : "",
+  ].filter(Boolean).join(" ");
 }
 
 // ------------------------------------------------------------------ estimate + submit
@@ -225,7 +250,7 @@ function histItem(r) {
   return h("div", { class: "hist-item" + (r.id === current ? " active" : ""), role: "button", tabindex: "0", "data-id": r.id,
     onclick: open, onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } } },
     h("div", { class: "hi-route" }, `${q.origin} → ${q.destinations.join(", ")}`),
-    h("div", { class: "hi-meta" }, `${fmtShort(day(q.window_start))} – ${fmtShort(day(q.window_end))} · ${nights}`),
+    h("div", { class: "hi-meta" }, `${fmtShort(day(q.window_start))} – ${fmtShort(day(q.window_end))} · ${nights}${paxCount(q) > 1 ? ` · ${plural(paxCount(q), "traveller")}` : ""}`),
     h("div", { class: "hi-foot" }, status, h("span", {}, ago(r.created))),
     h("button", { class: "hi-del", type: "button", "aria-label": "Delete this search", onclick: async e => {
       e.stopPropagation(); await api(`/api/searches/${r.id}`, { method: "DELETE" });
@@ -272,6 +297,7 @@ function renderResult(row) {
       h("h2", {}, `${q.origin} → ${q.destinations.join(", ")}`),
       h("div", { class: "res-sub" }, `${fmtShort(day(q.window_start))} – ${fmtShort(day(q.window_end))} · ${nights}`,
         h("span", { class: "badge ok" }, `${res.api_calls + res.cache_hits} lookups${via ? ` · ${via}` : ""}${res.cache_hits ? ` · ${res.cache_hits} cached` : ""}`),
+        paxCount(q) > 1 && h("span", { class: "badge run" }, `${paxLabel(q)} · totals`),
         h("span", { class: "badge run" }, `${res.elapsed_s}s`), h("span", {}, ago(row.created)))),
     h("div", { class: "actions" },
       h("button", { class: "btn", type: "button", onclick: () => { writeForm(requestToForm(q)); onFormChange(); window.scrollTo({ top: 0, behavior: "smooth" }); } }, "Edit"),
@@ -311,7 +337,7 @@ function renderResult(row) {
     });
     const p = picks.find(x => x.key === view.pickOpen);
     pickDetail.hidden = !p;
-    pickDetail.replaceChildren(...(p ? [tripCard(p.t, cur)] : []));
+    pickDetail.replaceChildren(...(p ? [tripCard(p.t, cur, paxCount(q))] : []));
   }
   function openPick(key) {
     const p = picks.find(x => x.key === key);
@@ -340,12 +366,12 @@ function renderResult(row) {
   const detailHost = h("div", { class: "trips" });
   box.append(h("div", {}, h("h3", { style: "margin:6px 0 12px;font-size:18px;letter-spacing:-.02em" }, "Selected day"), detailHost));
   if (res.top.length) box.append(h("div", {}, h("h3", { style: "margin:6px 0 12px;font-size:18px;letter-spacing:-.02em" }, "Top picks overall"),
-    h("div", { class: "trips" }, res.top.map(t => tripCard(t, cur)))));
+    h("div", { class: "trips" }, res.top.map(t => tripCard(t, cur, paxCount(q))))));
 
   function select(date) { view.sel = date; if (view.pickOpen) { view.pickOpen = null; syncPicks(); } redraw(); drawDetail(); }
   function drawDetail() {
     const d = byDay.get(view.sel);
-    detailHost.replaceChildren(d ? tripCard(tripOf(d), cur) : h("div", { class: "note" }, "Pick a day on the chart."));
+    detailHost.replaceChildren(d ? tripCard(tripOf(d), cur, paxCount(q)) : h("div", { class: "note" }, "Pick a day on the chart."));
   }
   const days = (() => {
     const first = day(daily[0].depart_date), last = day(daily[daily.length - 1].depart_date), out = [];
@@ -442,14 +468,14 @@ function drawTable(host, rows, sel, cur, onSelect) {
 }
 
 // ------------------------------------------------------------------ trip card
-function tripCard(t, cur) {
+function tripCard(t, cur, pax = 1) {
   const titles = t.legs.length === 3 ? ["Outbound", "Between cities", "Return"] : ["Outbound", "Return"];
   const kind = { open_jaw: "Open-jaw", multi_stop: "Multi-city" }[t.kind];
   return h("article", { class: "card trip" },
     h("div", { class: "trip-head" },
       h("div", {}, h("div", { class: "trip-dest" }, t.destination, kind && h("span", { class: "badge run" }, kind), t.self_transfer && h("span", { class: "badge warn" }, "Self-transfer")),
         h("div", { class: "trip-dates" }, `${fmtDay(day(t.depart_date))} → ${fmtDay(day(t.return_date))} · ${plural(t.nights, "night")}`)),
-      h("div", { class: "trip-price" }, h("div", { class: "p" }, money(t.price, cur)), h("div", { class: "e" }, `value score ${Math.round(t.effective_cost)}`))),
+      h("div", { class: "trip-price" }, h("div", { class: "p" }, money(t.price, cur)), h("div", { class: "e" }, pax > 1 ? `total for ${plural(pax, "traveller")}` : `value score ${Math.round(t.effective_cost)}`))),
     t.legs.map((leg, i) => legCard(leg, titles[i] || "Leg", cur)),
     t.warnings.length ? h("div", { class: "warns" }, t.warnings.map(w => h("div", { class: "warn" + (/^(SELF|Long)/.test(w) ? "" : " info") },
       h("span", { "aria-hidden": "true" }, /^(SELF|Long)/.test(w) ? "⚠" : "ℹ"), w))) : null);
@@ -512,6 +538,7 @@ async function init() {
   $$("[data-nights]").forEach(b => b.addEventListener("click", () => {
     const [a, z] = b.dataset.nights.split("-"); $("#nmin").value = a; $("#nmax").value = z; onFormChange();
   }));
+  $("#add-kid").addEventListener("click", () => { if (kids.length < 8) { kids.push(5); renderKids(); onFormChange(); } });
   $("#new-search").addEventListener("click", () => {
     clearTimeout(pollTimer); current = null; $("#results").replaceChildren(); writeForm({ ...defaults(), from: readForm().from });
     onFormChange(); closeSidebar(); window.scrollTo({ top: 0, behavior: "smooth" }); $("#to-in").focus(); refreshHistory();

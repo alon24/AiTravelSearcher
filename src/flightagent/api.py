@@ -10,7 +10,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from .cache import OfferCache
 from .engine import BudgetExceeded, FlightSearchEngine
@@ -85,6 +85,8 @@ class SimpleSearch(BaseModel):
     connect_destinations: str = ""
     currency: str = ""
     top: str = ""
+    adults: str = ""
+    children_ages: str = ""  # comma-separated ages, e.g. "5,8"
 
 
 def _csv(s: str) -> list[str]:
@@ -114,6 +116,8 @@ def to_request(s: SimpleSearch) -> SearchRequest:
         allow_connections=not _flag(s.direct_only), allow_mixed_airlines=not _flag(s.same_airline),
         allow_self_transfer=bool(hubs), self_transfer_hubs=hubs,
         connect_destinations=_flag(s.connect_destinations),
+        adults=int(s.adults) if s.adults.strip() else 1,
+        children_ages=[int(x) for x in s.children_ages.replace(",", " ").split()],
         currency=s.currency.strip().upper() or "USD", **kw,
     )
 
@@ -124,6 +128,8 @@ async def search_simple(s: SimpleSearch) -> dict[str, str]:
     try:
         req = to_request(s)
         result = await build_engine().search(req)
+    except ValidationError as e:
+        return {"error": "; ".join(err["msg"].removeprefix("Value error, ") for err in e.errors())}
     except (ValueError, BudgetExceeded, RuntimeError) as e:
         return {"error": str(e)}
     text = render(result)

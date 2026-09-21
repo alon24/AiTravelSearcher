@@ -24,7 +24,8 @@ class SerpApiProvider:
         self.client = httpx.AsyncClient(timeout=timeout)
 
     async def one_way(
-        self, origin: str, dest: str, day: date, *, currency: str, adults: int, max_stops: int
+        self, origin: str, dest: str, day: date, *, currency: str, adults: int, max_stops: int,
+        children: int = 0, infants: int = 0,
     ) -> list[Offer]:
         params = {
             "engine": "google_flights", "type": 2, "hl": "en",
@@ -32,6 +33,10 @@ class SerpApiProvider:
             "outbound_date": day.isoformat(), "currency": currency,
             "adults": adults, "stops": _STOPS[max_stops], "api_key": self.api_key,
         }
+        if children:
+            params["children"] = children
+        if infants:
+            params["infants_on_lap"] = infants
         data = await self._get(params)
         if "error" in data:
             # "Google Flights hasn't returned any results" is a normal empty answer.

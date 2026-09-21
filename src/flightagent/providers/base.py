@@ -19,7 +19,8 @@ class FlightProvider(Protocol):
     name: str
 
     async def one_way(
-        self, origin: str, dest: str, day: date, *, currency: str, adults: int, max_stops: int
+        self, origin: str, dest: str, day: date, *, currency: str, adults: int, max_stops: int,
+        children: int = 0, infants: int = 0,
     ) -> list[Offer]: ...
 
 
