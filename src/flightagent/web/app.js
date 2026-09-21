@@ -195,7 +195,7 @@ function toRequest(f) {
   if (f.adults + f.kids.length > 9) return err("At most 9 travellers per search.");
   if (infants > adultsEff) return err("Each child under 2 needs their own adult (one lap infant per adult).");
   if (f.nmin < 1 || f.nmax < f.nmin) return err("Nights: the minimum must be at least 1 and no more than the maximum.");
-  if (days < f.nmin) return err(`That window is only ${plural(days, "day")}, shorter than ${tripLen(f.nmin)}.`);
+  if (days < f.nmin) return err(`Your dates allow at most ${plural(days, "night")} (${plural(days + 1, "day")}), but the trip is ${tripLen(f.nmin)}. Shorten the trip or move the latest return later.`);
   return { req: {
     origin: f.from[0], destinations: f.to, return_airports: f.back, connect_destinations: f.connect,
     window_start: f.start, window_end: f.end, min_nights: f.nmin, max_nights: f.nmax,
@@ -249,11 +249,40 @@ function rerenderCurrency() {
 // Put a night range into the two inputs in the unit being shown, and explain what it means in calendar days.
 function showLength(nmin, nmax) {
   const off = unitOff();
-  for (const [id, n] of [["nmin", nmin], ["nmax", nmax]]) { const el = $(`#${id}`); el.min = 1 + off; el.max = 60 + off; el.value = n + off; }
-  updateLengthHint(nmin, nmax);
+  for (const [id, n] of [["nmin", nmin], ["nmax", nmax]]) $(`#${id}`).value = n + off;
+  constrainLength();
+  updateLengthHint(num("nmin", 0) - off, num("nmax", 0) - off);
+}
+
+// The dates cap the trip length: leaving on the earliest date and coming back on the latest is the longest trip possible.
+const addDays = (str, n) => { const d = day(str); d.setDate(d.getDate() + n); return iso(d); };
+const windowNights = () => {
+  const a = $("#start").value, b = $("#end").value;
+  if (!a || !b) return null;
+  const n = Math.round((day(b) - day(a)) / 864e5);
+  return n >= 1 ? n : null;
+};
+let lengthAdjusted = false;
+function constrainLength() {
+  const off = unitOff(), cap = Math.min(60, windowNights() ?? 60);
+  if ($("#start").value) $("#end").min = addDays($("#start").value, 1);          // the calendar will not offer a return before the start
+  if ($("#end").value) $("#start").max = addDays($("#end").value, -1);
+  let changed = false;
+  for (const id of ["nmin", "nmax"]) {
+    const el = $(`#${id}`), v = parseFloat(el.value);
+    el.min = 1 + off; el.max = cap + off;
+    if (Number.isFinite(v)) { const c = Math.min(cap + off, Math.max(1 + off, v)); if (c !== v) { el.value = c; changed = true; } }
+  }
+  if (+$("#nmin").value > +$("#nmax").value) { $("#nmin").value = $("#nmax").value; changed = true; }
+  lengthAdjusted = changed;
+  return changed;
 }
 function updateLengthHint(nmin, nmax) {
-  $("#nights-hint").textContent = nmin >= 1 && nmax >= nmin ? `${lenRange(nmin, nmax)}. The day you leave and the day you return both count as days.` : "";
+  const wn = windowNights();
+  const what = nmin >= 1 && nmax >= nmin ? `${lenRange(nmin, nmax)}. The day you leave and the day you return both count as days.` : "";
+  const cap = wn ? Math.min(60, wn) : null;
+  const limit = cap ? ` Your dates allow up to ${tripLen(cap)}.${nmax >= cap ? " Move the latest return later for longer trips." : ""}` : "";
+  $("#nights-hint").textContent = (lengthAdjusted ? "Adjusted to fit your dates. " : "") + what + limit;
 }
 
 // ------------------------------------------------------------------ estimate + submit
@@ -758,13 +787,14 @@ async function init() {
   writeForm({ ...defaults(), ...draft });
   lastCurrency = displayCurrency = readForm().currency;
   if (day($("#end").value) < new Date()) writeForm({ ...readForm(), start: defaults().start, end: defaults().end });
-  $("#form").addEventListener("input", onFormChange); $("#form").addEventListener("change", onFormChange);
+  $("#form").addEventListener("input", e => { if (e.target.id === "start" || e.target.id === "end") constrainLength(); onFormChange(); });
+  $("#form").addEventListener("change", () => { constrainLength(); onFormChange(); });
   $$("[data-step]").forEach(b => b.addEventListener("click", () => {
     const el = $(`#${b.dataset.for}`), v = (parseFloat(el.value) || 0) + +b.dataset.step;
     el.value = Math.min(+el.max || 99, Math.max(+el.min || 0, v));
     if (el.id === "nmin" && +$("#nmax").value < +el.value) $("#nmax").value = el.value;
     if (el.id === "nmax" && +$("#nmin").value > +el.value) $("#nmin").value = el.value;
-    onFormChange();
+    constrainLength(); onFormChange();
   }));
   $$("[data-nights]").forEach(b => b.addEventListener("click", () => {
     const [a, z] = b.dataset.nights.split("-"); showLength(+a, +z); onFormChange();
