@@ -224,3 +224,36 @@ def test_empty_results_are_not_cached_and_warn():
     res = run(engine, req())
     assert any("no flights for ANY route" in w for w in res.warnings)
     assert engine.cache.db.execute("select count(*) from offers").fetchone()[0] == 0
+
+
+def test_gflights_parses_best_and_other_groups():
+    import json
+    from pathlib import Path
+    from flightagent.providers.gflights import parse_groups
+
+    fx = json.loads((Path(__file__).parent / "fixtures" / "gflights_tlv_fco_2026-10-05.json").read_text())
+    offers = parse_groups(fx["best"] + fx["other"], "TLV", "FCO", "USD")
+    assert len(offers) == 9
+    cheapest = min(offers, key=lambda o: o.price)
+    # the $161 Tus Air fare lives in Google's "best flights" block, which fast-flights drops
+    assert (cheapest.price, cheapest.airlines, cheapest.segments[0].label) == (161.0, ["U8"], "U8132")
+    assert cheapest.duration_min == 225 and cheapest.stops == 0
+    sky = next(o for o in offers if o.airlines == ["GQ"])
+    assert sky.stops == 1 and sky.segments[1].origin == "ATH" and sky.layovers_min[0] > 0
+
+
+def test_fallback_provider_and_selection(monkeypatch):
+    from flightagent.providers import FallbackProvider, get_provider
+
+    class Boom:
+        name = "boom"
+        async def one_way(self, *a, **k):
+            raise RuntimeError("blocked")
+
+    backup = Fake(lambda o, d, day: [offer(o, d, at(day), 99)])
+    got = asyncio.run(FallbackProvider(Boom(), backup).one_way("TLV", "ROM", date(2026, 10, 5),
+                                                             currency="USD", adults=1, max_stops=1))
+    assert got[0].price == 99
+    monkeypatch.setenv("SERPAPI_API_KEY", "k")
+    assert get_provider("gflights,serpapi").name == "gflights+serpapi"
+    assert get_provider("mock").name == "mock"

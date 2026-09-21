@@ -17,8 +17,18 @@ cp .env.example .env            # FLIGHTAGENT_PROVIDER=mock works offline, no ke
 ## Providers
 | name | status |
 |---|---|
+| `gflights` | **free**, scrapes Google Flights (no key). ~0.5 s per lookup at low concurrency |
+| `serpapi` | Google Flights via SerpApi (`SERPAPI_API_KEY`); free plan = 250 credits/month, 1 credit per (origin, dest, day) |
 | `mock` | deterministic fake fares, for development / tests |
-| `serpapi` | Google Flights via SerpApi (`SERPAPI_API_KEY`), 1 credit per (origin, dest, day) |
+
+`FLIGHTAGENT_PROVIDER` accepts a comma list as a fallback order. The default `gflights,serpapi`
+scrapes for free and only spends SerpApi credits if Google blocks or breaks the scraper.
+
+Scraper notes: it uses the `fast-flights` package for its browser-impersonating HTTP client, but
+parses the page itself, because the library drops Google's "best flights" block (often the cheapest
+fares). It accepts city codes (`ROM`, `LON`) directly. Scraping may violate Google's terms, can be
+rate-limited or break when Google changes the page, so keep volume modest. `tests/fixtures/` holds a
+real captured payload so a layout change shows up as a failing test.
 
 Amadeus Self-Service was shut down on 2026-07-17 and Kiwi Tequila is invite-only, so neither is
 implemented. Add a provider by implementing `FlightProvider.one_way` (`providers/base.py`).
@@ -38,7 +48,7 @@ implemented. Add a provider by implementing `FlightProvider.one_way` (`providers
 - Prices are sums of one-way fares; a genuine round-trip fare from one airline can be cheaper.
 - Times shown are local. Durations use the provider's real flight times (mock data ignores time zones).
 - Deep links go to Google Flights searches; "book direct" links are airline home pages.
-- Providers return only what the search API shows; low-cost carriers may be missing from Google Flights.
+- Providers return only what Google Flights shows; some low-cost carriers may be missing.
 
 ## n8n chat front-end
 `n8n/flight-agent-chat.json` is a chat workflow: Chat Trigger → AI Agent (OpenRouter model + memory)
@@ -51,5 +61,5 @@ docker compose up -d --build     # API container on the existing `n8n_default` n
 Then in n8n (http://localhost:5678): **Workflows → Import from file** → `n8n/flight-agent-chat.json`,
 open the *OpenRouter Model* node and create an OpenRouter credential (paste the key there, not in `.env`; n8n stores it encrypted), then click **Open chat**.
 
-Set `FLIGHTAGENT_PROVIDER=serpapi` and `SERPAPI_API_KEY` in `.env` (then `docker compose up -d`) for real prices;
-until then every report is labelled DEMO DATA. `GET /health` shows the active provider.
+Set `FLIGHTAGENT_PROVIDER=gflights,serpapi` in `.env` (then `docker compose up -d --build`) for real prices;
+with `mock` every report is labelled DEMO DATA. `GET /health` shows the active provider.

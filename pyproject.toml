@@ -3,7 +3,7 @@ name = "flightagent"
 version = "0.1.0"
 description = "Flexible-date flight search agent: open-jaw, multi-destination, virtual interlining, self-transfer"
 requires-python = ">=3.10"
-dependencies = ["fastapi", "uvicorn[standard]", "pydantic>=2", "httpx", "python-dotenv"]
+dependencies = ["fastapi", "uvicorn[standard]", "pydantic>=2", "httpx", "python-dotenv", "fast-flights>=3.1", "typing_extensions"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
