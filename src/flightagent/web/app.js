@@ -430,7 +430,19 @@ function renderResult(row, opts = {}) {
       h("button", { class: "btn", type: "button", onclick: () => { writeForm(requestToForm(q)); onFormChange(); window.scrollTo({ top: 0, behavior: "smooth" }); } }, "Edit"),
       h("button", { class: "btn", type: "button", onclick: () => submitSearch(q) }, "Search again"))));
   res.warnings.forEach(w => box.append(h("div", { class: "note" }, w)));
-  if (!daily.length) { box.append(h("div", { class: "note" }, "No trips matched. Try more stops, a wider window or a longer layover limit.")); return; }
+  if (!daily.length) {
+    // Keep everything needed to change the filter: an airline filter that leaves no trips must not make the controls vanish.
+    const filtered = (q.airlines_include || []).length || (q.airlines_exclude || []).length;
+    const rest = [
+      h("div", { class: "note" }, filtered
+        ? "No trips match this airline filter. That airline may fly only one direction on these dates, or its flights may have no price (those are listed but never ranked). Every airline found is listed below: change the filter to continue."
+        : "No trips matched. Try more stops, a wider window or a longer layover limit."),
+      filtered ? h("div", { class: "actions" }, h("button", { type: "button", class: "btn", onclick: () => submitSearch({ ...q, airlines_include: [], airlines_exclude: [] }) }, "Remove the airline filter")) : null,
+      airlinePanel(res, q, cur), unpricedPanel(res, row)].filter(Boolean);
+    box.append(...rest);
+    if ((res.unpriced || []).length) watchRecheck(row);
+    return;
+  }
 
   // ---- derived picks
   const byDay = new Map(daily.map(d => [d.depart_date, d]));
@@ -719,7 +731,7 @@ function unpricedPanel(res, row) {
     } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = "Recheck now"; }
   } }, "Recheck now");
   return h("details", { class: "card panel air-panel", open: true },
-    h("summary", {}, `Flights listed without a price (${list.length})`, h("span", { class: "badge warn" }, "check the airline's site")),
+    h("summary", {}, `Flights listed without a price (${list.length})`, h("span", { class: "hint" }, "Google shows no fare for these")),
     h("p", { class: "air-help" }, "Google lists these flights but shows no fare (sometimes it shows it a few minutes later, so Skyhop rechecks on a schedule, every 15 minutes for departures within two weeks). They are not included in the prices or rankings above."),
     h("div", { class: "air-tools" }, btn, h("span", { class: "unp-status" }, nextCheckText(row))),
     h("div", { class: "air-list" }, list.map(u => h("div", { class: "unp-row" },
@@ -729,7 +741,8 @@ function unpricedPanel(res, row) {
       h("span", { class: "unp-air" }, h("b", {}, u.flights), ` ${u.airline}`, u.stops ? ` · ${plural(u.stops, "stop")}` : " · nonstop",
         u.last_price != null ? h("span", { class: "badge warn", title: "Google showed this fare earlier and has since dropped it, so it may be out of date" }, `last seen ${money(u.last_price, row.request.currency)}, ${ago(u.last_seen)}`) : null),
       h("span", { class: "actions" },
-        config.airline_sites[u.airline_code] ? h("a", { class: "btn small", href: config.airline_sites[u.airline_code], target: "_blank", rel: "noopener noreferrer" }, `${u.airline} ↗`) : null,
+        h("a", { class: "btn small", target: "_blank", rel: "noopener noreferrer", title: config.airline_sites[u.airline_code] ? "Open the airline's own site to see the fare" : "We have no link for this airline: search for it",
+          href: config.airline_sites[u.airline_code] || `https://www.google.com/search?q=${encodeURIComponent(`${u.airline} ${u.flights} ${u.origin} ${u.destination} ${u.date} book`)}` }, config.airline_sites[u.airline_code] ? `${u.airline} site ↗` : "Find on Google ↗"),
         h("button", { type: "button", class: "btn small", onclick: () => Builder.browse(u.origin, u.destination, u.date) }, "All flights that day"),
         u.link ? h("a", { class: "btn small", href: u.link, target: "_blank", rel: "noopener noreferrer" }, "Google Flights ↗") : null)))));
 }

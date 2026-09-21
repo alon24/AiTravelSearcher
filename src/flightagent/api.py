@@ -21,7 +21,7 @@ from .explore import ExploreResult, explore
 from .geo import airports_by_country, country_airports
 from .history import History
 from .itinerary import ItineraryCheck, analyse
-from .links import AIRLINE_SITES, BAG_NOTES, KNOWN_AIRLINES
+from .links import AIRLINE_SITES, BAG_NOTES, BAG_SHORT, KNOWN_AIRLINES
 from .models import LegView, SearchRequest, SearchResult
 from .polling import next_check_time
 from .providers import get_provider
@@ -200,7 +200,7 @@ async def _run_job(sid: str, req: SearchRequest) -> None:
 
 @app.get("/api/config")
 async def config() -> dict:
-    return {"provider": os.getenv("FLIGHTAGENT_PROVIDER", "mock"), "airline_sites": AIRLINE_SITES, "airlines": KNOWN_AIRLINES, "bag_notes": BAG_NOTES}
+    return {"provider": os.getenv("FLIGHTAGENT_PROVIDER", "mock"), "airline_sites": AIRLINE_SITES, "airlines": KNOWN_AIRLINES, "bag_notes": BAG_NOTES, "bag_short": BAG_SHORT}
 
 
 @app.post("/api/estimate")

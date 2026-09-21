@@ -60,7 +60,7 @@ const MixMatch = (() => {
           : h("span", { class: "bag dim", title: "Google added no fee for this bag: it may be included in the fare, or Google may have no fee data for this airline. Check the airline's baggage page." }, `🧳 ${name}: no estimate`));
       }
     }
-    if (note) chips.push(h("span", { class: "bag dim", title: `${note} General policy, not from Google: confirm on the airline's site.` }, "🧳 bags usually extra"));
+    if (note) chips.push(h("span", { class: "bag dim", title: `${note} General policy from published summaries, not from Google and not per fare: confirm on the airline's site.` }, `🧳 ${(config.bag_short || {})[f.segments[0].airline_code] || "bags usually extra"}`));
     return chips;
   }
 

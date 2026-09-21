@@ -59,4 +59,14 @@ BAG_NOTES = {
     "U2": "Typically the base fare covers one small under-seat bag; a larger cabin bag and hold bags cost extra.",
     "F9": "Typically the base fare covers a personal item only; cabin and checked bags cost extra.",
     "NK": "Typically the base fare covers a personal item only; cabin and checked bags cost extra.",
+    "LY": "Economy Light typically has no checked bag (a cabin bag and personal item only, and on Europe routes the cabin bag may be gate-checked); Classic and Flex fares typically include a checked bag.",
+    "6H": "Typically a cabin bag (about 8 kg) and a personal item are included; a checked bag is usually a paid extra. It depends on the fare and route.",
+    "RO": "Cabin bag and personal item are included on all fares (about 8 kg combined). Economy Light has no checked bag; other economy fares typically include one 23 kg bag.",
+}
+
+# Short chip text for the same airlines (the full note is the tooltip).
+BAG_SHORT = {
+    "FR": "bags usually extra", "RK": "bags usually extra", "W4": "bags usually extra", "W6": "bags usually extra",
+    "U2": "bags usually extra", "F9": "bags usually extra", "NK": "bags usually extra",
+    "LY": "checked bag depends on fare", "RO": "checked bag depends on fare", "6H": "checked bag usually extra",
 }
