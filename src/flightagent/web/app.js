@@ -434,6 +434,7 @@ function renderResult(row, opts = {}) {
     // Keep everything needed to change the filter: an airline filter that leaves no trips must not make the controls vanish.
     const filtered = (q.airlines_include || []).length || (q.airlines_exclude || []).length;
     const rest = [
+      airlineBar(res, q),
       h("div", { class: "note" }, filtered
         ? "No trips match this airline filter. That airline may fly only one direction on these dates, or its flights may have no price (those are listed but never ranked). Every airline found is listed below: change the filter to continue."
         : "No trips matched. Try more stops, a wider window or a longer layover limit."),
@@ -443,6 +444,9 @@ function renderResult(row, opts = {}) {
     if ((res.unpriced || []).length) watchRecheck(row);
     return;
   }
+
+  const bar = airlineBar(res, q);
+  if (bar) box.append(bar);
 
   // ---- derived picks
   const byDay = new Map(daily.map(d => [d.depart_date, d]));
@@ -657,6 +661,30 @@ function airlineTags(root, { onChange }) {
   input.addEventListener("change", add); input.addEventListener("blur", add);
   root.addEventListener("click", () => input.focus());
   return { get: () => [...values], set: arr => { values = [...arr]; draw(); } };
+}
+
+// Always-visible airline filter under the results header: a chip per airline found. Click a chip to exclude it, "only" to
+// keep just that airline, "Show all" to clear. Applying reuses the flights already fetched, so it is instant and free.
+function airlineBar(res, q) {
+  const list = res.airlines || [];
+  if (list.length < 1) return null;
+  const sel = new Set(list.filter(a => a.included).map(a => a.code));
+  const active = (q.airlines_include || []).length || (q.airlines_exclude || []).length;
+  const apply = h("button", { type: "button", class: "btn small", disabled: true }, "Apply");
+  const chips = h("div", { class: "ab-chips" });
+  const dirty = () => list.some(a => sel.has(a.code) !== a.included);
+  function draw() {
+    chips.replaceChildren(...list.map(a => h("span", { class: "ab-chip" + (sel.has(a.code) ? "" : " off") },
+      h("button", { type: "button", class: "ab-name", "aria-pressed": String(sel.has(a.code)), title: sel.has(a.code) ? `Exclude ${a.name}` : `Include ${a.name}`,
+        onclick: () => { sel.has(a.code) ? sel.delete(a.code) : sel.add(a.code); draw(); } }, a.name),
+      h("button", { type: "button", class: "ab-solo", title: `Only ${a.name}`, onclick: () => submitSearch({ ...q, airlines_include: [a.code], airlines_exclude: [] }) }, "only"))));
+    apply.disabled = !dirty();
+  }
+  apply.addEventListener("click", () => submitSearch({ ...q, airlines_include: [], airlines_exclude: list.filter(a => !sel.has(a.code)).map(a => a.code) }));
+  draw();
+  return h("div", { class: "ab" }, h("span", { class: "af-label" }, "Airlines"), chips, apply,
+    active ? h("button", { type: "button", class: "btn small ghost", onclick: () => submitSearch({ ...q, airlines_include: [], airlines_exclude: [] }) }, "Show all") : null,
+    h("span", { class: "hint" }, active ? `Filter on: ${sel.size} of ${list.length} airlines used` : `${list.length} airlines found`));
 }
 
 // All airlines found on the searched routes; untick to exclude, or press "Only". Applying re-uses cached flights (free).

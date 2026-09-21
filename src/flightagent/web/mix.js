@@ -3,10 +3,11 @@
    any outbound with any return. Lists come from /api/searches/{id}/flights (the cache the search filled), bag-fee
    estimates from /api/searches/{id}/bagfees (only where Google has fee data). Helpers come from app.js. */
 const MixMatch = (() => {
-  let S = { key: "", filters: { sort: "price", nonstop: false, hidden: new Set() } };
+  let S = { key: "", showAll: false, filters: { sort: "price", nonstop: false, hidden: new Set() } };
   const labelOf = f => f.segments.map(s => `${s.airline_code}${s.flight_number}`).join("+");
   const sameFlight = (a, b) => a && b && labelOf(a) === labelOf(b) && a.segments[0].departs === b.segments[0].departs;
   const lk = (o, d, date) => `${o}>${d}|${date}`;
+  const lkl = (o, d, date) => lk(o, d, date) + (S.showAll ? "|all" : "");     // lists differ with and without the airline filter
 
   function route(trip) {
     if (trip.kind === "open_jaw") { const [a, b] = trip.destination.split("→"); return { dest: a, back: b }; }
@@ -27,11 +28,11 @@ const MixMatch = (() => {
   }
 
   function ensure(host, o, d, date) {
-    const k = lk(o, d, date);
+    const k = lkl(o, d, date);
     if (S.lists[k]) return S.lists[k];
     S.lists[k] = { loading: true };
     const start = S.key;
-    api(`/api/searches/${S.row.id}/flights?${new URLSearchParams({ origin: o, dest: d, date })}`)
+    api(`/api/searches/${S.row.id}/flights?${new URLSearchParams({ origin: o, dest: d, date, ...(S.showAll ? { all: 1 } : {}) })}`)
       .then(r => { S.lists[k] = r; }).catch(e => { S.lists[k] = { error: e.message }; })
       .finally(() => { if (S.key === start) draw(host); });
     return S.lists[k];
@@ -136,9 +137,13 @@ const MixMatch = (() => {
       h("label", { class: "switch mini-sw" }, h("input", { type: "checkbox", checked: F.nonstop, onchange: e => { F.nonstop = e.target.checked; draw(host); } }), "Nonstop only"),
       h("div", { class: "tb-air" }, [...allAirlines].map(([code, name]) => h("button", { type: "button", class: "pill" + (F.hidden.has(code) ? " off" : ""), "aria-pressed": String(!F.hidden.has(code)),
         title: F.hidden.has(code) ? "Hidden: click to show" : "Click to hide this airline", onclick: () => { F.hidden.has(code) ? F.hidden.delete(code) : F.hidden.add(code); draw(host); } }, name))));
-    host.replaceChildren(controls, filters,
-      h("div", { class: "mm-cols" }, column(host, "Outbound", q.origin, S.dest, outDate, "out"), column(host, "Return", S.back, q.origin, S.retDate, "ret")),
-      summary(host));
+    const cols = h("div", { class: "mm-cols" }, column(host, "Outbound", q.origin, S.dest, outDate, "out"), column(host, "Return", S.back, q.origin, S.retDate, "ret"));
+    const inc = q.airlines_include || [], exc = q.airlines_exclude || [], nameOf = c => (config.airlines || {})[c] || c;
+    const hidden = [lkl(q.origin, S.dest, outDate), lkl(S.back, q.origin, S.retDate)].reduce((n, k) => n + ((S.lists[k] || {}).hidden_by_filter || 0), 0);
+    const banner = inc.length || exc.length ? h("div", { class: "note af-banner" },
+      S.showAll ? "Showing every airline, including ones your filter removes from the results above. " : `Airline filter on (${inc.length ? "only " + inc.map(nameOf).join(", ") : "excluding " + exc.map(nameOf).join(", ")}). ${hidden ? `${plural(hidden, "flight")} from other airlines ${hidden === 1 ? "is" : "are"} hidden here.` : "Nothing is hidden on these days."} `,
+      h("button", { type: "button", class: "btn small", onclick: () => { S.showAll = !S.showAll; draw(host); } }, S.showAll ? "Apply the filter" : "Show all airlines")) : null;
+    host.replaceChildren(...[banner, controls, filters, cols, summary(host)].filter(Boolean));
   }
   return { render };
 })();

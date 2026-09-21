@@ -306,6 +306,15 @@ td.price { font-weight: 800; text-align: right; } th.r { text-align: right; }
 .orig.block { color: var(--ink-2); font-size: 12.5px; }
 .conv-toggle { border: 0; cursor: pointer; font-family: inherit; text-align: left; } .conv-toggle:hover { filter: brightness(.96); text-decoration: underline; }
 #nights-hint { line-height: 1.35; }
+.row.air { grid-template-columns: minmax(0, .8fr) minmax(0, 2.4fr); align-items: end; }
+@media (max-width: 720px) { .row.air { grid-template-columns: 1fr; } }
+.ab { display: flex; gap: 8px 10px; flex-wrap: wrap; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 10px 14px; box-shadow: var(--shadow); }
+.ab-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.ab-chip { display: inline-flex; border: 1.5px solid var(--accent); border-radius: 999px; overflow: hidden; background: var(--accent-soft); }
+.ab-chip.off { border-color: var(--line-2); background: transparent; } .ab-chip.off .ab-name { text-decoration: line-through; color: var(--muted); }
+.ab-name, .ab-solo { border: 0; background: transparent; padding: 4px 10px; font-weight: 800; font-size: 13px; color: var(--accent-ink); }
+.ab-solo { border-left: 1px solid var(--line-2); font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-2); } .ab-solo:hover, .ab-name:hover { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.af-banner { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
 .active-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .af-label { font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .af-chip { border: 1.5px solid var(--warn-ink); background: var(--warn-bg); color: var(--warn-ink); border-radius: 999px; padding: 4px 12px; font-weight: 800; font-size: 13px; }

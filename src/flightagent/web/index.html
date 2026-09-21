@@ -95,6 +95,17 @@
         <div class="kids-row"><button type="button" class="pill" id="add-kid">＋ Add a child</button><span class="hint" id="kids-note"></span></div>
       </div>
 
+      <div class="row air">
+        <div class="field"><span class="lbl">Airlines</span>
+          <div class="seg" role="radiogroup" aria-label="Airline filter mode">
+            <label><input type="radio" name="airmode" value="exclude" checked>Exclude</label>
+            <label><input type="radio" name="airmode" value="only">Only</label>
+          </div></div>
+        <div class="field"><label for="air-in" class="sr-only">Airlines to exclude or allow</label>
+          <div class="ac" id="ac-air"></div>
+          <span class="hint">Leave empty for all airlines. Type a name or code (Ryanair, FR). After a search, filter by the airlines found right under the results header.</span></div>
+      </div>
+
       <details class="more" id="more">
         <summary>More options</summary>
         <div class="more-grid">
@@ -116,13 +127,7 @@
               <label><input type="radio" name="bags" value="both">Both</label>
             </div>
             <span class="hint">Google adds an estimated fee where it has one (mostly US and European airlines). For most Tel Aviv routes it has none, so prices stay the base fare.</span></div>
-          <div class="field wide"><label for="air-in">Airlines</label>
-            <div class="seg" role="radiogroup" aria-label="Airline filter mode">
-              <label><input type="radio" name="airmode" value="exclude" checked>Exclude</label>
-              <label><input type="radio" name="airmode" value="only">Only</label>
-            </div>
-            <div class="ac" id="ac-air"></div>
-            <span class="hint">Type an airline or its code (Ryanair, FR). After a search you also get the full list of airlines on your routes.</span></div>
+
           <div class="field"><label for="top">Top picks to show</label><div class="input"><input type="number" id="top" min="1" max="20"></div></div>
           <div class="field"><label for="maxcalls">Max lookups per search</label><div class="input"><input type="number" id="maxcalls" min="1" max="5000"></div></div>
         </div>

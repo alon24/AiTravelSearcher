@@ -226,3 +226,35 @@ def test_search_flights_and_bag_fee_endpoints(monkeypatch, tmp_path):
             assert (f["cabin"] or 0) == (25 if code in ("FR", "W6", "U2") else 0), (label, f)
         assert fees["available"] == any(k.split("+")[0][:2] in ("FR", "W6", "U2") for k in fees["fees"])
         assert c.get("/api/searches/nope/flights", params={"origin": "TLV", "dest": "ROM", "date": "2026-10-02"}).status_code == 404
+
+
+def test_search_flight_lists_and_unpriced_obey_the_airline_filter(monkeypatch, tmp_path):
+    import time
+    from fastapi.testclient import TestClient
+    from flightagent.api import app
+
+    monkeypatch.setenv("FLIGHTAGENT_PROVIDER", "mock")
+    monkeypatch.setenv("FLIGHTAGENT_CACHE_DB", str(tmp_path / "c.sqlite"))
+    base = {"destinations": ["ROM"], "window_start": "2026-10-01", "window_end": "2026-10-08", "min_nights": 3, "max_nights": 3}
+
+    def finish(c, body):
+        sid = c.post("/api/searches", json=body).json()["id"]
+        for _ in range(80):
+            if c.get(f"/api/searches/{sid}").json()["status"] == "done":
+                return sid
+            time.sleep(0.1)
+
+    q = {"origin": "TLV", "dest": "ROM", "date": "2026-10-02"}
+    with TestClient(app) as c:
+        sid0 = finish(c, base)
+        everything = c.get(f"/api/searches/{sid0}/flights", params=q).json()
+        codes = sorted({s["airline_code"] for f in everything["flights"] for s in f["segments"]})
+        assert len(codes) >= 2 and everything["hidden_by_filter"] == 0
+        keep = next(next(iter({s["airline_code"] for s in f["segments"]})) for f in everything["flights"] if len({s["airline_code"] for s in f["segments"]}) == 1)
+        sid1 = finish(c, {**base, "airlines_include": [keep]})
+        filtered = c.get(f"/api/searches/{sid1}/flights", params=q).json()
+        assert filtered["flights"] and all({s["airline_code"] for s in f["segments"]} == {keep} for f in filtered["flights"])
+        assert filtered["hidden_by_filter"] == len(everything["flights"]) - len(filtered["flights"]) > 0
+        assert filtered["filter"] == {"include": [keep], "exclude": []}
+        again = c.get(f"/api/searches/{sid1}/flights", params={**q, "all": 1}).json()
+        assert len(again["flights"]) == len(everything["flights"]) and again["hidden_by_filter"] == 0

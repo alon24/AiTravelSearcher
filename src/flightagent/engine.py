@@ -286,7 +286,7 @@ class FlightSearchEngine:
         seen, out = set(), []
         for (o, d, day), offers in sorted(raw.items(), key=lambda kv: kv[0][2]):
             for f in offers:
-                if f.priced:
+                if f.priced or not self._airline_ok(req, f):
                     continue
                 label = "+".join(f"{s.airline_code}{s.flight_number}" for s in f.segments)
                 if (label, f.departs) in seen:

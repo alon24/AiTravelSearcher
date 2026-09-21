@@ -367,17 +367,20 @@ def _stored_request(sid: str) -> SearchRequest:
 
 
 @app.get("/api/searches/{sid}/flights")
-async def search_flights(sid: str, origin: str, dest: str, day: date = Query(alias="date")) -> dict:
+async def search_flights(sid: str, origin: str, dest: str, day: date = Query(alias="date"), show_all: bool = Query(False, alias="all")) -> dict:
     """Every flight on one route and day, priced exactly as this search priced it. Served from the cache the search
-    filled, so it is normally instant; a day the search did not cover is fetched live."""
+    filled, so it is normally instant; a day the search did not cover is fetched live. The search's airline filter
+    applies unless all=1; `hidden_by_filter` says how many flights it removed."""
     req = _stored_request(sid)
     try:
         offers = await build_engine().one_way_options(req, origin.upper(), dest.upper(), day)
     except RuntimeError as e:
         raise HTTPException(502, str(e))
-    views = sorted((leg_view(o) for o in offers), key=lambda v: (not v.priced, v.price, v.duration_min))[:60]
+    kept = offers if show_all else [o for o in offers if FlightSearchEngine._airline_ok(req, o)]
+    views = sorted((leg_view(o) for o in kept), key=lambda v: (not v.priced, v.price, v.duration_min))[:60]
     return {"origin": origin.upper(), "dest": dest.upper(), "date": day.isoformat(), "travellers": req.pax_label,
-            "currency": req.currency, "bags": req.bags_label, "flights": [v.model_dump(mode="json") for v in views]}
+            "currency": req.currency, "bags": req.bags_label, "hidden_by_filter": len(offers) - len(kept),
+            "filter": {"include": req.airlines_include, "exclude": req.airlines_exclude}, "flights": [v.model_dump(mode="json") for v in views]}
 
 
 def _label(o) -> str:
