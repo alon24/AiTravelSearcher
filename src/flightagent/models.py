@@ -37,6 +37,7 @@ class SearchRequest(BaseModel):
     min_nights_per_stop: int = 1
 
     # Airline filters (IATA codes). Applied after fetching, so changing them costs no new lookups.
+    refresh_unpriced: bool = False   # ignore cached results that contain unpriced flights (recheck them now)
     airlines_include: list[str] = Field(default_factory=list)  # empty = any airline
     airlines_exclude: list[str] = Field(default_factory=list)
     adults: int = Field(default=1, ge=1, le=9)
@@ -118,6 +119,7 @@ class Offer(BaseModel):
     segments: list[Segment]
     deep_links: list[str] = Field(default_factory=list)
     provider: str = ""
+    priced: bool = True          # False: the source lists the flight but shows no fare (book on the airline's site)
     self_transfer: bool = False
     hub: str | None = None  # where the tickets of a self-transfer bundle meet
 
@@ -171,6 +173,7 @@ class LegView(BaseModel):
     price: float
     self_transfer: bool
     deep_links: list[str]
+    priced: bool = True
 
 
 class Trip(BaseModel):
@@ -206,10 +209,29 @@ class AirlineInfo(BaseModel):
     code: str
     name: str
     offers: int                # itineraries it appears in
-    cheapest: float
+    cheapest: float | None     # None when every flight it has here is listed without a price
     routes: list[str]          # "TLV>FCO": itineraries it appears in (connections included)
     nonstop: list[str]         # routes where it has a nonstop flight
     included: bool = True      # False when the current filters remove it
+    no_price_routes: list[str] = Field(default_factory=list)  # routes where it is listed without a price
+
+
+class UnpricedFlight(BaseModel):
+    """A flight the source lists but shows no fare for (often airlines that sell only on their own site)."""
+
+    date: date
+    origin: str
+    destination: str
+    airline: str
+    airline_code: str
+    flights: str               # e.g. "H4236"
+    departs: datetime
+    arrives: datetime
+    duration_min: int
+    stops: int
+    link: str = ""
+    last_price: float | None = None     # the last fare we saw for this exact flight (Google drops fares at times)
+    last_seen: float | None = None      # unix time of that observation
 
 
 class SearchResult(BaseModel):
@@ -219,6 +241,7 @@ class SearchResult(BaseModel):
     api_calls: int
     cache_hits: int
     airlines: list[AirlineInfo] = Field(default_factory=list)
+    unpriced: list[UnpricedFlight] = Field(default_factory=list)
     sources: dict[str, int] = Field(default_factory=dict)  # provider -> lookups it served
     elapsed_s: float = 0.0
     warnings: list[str] = Field(default_factory=list)

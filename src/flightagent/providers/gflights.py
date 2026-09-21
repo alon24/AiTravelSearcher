@@ -23,8 +23,7 @@ def parse_groups(groups: list[list], origin: str, dest: str, currency: str) -> l
             price = entry[1][0][1]
         except (IndexError, TypeError):
             price = None
-        if not price:
-            continue  # Google lists some flights it cannot price (sold out / not on sale): skip, don't crash
+        priced = bool(price)   # Google lists some flights without a fare (airline sells only on its own site)
         segs = []
         for s in flight[2]:
             dep_h, dep_m = _time(s[8])
@@ -37,8 +36,8 @@ def parse_groups(groups: list[list], origin: str, dest: str, currency: str) -> l
                 duration_min=s[11],
             ))
         offers.append(Offer(
-            origin=segs[0].origin, destination=segs[-1].destination, price=float(price),
-            currency=currency, segments=segs, provider="gflights",
+            origin=segs[0].origin, destination=segs[-1].destination, price=float(price or 0),
+            currency=currency, segments=segs, provider="gflights", priced=priced,
             deep_links=[google_flights_link(origin, dest, segs[0].departs.date())],
         ))
     return offers
@@ -74,6 +73,17 @@ def _passengers(adults: int, children: int, infants: int):
                                        *[3] * infants])
 
 
+def _merge(old: list[Offer], new: list[Offer]) -> list[Offer]:
+    """Combine two fetches of the same route/day: a priced version of a flight replaces an unpriced one."""
+    key = lambda o: ("+".join(f"{s.airline_code}{s.flight_number}" for s in o.segments), o.departs)  # noqa: E731
+    merged = {key(o): o for o in old}
+    for o in new:
+        k = key(o)
+        if k not in merged or (o.priced and not merged[k].priced):
+            merged[k] = o
+    return list(merged.values())
+
+
 class GoogleFlightsScraper:
     """Free provider: scrapes Google Flights pages (no API key). Uses fast-flights only for its
     browser-impersonating HTTP client and query encoding. Keep the request rate low.
@@ -81,14 +91,25 @@ class GoogleFlightsScraper:
 
     name = "gflights"
 
-    def __init__(self, concurrency: int = 3, delay: tuple[float, float] = (0.2, 0.7)):
+    def __init__(self, concurrency: int = 3, delay: tuple[float, float] = (0.2, 0.7), retry_unpriced: int = 2):
         self.sem = asyncio.Semaphore(concurrency)
         self.delay = delay
+        self.retry_unpriced = retry_unpriced
 
     async def one_way(
         self, origin: str, dest: str, day: date, *, currency: str, adults: int, max_stops: int,
         children: int = 0, infants: int = 0,
     ) -> list[Offer]:
+        offers = await self._once(origin, dest, day, currency, adults, max_stops, children, infants)
+        # Google sometimes omits a fare it shows on the next request (seen with HiSky): ask again for unpriced flights.
+        for _ in range(self.retry_unpriced):
+            if all(o.priced for o in offers):
+                break
+            await asyncio.sleep(1.0)
+            offers = _merge(offers, await self._once(origin, dest, day, currency, adults, max_stops, children, infants))
+        return offers
+
+    async def _once(self, origin, dest, day, currency, adults, max_stops, children, infants) -> list[Offer]:
         async with self.sem:
             await asyncio.sleep(random.uniform(*self.delay))
             html = await asyncio.to_thread(self._fetch, origin, dest, day, currency, adults, max_stops, children, infants)

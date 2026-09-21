@@ -66,3 +66,25 @@ def tz_of(code: str) -> ZoneInfo | None:
         return ZoneInfo(name) if name else None
     except ZoneInfoNotFoundError:
         return None
+
+
+@lru_cache
+def airports_by_country() -> dict[str, list[tuple[str, str, int]]]:
+    """country -> [(iata, airport name, rank)]. Rank 1 = well-known airport. City groups are excluded."""
+    rows = json.loads((Path(__file__).parent / "web" / "airports.json").read_text(encoding="utf-8"))
+    out: dict[str, list[tuple[str, str, int]]] = {}
+    for iata, _city, name, country, rank, _aliases in rows:
+        if rank != 2:
+            out.setdefault(country, []).append((iata, name, rank))
+    return out
+
+
+def country_airports(country: str, limit: int = 60) -> tuple[list[str], bool]:
+    """IATA codes of a country's airports. Over `limit`, only the well-known ones (flag = True when trimmed)."""
+    for name, airports in airports_by_country().items():
+        if name.lower() == country.strip().lower():
+            codes = [a[0] for a in airports]
+            if len(codes) <= limit:
+                return codes, False
+            return [a[0] for a in airports if a[2] == 1][:limit], True
+    return [], False

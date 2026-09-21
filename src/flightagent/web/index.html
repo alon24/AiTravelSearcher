@@ -16,6 +16,7 @@
   <aside class="sidebar" id="sidebar" aria-label="Past searches">
     <div class="brand side-brand"><span class="logo">✈</span><span>Skyhop</span></div>
     <button class="btn" id="new-search" type="button">＋ New search</button>
+    <button class="btn open-builder" type="button">🧳 Trip builder · mix &amp; match</button>
     <div class="side-title">Past searches</div>
     <div class="hist" id="history"></div>
   </aside>
@@ -69,8 +70,15 @@
             <label><input type="radio" name="stops" value="2">Up to 2</label>
           </div>
         </div>
-        <div class="field"><label for="currency">Currency</label>
-          <select class="input" id="currency"><option>USD</option><option>EUR</option><option>GBP</option><option>ILS</option></select></div>
+        <div class="field">
+          <span class="lbl">Currency</span>
+          <div class="seg" role="radiogroup" aria-label="Currency">
+            <label><input type="radio" name="currency" value="ILS" checked>₪ ILS</label>
+            <label><input type="radio" name="currency" value="USD">$ USD</label>
+            <label><input type="radio" name="currency" value="GBP">£ GBP</label>
+            <label><input type="radio" name="currency" value="EUR">€ EUR</label>
+          </div>
+        </div>
         <div class="field"><label for="adults">Adults</label>
           <div class="stepper"><button type="button" data-step="-1" data-for="adults" aria-label="Fewer travellers">−</button><input id="adults" type="number" min="1" max="9"><button type="button" data-step="1" data-for="adults" aria-label="More travellers">+</button></div></div>
       </div>
@@ -93,7 +101,7 @@
           <div class="field"><label for="maxtravel">Max travel per direction (hours)</label><div class="input"><input type="number" id="maxtravel" min="1" max="60" placeholder="No limit"></div></div>
           <div class="field"><label for="laymin">Layover between (hours)</label>
             <div class="nights"><div class="input"><input type="number" id="laymin" min="0" step="0.5" aria-label="Minimum layover hours"></div><span class="to">to</span><div class="input"><input type="number" id="laymax" min="1" step="1" aria-label="Maximum layover hours"></div></div></div>
-          <div class="field"><label for="vot">Value of an hour of travel: <b id="vot-out"></b></label><input type="range" id="vot" min="0" max="60" step="1"><span class="hint">Higher = long trips ranked lower in "best value"</span></div>
+          <div class="field"><label for="vot">Value of an hour of travel: <b id="vot-out"></b></label><input type="range" id="vot" min="0" max="200" step="1"><span class="hint">Higher = long trips ranked lower in "best value"</span></div>
           <div class="field wide"><label for="air-in">Airlines</label>
             <div class="seg" role="radiogroup" aria-label="Airline filter mode">
               <label><input type="radio" name="airmode" value="exclude" checked>Exclude</label>
@@ -113,11 +121,29 @@
       </div>
     </form>
 
+    <details class="card panel finder" id="finder">
+      <summary>✈ Which airlines fly to…? <span class="hint">Find airlines by country</span></summary>
+      <div id="finder-body"><p class="hint">Loading…</p></div>
+    </details>
+
     <section id="results" aria-live="polite"></section>
   </main>
 </div>
 <div class="tooltip" id="tooltip" hidden></div>
+
+<button class="tb-launch" id="tb-launch" type="button" aria-controls="tb" aria-expanded="false">🧳 <span>Trip builder</span> <b id="tb-count">0</b></button>
+<div class="tb-scrim" id="tb-scrim" hidden></div>
+<aside class="tb" id="tb" hidden role="dialog" aria-label="Trip builder">
+  <div class="tb-head">
+    <div><h2>Mix &amp; match</h2><p>Any flight for any leg. Skyhop checks the time and airport transfer between them.</p></div>
+    <button class="btn icon-btn" id="tb-close" type="button" aria-label="Close trip builder">✕</button>
+  </div>
+  <div class="tb-body" id="tb-body"></div>
+  <div class="tb-foot" id="tb-foot"></div>
+</aside>
 <script src="airport-search.js" defer></script>
 <script src="app.js" defer></script>
+<script src="builder.js" defer></script>
+<script src="finder.js" defer></script>
 </body>
 </html>

@@ -25,6 +25,7 @@ AIRLINE_SITES = {
     "KL": "https://www.klm.com",
     "AZ": "https://www.ita-airways.com",
     "VY": "https://www.vueling.com",
+    "H4": "https://www.hisky.com",
 }
 
 
@@ -42,7 +43,7 @@ KNOWN_AIRLINES = {
     "BA": "British Airways", "VY": "Vueling", "IB": "Iberia", "AZ": "ITA Airways", "LX": "SWISS", "SN": "Brussels Airlines",
     "SK": "SAS", "DY": "Norwegian", "AY": "Finnair", "LO": "LOT", "RO": "TAROM", "OK": "Czech Airlines", "EK": "Emirates",
     "QR": "Qatar Airways", "EY": "Etihad", "MS": "EgyptAir", "RJ": "Royal Jordanian", "CY": "Cyprus Airways", "U8": "Tus Air",
-    "GQ": "SKY express", "HV": "Transavia", "V7": "Volotea", "AA": "American", "DL": "Delta", "UA": "United", "B6": "JetBlue",
+    "GQ": "SKY express", "H4": "HiSky", "Q4": "Euroairlines", "HV": "Transavia", "V7": "Volotea", "AA": "American", "DL": "Delta", "UA": "United", "B6": "JetBlue",
     "WN": "Southwest", "F9": "Frontier", "NK": "Spirit", "AC": "Air Canada", "SQ": "Singapore Airlines", "TG": "Thai Airways",
     "AI": "Air India", "ET": "Ethiopian", "KE": "Korean Air", "NH": "ANA", "JL": "Japan Airlines",
 }

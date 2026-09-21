@@ -2,26 +2,61 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 import uuid
-from datetime import date
+from contextlib import asynccontextmanager
+from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
 from .cache import OfferCache
-from .engine import BudgetExceeded, FlightSearchEngine
+from .engine import BudgetExceeded, FlightSearchEngine, leg_view
+from .explore import ExploreResult, explore
+from .geo import airports_by_country, country_airports
 from .history import History
+from .itinerary import ItineraryCheck, analyse
 from .links import AIRLINE_SITES, KNOWN_AIRLINES
-from .models import SearchRequest, SearchResult
+from .models import LegView, SearchRequest, SearchResult
+from .polling import next_check_time
 from .providers import get_provider
 from .report import render
 
 load_dotenv()
-app = FastAPI(title="Flight Agent")
+
+
+async def _recheck_loop() -> None:
+    """Every minute, re-poll searches that still have unpriced flights and are due (15 min for near departures)."""
+    while True:
+        await asyncio.sleep(60)
+        if os.getenv("FLIGHTAGENT_RECHECK", "1") == "0":
+            continue
+        try:
+            for sid in history().due(time.time()):
+                try:
+                    await _recheck(sid)
+                except HTTPException:
+                    pass
+                except Exception:      # provider trouble: try again later instead of hammering it
+                    history().postpone(sid, time.time() + 1800)
+        except Exception:
+            pass
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    task = asyncio.create_task(_recheck_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
+
+
+app = FastAPI(title="Flight Agent", lifespan=lifespan)
 
 
 @lru_cache
@@ -156,7 +191,8 @@ async def _run_job(sid: str, req: SearchRequest) -> None:
     try:
         result = await build_engine().search(req, on_progress=lambda d, t: hist.progress(sid, d, t))
         best = min((d.cheapest.price for d in result.daily), default=None)
-        hist.finish(sid, result.model_dump_json(), best)
+        hist.finish(sid, result.model_dump_json(), best,
+                    next_check_time([u.date for u in result.unpriced], 0, time.time()))
     except Exception as e:  # recorded for the UI instead of vanishing in a background task
         hist.fail(sid, str(e) or type(e).__name__)
 
@@ -184,6 +220,40 @@ async def create_search(req: SearchRequest) -> dict[str, str]:
     return {"id": sid}
 
 
+_rechecking: set[str] = set()
+
+
+async def _recheck(sid: str) -> dict[str, int]:
+    """Re-run a finished search, ignoring cached results that contain unpriced flights. Replaces the stored result."""
+    hist = history()
+    row = hist.get(sid)
+    if not row or row["status"] != "done" or not row.get("result"):
+        raise HTTPException(404, "search not found or not finished")
+    if sid in _rechecking:
+        raise HTTPException(409, "a recheck is already running for this search")
+    _rechecking.add(sid)
+    try:
+        before = len(row["result"].get("unpriced", []))
+        result = await build_engine().search(SearchRequest(**{**row["request"], "refresh_unpriced": True}))
+        rechecks = row["rechecks"] + 1
+        best = min((d.cheapest.price for d in result.daily), default=None)
+        hist.replace_result(sid, result.model_dump_json(), best,
+                            next_check_time([u.date for u in result.unpriced], rechecks, time.time()), rechecks)
+        return {"before": before, "after": len(result.unpriced)}
+    finally:
+        _rechecking.discard(sid)
+
+
+@app.post("/api/searches/{sid}/recheck")
+async def recheck_search(sid: str) -> dict:
+    """Ask again about flights that had no price. Returns how many were unpriced before and after."""
+    try:
+        changed = await _recheck(sid)
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+    return {"changed": changed, "search": history().get(sid)}
+
+
 @app.get("/api/searches")
 async def list_searches() -> list[dict]:
     return history().list()
@@ -203,6 +273,80 @@ async def delete_search(sid: str) -> dict[str, bool]:
 
 
 # Static UI last, so it never shadows the API routes.
+@app.get("/api/flights")
+async def flights(origin: str, dest: str, day: date = Query(alias="date"), adults: int = 1, children_ages: str = "",
+                  currency: str = "USD", max_stops: int = 2) -> dict:
+    """All one-way flights for one route and day, cheapest first (for the trip builder)."""
+    try:
+        req = SearchRequest(
+            origin=origin, destinations=[dest], window_start=day, window_end=day + timedelta(days=1), min_nights=1, max_nights=1,
+            adults=adults, children_ages=[int(x) for x in children_ages.replace(",", " ").split()], currency=currency,
+            max_stops_per_leg=max_stops)
+    except ValidationError as e:
+        raise HTTPException(422, "; ".join(err["msg"].removeprefix("Value error, ") for err in e.errors()))
+    try:
+        offers = await build_engine().one_way_options(req, req.origin, req.destinations[0], day)
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+    views = sorted((leg_view(o) for o in offers), key=lambda v: (not v.priced, v.price, v.duration_min))[:40]
+    return {"origin": req.origin, "dest": req.destinations[0], "date": day.isoformat(), "travellers": req.pax_label,
+            "currency": currency, "flights": [v.model_dump(mode="json") for v in views]}
+
+
+@app.get("/api/countries")
+async def countries() -> list[dict]:
+    return sorted(({"name": c, "airports": len(a)} for c, a in airports_by_country().items()), key=lambda x: x["name"])
+
+
+class ExploreBody(BaseModel):
+    origin: str = "TLV"
+    country: str = ""
+    airports: list[str] = []
+    direction: str = "to"                 # "to": origin -> airports, "from": airports -> origin
+    date: date
+    extra_days: list[int] = [2, 5]        # more dates, tried only for airports that have flights
+    adults: int = 1
+    currency: str = "ILS"
+
+
+@app.post("/api/explore", response_model=ExploreResult)
+async def explore_airlines(b: ExploreBody) -> ExploreResult:
+    """Which airlines fly between the origin and a country's airports (or the given airports)?"""
+    trimmed = False
+    airports = [a.strip().upper() for a in b.airports if a.strip()]
+    if b.country and not airports:
+        airports, trimmed = country_airports(b.country)
+        if not airports:
+            raise HTTPException(422, f"No airports found for country {b.country!r}. Check the spelling, or list airports instead.")
+    if not airports:
+        raise HTTPException(422, "Give a country or at least one airport.")
+    if b.direction not in ("to", "from"):
+        raise HTTPException(422, "direction must be 'to' or 'from'")
+    try:
+        req = SearchRequest(origin=b.origin, destinations=airports[:1], window_start=b.date, window_end=b.date + timedelta(days=1),
+                            min_nights=1, max_nights=1, adults=b.adults, currency=b.currency, max_stops_per_leg=2, max_api_calls=400)
+        result = await explore(build_engine(), req, req.origin, airports, b.direction, b.date, b.extra_days)
+    except ValidationError as e:
+        raise HTTPException(422, "; ".join(err["msg"].removeprefix("Value error, ") for err in e.errors()))
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
+    result.trimmed = trimmed
+    return result
+
+
+class CheckBody(BaseModel):
+    legs: list[LegView]
+    currency: str = "USD"
+
+
+@app.post("/api/itinerary/check", response_model=ItineraryCheck)
+async def check_itinerary(body: CheckBody) -> ItineraryCheck:
+    """Gaps, airport-transfer estimates and warnings for a hand-built trip."""
+    if not body.legs or any(not leg.segments for leg in body.legs):
+        raise HTTPException(422, "every leg needs at least one flight segment")
+    return analyse(body.legs, body.currency)
+
+
 class _RevalidatingStatic(StaticFiles):
     """UI files change with every release: make browsers revalidate (cheap 304) instead of heuristically caching."""
 

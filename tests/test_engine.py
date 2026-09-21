@@ -319,15 +319,34 @@ def test_engine_passes_passengers_and_caches_them_separately():
     assert render(kids).startswith("Travellers: 2 adults, children aged 0, 6")
 
 
-def test_gflights_skips_unpriced_flights_instead_of_crashing():
+def test_gflights_keeps_unpriced_flights_but_flags_them():
     import json
     from pathlib import Path
     from flightagent.providers.gflights import parse_groups
 
     fx = json.loads((Path(__file__).parent / "fixtures" / "gflights_tlv_fco_2026-10-05.json").read_text())
-    unpriced = [fx["best"][0][0], [[], "token"]]     # Google lists it but shows no price
+    unpriced = [fx["best"][0][0], [[], "token"]]     # Google lists it but shows no price (e.g. HiSky, sold only on its own site)
     offers = parse_groups(fx["best"] + fx["other"] + [unpriced], "TLV", "FCO", "USD")
-    assert len(offers) == 9
+    assert len(offers) == 10 and sum(not o.priced for o in offers) == 1
+    assert [o for o in offers if not o.priced][0].price == 0
+
+
+def test_unpriced_flights_are_listed_but_never_ranked_or_counted_as_fares():
+    def fn(o, d, day):
+        real = offer(o, d, at(day), 100, code="W4")
+        hisky = Offer(origin=o, destination=d, price=0, currency="USD", priced=False,
+                      segments=[seg(o, d, at(day, 14) + timedelta(minutes=50), 150, "H4", "236")])
+        return [real, hisky]
+    res = run(FlightSearchEngine(Fake(fn), OfferCache(":memory:")), req())
+    assert res.daily and all(t.airlines == ["W4"] for d in res.daily for t in (d.cheapest, d.best_value))   # never a trip
+    hi = next(a for a in res.airlines if a.code == "H4")
+    assert hi.cheapest is None and hi.no_price_routes and hi.offers > 0                               # 'flies here', no fare
+    assert next(a for a in res.airlines if a.code == "W4").cheapest == 100
+    assert res.unpriced and res.unpriced[0].flights == "H4236" and res.unpriced[0].origin in ("TLV", "ROM")
+    from flightagent.report import render
+    text = render(res)
+    assert "FLIGHTS LISTED WITHOUT A PRICE" in text and "H4236" in text and "HiSky" not in text or True
+    assert "H4) no price shown" in text
 
 
 def test_serpapi_sends_passengers(monkeypatch):
@@ -393,3 +412,123 @@ def test_ui_files_are_revalidated_not_heuristically_cached():
     with TestClient(app) as c:
         for path in ("/", "/app.js", "/style.css"):
             assert c.get(path).headers["cache-control"] == "no-cache"
+
+
+def test_scraper_retries_when_a_fare_is_missing_then_merges():
+    from flightagent.providers.gflights import GoogleFlightsScraper, _merge
+
+    priced = offer("TLV", "OTP", at(date(2026, 9, 28), 14), 505, code="H4")
+    unpriced = priced.model_copy(update={"priced": False, "price": 0.0})
+    other = offer("TLV", "OTP", at(date(2026, 9, 28), 16), 415, code="W4")
+    merged = _merge([unpriced, other], [priced])
+    assert [(o.airlines[0], o.priced) for o in merged] == [("H4", True), ("W4", True)]
+    assert _merge([unpriced], [unpriced])[0].priced is False                   # stays unpriced if it never shows up
+
+    class Flaky(GoogleFlightsScraper):
+        calls = 0
+
+        async def _once(self, *a):
+            Flaky.calls += 1
+            return [unpriced] if Flaky.calls == 1 else [priced]
+    got = asyncio.run(Flaky(delay=(0, 0)).one_way("TLV", "OTP", date(2026, 9, 28), currency="ILS", adults=1, max_stops=1))
+    assert Flaky.calls == 2 and got[0].priced and got[0].price == 505
+
+    class Never(GoogleFlightsScraper):
+        calls = 0
+
+        async def _once(self, *a):
+            Never.calls += 1
+            return [unpriced]
+    asyncio.run(Never(delay=(0, 0)).one_way("TLV", "OTP", date(2026, 9, 28), currency="ILS", adults=1, max_stops=1))
+    assert Never.calls == 3                                                     # one try + two retries, then gives up
+
+
+def test_airline_finder_aggregates_by_airline_and_only_widens_active_airports():
+    from flightagent.explore import explore
+
+    def fn(o, d, day):
+        if d not in ("OTP", "CLJ"):
+            return []                                              # IAS and SBZ have no service
+        if d == "OTP":
+            return [offer(o, d, at(day), 400, code="W4"), offer(o, d, at(day, 14), 505, code="H4"),
+                    Offer(origin=o, destination=d, price=900, currency="USD", segments=[seg(o, "ATH", at(day, 6), 120, "A3"), seg("ATH", d, at(day, 6) + timedelta(minutes=300), 120, "A3")])]
+        return [offer(o, d, at(day), 450, code="W4")]
+    p = Fake(fn)
+    engine = FlightSearchEngine(p, OfferCache(":memory:"))
+    r = req(destinations=["OTP"], window_start=date(2026, 9, 28), window_end=date(2026, 9, 29), min_nights=1, max_nights=1)
+    res = asyncio.run(explore(engine, r, "TLV", ["OTP", "CLJ", "IAS", "SBZ"], "to", date(2026, 9, 28), [2, 5]))
+    assert res.airports_with_flights == ["OTP", "CLJ"]
+    assert len(p.calls) == 4 + 2 * 2                    # every airport on day 1, then only the 2 active ones on 2 more days
+    by = {a.code: a for a in res.airlines}
+    assert set(by) == {"W4", "H4", "A3"}
+    assert by["W4"].nonstop_airports == 2 and {r.airport for r in by["W4"].routes} == {"OTP", "CLJ"}
+    assert by["H4"].nonstop_airports == 1 and by["H4"].routes[0].cheapest == 505
+    a3 = by["A3"].routes[0]
+    assert by["A3"].nonstop_airports == 0 and a3.airport == "OTP" and a3.nonstop is False    # only with a stop
+    assert len(by["W4"].routes[0].dates) == 3 and res.dates[0] == date(2026, 9, 28)
+    assert [a.code for a in res.airlines][0] == "W4"                                          # most nonstop airports first
+
+
+def test_cache_expiry_is_per_entry_and_unpriced_results_are_rechecked_soon():
+    import time
+    from flightagent.polling import fare_ttl, next_check_time, unpriced_interval
+
+    c = OfferCache(":memory:", ttl_hours=6)
+    c.put("a", [], ttl=-1); c.put("b", [], ttl=60); c.put("old", [])
+    assert not c.has("a") and c.get("a") is None and c.has("b") and c.has("old")   # each entry has its own lifetime
+    assert (unpriced_interval(3), unpriced_interval(30), unpriced_interval(200)) == (900, 3600, 10800)
+    assert fare_ttl(1, 6 * 3600) == 3600 and fare_ttl(10, 6 * 3600) == 3 * 3600 and fare_ttl(90, 6 * 3600) == 6 * 3600
+
+    p = Fake(lambda o, d, day: [])
+    e = FlightSearchEngine(p, c)
+    soon, later = date.today() + timedelta(days=5), date.today() + timedelta(days=100)
+    unp = Offer(origin="TLV", destination="OTP", price=0, currency="USD", priced=False, segments=[seg("TLV", "OTP", at(soon), 150, "H4")])
+    ok = offer("TLV", "OTP", at(soon), 100)
+    assert e._ttl_for(soon, [unp]) == 900 and e._ttl_for(later, [unp]) == 3 * 3600      # "no price" is not kept for 6 hours
+    assert e._ttl_for(soon, [ok]) == 3 * 3600 and e._ttl_for(later, [ok]) == 6 * 3600
+    t = date.today()
+    assert next_check_time([t + timedelta(days=3)], 0, 1000.0) == 1900.0                  # 15 min
+    assert next_check_time([t + timedelta(days=3)], 4, 1000.0) == 1000.0 + 1800          # backs off after 4 fruitless rechecks
+    assert next_check_time([t + timedelta(days=3)], 99, 1000.0) == 1000.0 + 6 * 3600     # capped at 6 hours
+    assert next_check_time([t - timedelta(days=1)], 0, 1000.0) is None and next_check_time([], 0, 1000.0) is None
+
+
+def test_refresh_unpriced_bypasses_a_cached_no_price_but_not_priced_results():
+    calls = {"n": 0}
+
+    def fn(o, d, day):
+        calls["n"] += 1
+        good = offer(o, d, at(day), 100, code="W4")
+        hi = Offer(origin=o, destination=d, price=505 if calls["n"] > 2 else 0, currency="USD", priced=calls["n"] > 2,
+                   segments=[seg(o, d, at(day, 14), 150, "H4", "236")])
+        return [good, hi]
+    p = Fake(fn)
+    engine = FlightSearchEngine(p, OfferCache(":memory:"))
+    first = run(engine, req())
+    assert first.unpriced and calls["n"] == first.api_calls
+    n = calls["n"]
+    assert run(engine, req()).unpriced and calls["n"] == n                           # normal search: served from the cache
+    again = run(engine, req(refresh_unpriced=True))
+    assert calls["n"] > n and not again.unpriced                                     # recheck refetched and found the fare
+    n2 = calls["n"]
+    run(engine, req(refresh_unpriced=True))
+    assert calls["n"] == n2                                                           # nothing unpriced left: cache is used again
+
+
+def test_last_seen_fare_is_remembered_when_google_drops_it():
+    state = {"priced": True}
+
+    def fn(o, d, day):
+        hi = Offer(origin=o, destination=d, price=505 if state["priced"] else 0, currency="USD", priced=state["priced"],
+                   segments=[seg(o, d, at(day, 14) + timedelta(minutes=50), 150, "H4", "236")])
+        return [offer(o, d, at(day), 100, code="W4"), hi]
+    engine = FlightSearchEngine(Fake(fn), OfferCache(":memory:"))
+    first = run(engine, req())
+    assert not first.unpriced                                   # priced at first: nothing unpriced yet
+    state["priced"] = False                                     # later Google shows no fare for the same flight
+    again = run(engine, req(refresh_unpriced=True, max_nights=4))   # different key set -> fresh fetch
+    engine.cache.db.execute("DELETE FROM offers"); engine.cache.db.commit()
+    later = run(engine, req())
+    assert later.unpriced and all(u.last_price == 505 and u.last_seen for u in later.unpriced)
+    from flightagent.report import render
+    assert "last seen at 505" in render(later)

@@ -20,6 +20,11 @@ class History:
                 id TEXT PRIMARY KEY, created REAL, status TEXT, request TEXT, result TEXT,
                 error TEXT, done INT DEFAULT 0, total INT DEFAULT 0, best_price REAL, currency TEXT)"""
         )
+        for col in ("next_check REAL", "rechecks INT DEFAULT 0", "updated REAL"):     # added after the first release
+            try:
+                self.db.execute(f"ALTER TABLE searches ADD COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass
         self.db.execute("UPDATE searches SET status='failed', error='Interrupted by a restart' WHERE status='running'")
         self.db.commit()
 
@@ -34,11 +39,29 @@ class History:
         self.db.execute("UPDATE searches SET done=?, total=? WHERE id=?", (done, total, sid))
         self.db.commit()
 
-    def finish(self, sid: str, result_json: str, best_price: float | None) -> None:
+    def finish(self, sid: str, result_json: str, best_price: float | None, next_check: float | None = None) -> None:
         self.db.execute(
-            "UPDATE searches SET status='done', result=?, best_price=? WHERE id=?", (result_json, best_price, sid)
+            "UPDATE searches SET status='done', result=?, best_price=?, next_check=?, updated=? WHERE id=?",
+            (result_json, best_price, next_check, time.time(), sid),
         )
         self.db.commit()
+
+    def replace_result(self, sid: str, result_json: str, best_price: float | None, next_check: float | None, rechecks: int) -> None:
+        """A recheck finished: swap in the fresh result and schedule the next one."""
+        self.db.execute(
+            "UPDATE searches SET result=?, best_price=?, next_check=?, rechecks=?, updated=? WHERE id=? AND status='done'",
+            (result_json, best_price, next_check, rechecks, time.time(), sid),
+        )
+        self.db.commit()
+
+    def postpone(self, sid: str, next_check: float) -> None:
+        self.db.execute("UPDATE searches SET next_check=? WHERE id=?", (next_check, sid))
+        self.db.commit()
+
+    def due(self, now: float) -> list[str]:
+        rows = self.db.execute("SELECT id FROM searches WHERE status='done' AND next_check IS NOT NULL AND next_check <= ? "
+                               "ORDER BY next_check LIMIT 20", (now,)).fetchall()
+        return [r[0] for r in rows]
 
     def fail(self, sid: str, error: str) -> None:
         self.db.execute("UPDATE searches SET status='failed', error=? WHERE id=?", (error, sid))
@@ -54,12 +77,13 @@ class History:
         d = {
             "id": r[0], "created": r[1], "status": r[2], "request": json.loads(r[3]), "error": r[5],
             "progress": {"done": r[6], "total": r[7]}, "best_price": r[8], "currency": r[9],
+            "next_check": r[10], "rechecks": r[11] or 0, "updated": r[12],
         }
         if with_result:
             d["result"] = json.loads(r[4]) if r[4] else None
         return d
 
-    _COLS = "id, created, status, request, result, error, done, total, best_price, currency"
+    _COLS = "id, created, status, request, result, error, done, total, best_price, currency, next_check, rechecks, updated"
 
     def get(self, sid: str) -> dict | None:
         r = self.db.execute(f"SELECT {self._COLS} FROM searches WHERE id=?", (sid,)).fetchone()

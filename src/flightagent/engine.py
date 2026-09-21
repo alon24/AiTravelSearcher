@@ -8,12 +8,20 @@ from datetime import date, datetime, timedelta
 
 from .cache import OfferCache
 from .links import AIRLINE_SITES
-from .models import AirlineInfo, DailyBest, LegView, Offer, SearchRequest, SearchResult, Segment, Trip
+from .itinerary import analyse, gap_warning
+from .polling import fare_ttl, unpriced_interval
+from .models import AirlineInfo, DailyBest, LegView, Offer, SearchRequest, SearchResult, Segment, Trip, UnpricedFlight
 from .providers.base import FlightProvider
 
 Key = tuple[str, str, date]  # (origin, destination, day)
 TOP_PER_LEG = 6  # candidates kept per one-way leg for combination
 LONG_LAYOVER_MIN = 8 * 60
+
+
+def leg_view(l: Offer) -> LegView:
+    return LegView(origin=l.origin, destination=l.destination, airlines=l.airlines, segments=l.segments, stops=l.stops,
+                   layovers_min=l.layovers_min, duration_min=l.duration_min, price=l.price,
+                   self_transfer=l.self_transfer, deep_links=l.deep_links, priced=l.priced)
 
 
 class BudgetExceeded(RuntimeError):
@@ -27,6 +35,8 @@ class BudgetExceeded(RuntimeError):
 class FlightSearchEngine:
     def __init__(self, provider: FlightProvider, cache: OfferCache | None = None, concurrency: int = 8):
         self._on_progress = None
+        self.api_calls = self.cache_hits = 0
+        self.sources: Counter[str] = Counter()
         self.provider = provider
         self.cache = cache
         self.sem = asyncio.Semaphore(concurrency)
@@ -53,6 +63,7 @@ class FlightSearchEngine:
             return leg_cache[key]
 
         airlines = self._airline_summary(req, raw)
+        unpriced = self._unpriced(req, raw)
         trips: list[Trip] = []
         for kind, label, dep, ret, keyset in shapes:
             per_leg = [options(k) for k in keyset]
@@ -74,7 +85,7 @@ class FlightSearchEngine:
         return SearchResult(
             request=req, daily=daily, top=top,
             api_calls=self.api_calls, cache_hits=self.cache_hits, warnings=warnings,
-            airlines=airlines, sources=dict(self.sources), elapsed_s=round(time.perf_counter() - started, 1),
+            airlines=airlines, unpriced=unpriced, sources=dict(self.sources), elapsed_s=round(time.perf_counter() - started, 1),
         )
 
     def estimate(self, req: SearchRequest) -> dict[str, int]:
@@ -82,6 +93,15 @@ class FlightSearchEngine:
         keys = self._required_keys(req, self._plan_shapes(req))
         cached = sum(1 for k in keys if self.cache and self.cache.has(self._cache_key(req, k)))
         return {"lookups": len(keys), "cached": cached, "to_fetch": len(keys) - cached}
+
+    async def one_way_options(self, req: SearchRequest, origin: str, dest: str, day: date) -> list[Offer]:
+        """Every one-way offer for a single route and day (for hand-built trips). Uses the shared cache."""
+        self.api_calls = self.cache_hits = 0
+        self.sources = Counter()
+        self._on_progress = None
+        key = (origin, dest, day)
+        raw, _ = await self._prefetch(req, {key})
+        return raw.get(key, [])
 
     # ---------------------------------------------------------------- planning
 
@@ -126,14 +146,25 @@ class FlightSearchEngine:
 
     # ------------------------------------------------------------------- fetch
 
+    def _ttl_for(self, day: date, offers: list[Offer]) -> float:
+        """How long this result may be reused: unpriced flights are rechecked soon (15 min when the flight is within
+        two weeks), and fares close to departure expire faster than distant ones."""
+        days_out = (day - date.today()).days
+        ttl = fare_ttl(days_out, self.cache.ttl)
+        if any(not o.priced for o in offers):
+            ttl = min(ttl, unpriced_interval(days_out))
+        return ttl
+
     def _cache_key(self, req: SearchRequest, k: Key) -> str:
-        return f"v2|{self.provider.name}|{k[0]}|{k[1]}|{k[2]}|{req.currency}|{req.pax_adults}-{req.pax_children}-{req.pax_infants}|{req.max_stops_per_leg}"
+        return f"v3|{self.provider.name}|{k[0]}|{k[1]}|{k[2]}|{req.currency}|{req.pax_adults}-{req.pax_children}-{req.pax_infants}|{req.max_stops_per_leg}"
 
     async def _prefetch(self, req: SearchRequest, keys: set[Key]):
         raw: dict[Key, list[Offer]] = {}
         missing: list[Key] = []
         for k in keys:
             cached = self.cache.get(self._cache_key(req, k)) if self.cache else None
+            if cached is not None and req.refresh_unpriced and any(not o.priced for o in cached):
+                cached = None            # a recheck was asked for: do not trust a cached "no price"
             if cached is None:
                 missing.append(k)
             else:
@@ -167,10 +198,12 @@ class FlightSearchEngine:
                     errors.append(f"{k[0]}->{k[1]} {k[2]}: {e}")
                     return
                 self.api_calls += 1
+                if self.cache:
+                    self.cache.remember_fares({self._fare_key(req, o): o.price for o in offers if o.priced})
                 self.sources[getattr(offers, "source", "") or self.provider.name] += 1
                 raw[k] = offers
                 if self.cache and offers:  # never cache "no flights": it may be a bad code, not a fact
-                    self.cache.put(self._cache_key(req, k), offers)
+                    self.cache.put(self._cache_key(req, k), offers, self._ttl_for(k[2], offers))
 
         await asyncio.gather(*(fetch(k) for k in missing))
         if errors and not raw:
@@ -185,7 +218,7 @@ class FlightSearchEngine:
 
     def _leg_options(self, req: SearchRequest, key: Key, raw: dict[Key, list[Offer]]) -> list[Offer]:
         o, d, day = key
-        ok_raw = lambda k: [x for x in raw.get(k, []) if self._airline_ok(req, x)]  # noqa: E731
+        ok_raw = lambda k: [x for x in raw.get(k, []) if x.priced and self._airline_ok(req, x)]  # noqa: E731
         candidates = ok_raw((o, d, day))
         if req.allow_self_transfer:
             for h in req.self_transfer_hubs:
@@ -222,22 +255,49 @@ class FlightSearchEngine:
             for o in offers:
                 route = f"{o.origin}>{o.destination}"
                 for code in {s.airline_code for s in o.segments}:
-                    a = info.setdefault(code, {"name": "", "offers": 0, "cheapest": o.price, "routes": set(), "nonstop": set()})
+                    a = info.setdefault(code, {"name": "", "offers": 0, "cheapest": None, "routes": set(), "nonstop": set(), "nofare": set()})
                     a["name"] = a["name"] or next(s.airline for s in o.segments if s.airline_code == code) or code
                     a["offers"] += 1
-                    a["cheapest"] = min(a["cheapest"], o.price)
+                    if o.priced:
+                        a["cheapest"] = o.price if a["cheapest"] is None else min(a["cheapest"], o.price)
+                    else:
+                        a["nofare"].add(route)
                     a["routes"].add(route)
                     if o.stops == 0:
                         a["nonstop"].add(route)
         probe = lambda code: self._airline_ok(req, Offer(origin="", destination="", price=0, currency="", segments=[  # noqa: E731
             Segment(airline_code=code, flight_number="", origin="", destination="", departs=datetime.min, arrives=datetime.min)]))
         return sorted((AirlineInfo(code=c, name=a["name"], offers=a["offers"], cheapest=a["cheapest"], routes=sorted(a["routes"]),
-                                    nonstop=sorted(a["nonstop"]), included=probe(c)) for c, a in info.items()),
-                      key=lambda x: (x.cheapest, x.name))
+                                    nonstop=sorted(a["nonstop"]), included=probe(c), no_price_routes=sorted(a["nofare"]))
+                       for c, a in info.items()),
+                      key=lambda x: (x.cheapest is None, x.cheapest or 0, x.name))
+
+    @staticmethod
+    def _fare_key(req: SearchRequest, f: Offer) -> str:
+        label = "+".join(f"{s.airline_code}{s.flight_number}" for s in f.segments)
+        return f"{req.currency}|{req.pax_adults}-{req.pax_children}-{req.pax_infants}|{label}|{f.departs.isoformat()}"
+
+    def _unpriced(self, req: SearchRequest, raw: dict[Key, list[Offer]]) -> list[UnpricedFlight]:
+        """Flights the source lists without a fare: shown to the user, never ranked."""
+        seen, out = set(), []
+        for (o, d, day), offers in sorted(raw.items(), key=lambda kv: kv[0][2]):
+            for f in offers:
+                if f.priced:
+                    continue
+                label = "+".join(f"{s.airline_code}{s.flight_number}" for s in f.segments)
+                if (label, f.departs) in seen:
+                    continue
+                seen.add((label, f.departs))
+                last = self.cache.recall_fare(self._fare_key(req, f)) if self.cache else None
+                out.append(UnpricedFlight(date=f.departs.date(), origin=f.origin, destination=f.destination, airline=f.segments[0].airline or f.segments[0].airline_code,
+                                          airline_code=f.segments[0].airline_code, flights=label, departs=f.departs, arrives=f.arrives,
+                                          duration_min=f.duration_min, stops=f.stops, link=(f.deep_links or [""])[0],
+                                          last_price=last[0] if last else None, last_seen=last[1] if last else None))
+        return out[:60]
 
     @staticmethod
     def _passes(req: SearchRequest, c: Offer) -> bool:
-        if c.stops > req.max_stops_per_leg or not FlightSearchEngine._airline_ok(req, c):
+        if not c.priced or c.stops > req.max_stops_per_leg or not FlightSearchEngine._airline_ok(req, c):
             return False
         if any(not (req.min_layover_min <= lay <= req.max_layover_min) for lay in c.layovers_min):
             return False
@@ -267,11 +327,7 @@ class FlightSearchEngine:
         return _dedupe([cheapest, best])
 
     def _build_trip(self, req, kind, label, dep, ret, keyset, legs: tuple[Offer, ...]) -> Trip:
-        views = [LegView(
-            origin=l.origin, destination=l.destination, airlines=l.airlines, segments=l.segments,
-            stops=l.stops, layovers_min=l.layovers_min, duration_min=l.duration_min,
-            price=l.price, self_transfer=l.self_transfer, deep_links=l.deep_links,
-        ) for l in legs]
+        views = [leg_view(l) for l in legs]
         warnings: list[str] = []
         for l in legs:
             if l.self_transfer:
@@ -284,8 +340,7 @@ class FlightSearchEngine:
             for seg, lay in zip(l.segments, l.layovers_min):
                 if lay >= LONG_LAYOVER_MIN:
                     warnings.append(f"Long layover at {seg.destination}: {lay // 60}h{lay % 60:02d}")
-        if kind == "open_jaw":
-            warnings.append("Open-jaw: arrive and depart from different airports; plan ground transport.")
+        warnings += [w for g in analyse(views).gaps if (w := gap_warning(g))]  # transfer time between airports, tight/long gaps
         if len({tuple(l.airlines) for l in legs}) > 1 and kind != "multi_stop":
             warnings.append("Outbound and return are separate one-way tickets on different airlines.")
         return Trip(

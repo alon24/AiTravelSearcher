@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from .engine import airline_site
 from .models import LegView, SearchResult, Trip
 
@@ -57,8 +59,15 @@ def render(result: SearchResult) -> str:
         out.append("\nAIRLINES SEEN (cheapest fare, routes)")
         for a in result.airlines[:14]:
             flag = "" if a.included else "  [excluded by filter]"
-            out.append(f"  {a.name} ({a.code}) from {a.cheapest:,.0f}: " + ", ".join(r.replace(">", "→") + (" nonstop" if r in a.nonstop else "") for r in a.routes) + flag)
-    via = ", ".join(f"{name} x{n}" for name, n in sorted(result.sources.items())) or "no live lookups"
-    out.append(f"\n[{result.api_calls} lookups via {via} | {result.cache_hits} cached | {result.elapsed_s}s]")
+            fare = f"from {a.cheapest:,.0f}" if a.cheapest is not None else "no price shown"
+            out.append(f"  {a.name} ({a.code}) {fare}: " + ", ".join(r.replace(">", "→") + (" nonstop" if r in a.nonstop else "") for r in a.routes) + flag)
+    via = ", ".join(f"{name} x{n}" for name, n in sorted(result.sources.items())) or ""
+    if result.unpriced:
+        out.append("\nFLIGHTS LISTED WITHOUT A PRICE (Google shows no fare: check the airline's own site)")
+        for u in result.unpriced[:20]:
+            seen = f" (last seen at {u.last_price:,.0f}, {(time.time() - u.last_seen) / 3600:.0f}h ago)" if u.last_price is not None else ""
+            out.append(f"  {u.date:%a %d %b} {u.origin}→{u.destination} {u.flights} {u.airline} {u.departs:%H:%M}→{u.arrives:%H:%M}{seen}")
+    live = f"{result.api_calls} live lookups via {via}" if result.api_calls else "all from cache"
+    out.append(f"\n[{live} | {result.cache_hits} cached | {result.elapsed_s}s]")
     out += [f"⚠ {w}" for w in result.warnings]
     return "\n".join(out)

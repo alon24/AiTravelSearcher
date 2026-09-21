@@ -116,6 +116,30 @@ served each lookup.
 - Google lists some flights **without a price**; the parser skips them (a crash here once forced whole route-days onto the paid fallback).
 - The cache key is versioned (`v2|`) so a provider-semantics change never serves stale prices.
 
+### Unpriced flights, rechecks and the cache (measured, Sept 2026)
+- Google lists some flights **without a fare**. It is intermittent: HiSky (H4236, TLV-OTP) was priced on 8 of 8 fetches,
+  then on 0 of 12 half an hour later, and it showed the fare in a real browser. Euroairlines is unpriced every time
+  (Google shows "Price unavailable"). So the parser **keeps** unpriced flights (`Offer.priced=False`): they are never
+  ranked or counted as fares, but they are listed (results panel, trip builder, report) and counted as "flies here".
+- **Cache lifetime is per entry** (`polling.py`): results with unpriced flights expire after 15 min when the flight is
+  within 14 days, 1 h to 60 days, 3 h beyond; priced fares expire after 1 h within 2 days and 3 h within 14 days.
+  `refresh_unpriced` makes a search ignore cached "no price" entries.
+- **Recheck**: `POST /api/searches/{id}/recheck`, plus a background loop (every minute) that re-runs searches whose
+  `next_check` is due, on the schedule above, backing off x2 after 4 fruitless rechecks (cap 6 h) and stopping when the
+  flight has departed. `FLIGHTAGENT_RECHECK=0` disables the loop.
+- **Last seen fare**: the cache remembers the last price per flight (`fares` table), so a flight Google later shows
+  without a price is listed as "last seen ₪505, 2h ago" (may be out of date).
+- The scraper asks again (twice, 1 s apart) when it sees an unpriced flight. That rarely helps, since the fare comes
+  back minutes later, which is what the scheduled recheck is for.
+
+### Airline finder, trip builder, airline filters
+- `POST /api/explore`: which airlines fly between an origin and a country's airports (or listed airports). One date for
+  every airport, then 2 more dates only for airports with flights. Per airline: airports served, nonstop or not, cheapest fare.
+- Trip builder (`web/builder.js`, `GET /api/flights`, `POST /api/itinerary/check`): hand-built legs; `itinerary.py`
+  computes gaps with airport time zones, flags tight or impossible connections, and mentions the estimated ground transfer
+  between airports of one city (`geo.py`; estimates supplied by us, not measured data).
+- Airline include/exclude filters apply after fetching, so changing them costs no lookups.
+
 ### Current providers
 | Name | Source | Cost | Notes |
 |---|---|---|---|

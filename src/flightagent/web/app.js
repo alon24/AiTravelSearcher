@@ -56,6 +56,12 @@ async function api(path, opts) {
 }
 const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
+let recheckTimer = 0;
+function toast(msg) {
+  const t = h("div", { class: "toast", role: "status" }, msg); document.body.append(t); setTimeout(() => t.classList.add("show"), 10);
+  setTimeout(() => { t.classList.remove("show"); setTimeout(() => t.remove(), 300); }, 3200);
+}
+let resultsQuery = null;   // the request behind the results on screen (used by the trip builder buttons)
 let config = { provider: "mock", airline_sites: {}, airlines: {} };
 
 // ------------------------------------------------------------------ airports + autocomplete
@@ -121,10 +127,13 @@ function autocomplete(root, { id, placeholder, multi, max = 8, onChange }) {
 }
 
 // ------------------------------------------------------------------ form state
+// The "value of an hour" and self-transfer penalty are money amounts, so their defaults scale with the currency.
+const VOT = { ILS: 35, USD: 10, EUR: 10, GBP: 8 }, PENALTY = { ILS: 150, USD: 40, EUR: 40, GBP: 35 };
+let lastCurrency = "ILS";
 const defaults = () => {
   const t = new Date(), plus = n => { const d = new Date(t); d.setDate(d.getDate() + n); return iso(d); };
-  return { from: ["TLV"], to: [], back: [], start: plus(21), end: plus(60), nmin: 4, nmax: 7, stops: 1, currency: "USD", adults: 1,
-    airmode: "exclude", airlines: [], kids: [], connect: false, same: false, st: false, hubs: [], buffer: 4, maxtravel: "", laymin: 1.5, laymax: 72, vot: 10, top: 5, maxcalls: 400 };
+  return { from: ["TLV"], to: [], back: [], start: plus(21), end: plus(60), nmin: 4, nmax: 7, stops: 1, currency: "ILS", adults: 1,
+    airmode: "exclude", airlines: [], kids: [], connect: false, same: false, st: false, hubs: [], buffer: 4, maxtravel: "", laymin: 1.5, laymax: 72, vot: VOT.ILS, top: 5, maxcalls: 400 };
 };
 let ac = {};
 let kids = [];   // ages of the children in the form
@@ -134,7 +143,7 @@ function readForm() {
   return {
     from: ac.from.get(), to: ac.to.get(), back: ac.back.get(), hubs: ac.hubs.get(),
     start: $("#start").value, end: $("#end").value, nmin: num("nmin", 0), nmax: num("nmax", 0),
-    stops: +($$("input[name=stops]").find(r => r.checked)?.value ?? 1), currency: $("#currency").value, adults: num("adults", 1),
+    stops: +($$("input[name=stops]").find(r => r.checked)?.value ?? 1), currency: $$("input[name=currency]").find(r => r.checked)?.value || "ILS", adults: num("adults", 1),
     airmode: $$("input[name=airmode]").find(r => r.checked)?.value || "exclude", airlines: ac.air.get(),
     kids: [...kids], connect: $("#connect").checked, same: $("#same").checked, st: $("#st").checked, buffer: num("buffer", 4),
     maxtravel: $("#maxtravel").value, laymin: num("laymin", 1.5), laymax: num("laymax", 72), vot: num("vot", 10), top: num("top", 5), maxcalls: num("maxcalls", 400),
@@ -144,7 +153,7 @@ function writeForm(f) {
   ac.from.set(f.from); ac.to.set(f.to); ac.back.set(f.back); ac.hubs.set(f.hubs);
   $("#start").value = f.start; $("#end").value = f.end; $("#nmin").value = f.nmin; $("#nmax").value = f.nmax;
   const r = $$("input[name=stops]").find(x => +x.value === f.stops) || $$("input[name=stops]")[1]; r.checked = true;
-  $("#currency").value = f.currency; $("#adults").value = f.adults;
+  ($$("input[name=currency]").find(r => r.value === f.currency) || $$("input[name=currency]")[0]).checked = true; $("#adults").value = f.adults;
   kids = [...(f.kids || [])]; renderKids();
   ac.air.set(f.airlines || []); ($$("input[name=airmode]").find(r => r.value === (f.airmode || "exclude")) || {}).checked = true;
   $("#connect").checked = f.connect; $("#same").checked = f.same; $("#st").checked = f.st; $("#buffer").value = f.buffer;
@@ -172,7 +181,7 @@ function toRequest(f) {
     allow_mixed_airlines: !f.same, allow_self_transfer: f.st && f.hubs.length > 0, self_transfer_hubs: f.hubs,
     self_transfer_buffer_min: Math.round(f.buffer * 60), adults: f.adults, children_ages: f.kids, currency: f.currency,
     airlines_exclude: f.airmode === "exclude" ? f.airlines : [], airlines_include: f.airmode === "only" ? f.airlines : [],
-    value_of_time_per_hour: f.vot, top_n: f.top, max_api_calls: f.maxcalls,
+    value_of_time_per_hour: f.vot, self_transfer_penalty: PENALTY[f.currency] ?? 40, top_n: f.top, max_api_calls: f.maxcalls,
   } };
 }
 function requestToForm(q) {
@@ -227,7 +236,12 @@ async function runEstimate() {
   updateGo();
 }
 function onFormChange() {
-  const f = readForm(); store.set("skyhop.form", f);
+  let f = readForm();
+  if (f.currency !== lastCurrency) {            // keep a custom "value of an hour", but re-scale the untouched default
+    if (Math.round(f.vot) === VOT[lastCurrency]) { $("#vot").value = VOT[f.currency]; f = readForm(); }
+    lastCurrency = f.currency;
+  }
+  store.set("skyhop.form", f);
   $("#vot-out").textContent = money(f.vot, f.currency) + "/h";
   clearTimeout(estTimer); estTimer = setTimeout(runEstimate, 300);
 }
@@ -291,7 +305,9 @@ function renderProgress(row) {
 }
 
 function renderResult(row) {
+  clearTimeout(recheckTimer);
   const box = $("#results"), q = row.request;
+  resultsQuery = q;
   box.replaceChildren();
   if (row.status === "failed") {
     box.append(h("div", { class: "note bad" }, `This search failed: ${row.error}`),
@@ -360,6 +376,8 @@ function renderResult(row) {
 
   const airPanel = airlinePanel(res, q, cur);
   if (airPanel) box.append(airPanel);
+  const unpricedPanelEl = unpricedPanel(res, row);
+  if (unpricedPanelEl) { box.append(unpricedPanelEl); watchRecheck(row); }
 
   // ---- chart panel
   const chartHost = h("div", { class: "chart" }), tableHost = h("div", { class: "table-wrap", hidden: true });
@@ -384,8 +402,11 @@ function renderResult(row) {
 
   function select(date) { view.sel = date; if (view.pickOpen) { view.pickOpen = null; syncPicks(); } redraw(); drawDetail(); }
   function drawDetail() {
-    const d = byDay.get(view.sel);
-    detailHost.replaceChildren(d ? tripCard(tripOf(d), cur, paxCount(q)) : h("div", { class: "note" }, "Pick a day on the chart."));
+    const d = byDay.get(view.sel), trip = d && tripOf(d);
+    const extra = trip ? (res.unpriced || []).filter(u => trip.legs.some(l => l.segments[0].departs.slice(0, 10) === u.date && l.origin === u.origin && l.destination === u.destination)) : [];
+    detailHost.replaceChildren(...[trip ? tripCard(trip, cur, paxCount(q)) : h("div", { class: "note" }, "Pick a day on the chart."),
+      extra.length ? h("div", { class: "note" }, h("b", {}, "Also flying that day, but Google shows no price: "),
+        extra.map(u => `${u.flights} ${u.airline} ${fmtTime(day(u.departs))}→${fmtTime(day(u.arrives))} (${u.origin}→${u.destination})`).join("  ·  ")) : null].filter(Boolean));
   }
   const days = (() => {
     const first = day(daily[0].depart_date), last = day(daily[daily.length - 1].depart_date), out = [];
@@ -526,7 +547,7 @@ function airlinePanel(res, q, cur) {
   const search = h("input", { type: "search", class: "air-search", placeholder: "Does an airline fly here? Type a name or code…", "aria-label": "Find an airline" });
   const host = h("div", { class: "air-list" });
   const dirty = () => list.some(a => sel.has(a.code) !== a.included);
-  const routeChip = (a, r) => h("span", { class: "rt" + (a.nonstop.includes(r) ? " ns" : "") }, `${r.replace(">", " → ")} · ${a.nonstop.includes(r) ? "nonstop" : "with a stop"}`);
+  const routeChip = (a, r) => h("span", { class: "rt" + (a.nonstop.includes(r) ? " ns" : "") }, `${r.replace(">", " → ")} · ${a.nonstop.includes(r) ? "nonstop" : "with a stop"}${(a.no_price_routes || []).includes(r) ? " · no price" : ""}`);
   function draw() {
     const term = search.value.trim().toLowerCase();
     const shown = list.filter(a => !term || a.name.toLowerCase().includes(term) || a.code.toLowerCase().includes(term));
@@ -536,7 +557,7 @@ function airlinePanel(res, q, cur) {
         h("label", { class: "air-name" }, h("input", { type: "checkbox", checked: sel.has(a.code), "aria-label": `Include ${a.name}`, onchange: e => {
           e.target.checked ? sel.add(a.code) : sel.delete(a.code); row.classList.toggle("off", !e.target.checked); apply.disabled = !dirty(); } }),
           h("span", { class: "an" }, a.name), h("span", { class: "ac2" }, a.code), !a.included ? h("span", { class: "badge fail" }, "excluded") : null),
-        h("span", { class: "ap2" }, `from ${money(a.cheapest, cur)}`),
+        h("span", { class: "ap2" + (a.cheapest == null ? " np" : "") }, a.cheapest == null ? "no price shown" : `from ${money(a.cheapest, cur)}`),
         h("span", { class: "routes" }, a.routes.map(r => routeChip(a, r))),
         h("button", { type: "button", class: "btn small ghost", onclick: () => submitSearch({ ...q, airlines_include: [a.code], airlines_exclude: [] }) }, "Only"));
       return row;
@@ -554,6 +575,56 @@ function airlinePanel(res, q, cur) {
     host);
 }
 
+// Flights Google lists but shows no fare for (often airlines that sell only on their own site, e.g. HiSky).
+function nextCheckText(row) {
+  const parts = [];
+  if (row.next_check) { const m = Math.round((row.next_check * 1000 - Date.now()) / 60000); parts.push(m <= 0 ? "Next automatic check: any moment" : `Next automatic check in ${m < 90 ? `${m} min` : `${Math.round(m / 60)} h`}`); }
+  if (row.rechecks) parts.push(`checked again ${plural(row.rechecks, "time")}`);
+  return parts.join(" · ");
+}
+// Rechecks run on the server on a schedule; refresh what is on screen when one has finished.
+function watchRecheck(row) {
+  clearTimeout(recheckTimer);
+  const wait = Math.max(45000, (row.next_check ? row.next_check * 1000 - Date.now() : 0) + 20000);
+  recheckTimer = setTimeout(async () => {
+    if (current !== row.id) return;
+    try {
+      const fresh = await api(`/api/searches/${row.id}`);
+      if (current !== row.id) return;
+      if (fresh.updated !== row.updated) { const gained = (row.result.unpriced || []).length - (fresh.result.unpriced || []).length; renderResult(fresh); if (gained > 0) toast(`${plural(gained, "flight")} now ${gained === 1 ? "has" : "have"} a price`); }
+      else watchRecheck(row);
+    } catch { watchRecheck(row); }
+  }, Math.min(wait, 20 * 60000));
+}
+
+function unpricedPanel(res, row) {
+  const list = res.unpriced || [];
+  if (!list.length) return null;
+  const btn = h("button", { type: "button", class: "btn small", onclick: async () => {
+    btn.disabled = true; btn.textContent = "Checking…";
+    try {
+      const r = await post(`/api/searches/${row.id}/recheck`, {});
+      const gained = r.changed.before - r.changed.after;
+      toast(gained > 0 ? `${plural(gained, "flight")} now ${gained === 1 ? "has" : "have"} a price` : "Still no price for those flights");
+      renderResult(r.search); refreshHistory();
+    } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = "Recheck now"; }
+  } }, "Recheck now");
+  return h("details", { class: "card panel air-panel", open: true },
+    h("summary", {}, `Flights listed without a price (${list.length})`, h("span", { class: "badge warn" }, "check the airline's site")),
+    h("p", { class: "air-help" }, "Google lists these flights but shows no fare (sometimes it shows it a few minutes later, so Skyhop rechecks on a schedule, every 15 minutes for departures within two weeks). They are not included in the prices or rankings above."),
+    h("div", { class: "air-tools" }, btn, h("span", { class: "unp-status" }, nextCheckText(row))),
+    h("div", { class: "air-list" }, list.map(u => h("div", { class: "unp-row" },
+      h("span", { class: "unp-date" }, fmtDay(day(u.date))),
+      h("span", { class: "unp-route" }, `${u.origin} → ${u.destination}`),
+      h("span", { class: "unp-times" }, `${fmtTime(day(u.departs))} → ${fmtTime(day(u.arrives))}`, dayShift(day(u.departs), day(u.arrives)) > 0 ? ` +${dayShift(day(u.departs), day(u.arrives))}` : ""),
+      h("span", { class: "unp-air" }, h("b", {}, u.flights), ` ${u.airline}`, u.stops ? ` · ${plural(u.stops, "stop")}` : " · nonstop",
+        u.last_price != null ? h("span", { class: "badge warn", title: "Google showed this fare earlier and has since dropped it, so it may be out of date" }, `last seen ${money(u.last_price, row.request.currency)}, ${ago(u.last_seen)}`) : null),
+      h("span", { class: "actions" },
+        config.airline_sites[u.airline_code] ? h("a", { class: "btn small", href: config.airline_sites[u.airline_code], target: "_blank", rel: "noopener noreferrer" }, `${u.airline} ↗`) : null,
+        h("button", { type: "button", class: "btn small", onclick: () => Builder.browse(u.origin, u.destination, u.date) }, "All flights that day"),
+        u.link ? h("a", { class: "btn small", href: u.link, target: "_blank", rel: "noopener noreferrer" }, "Google Flights ↗") : null)))));
+}
+
 // ------------------------------------------------------------------ trip card
 function tripCard(t, cur, pax = 1) {
   const titles = t.legs.length === 3 ? ["Outbound", "Between cities", "Return"] : ["Outbound", "Return"];
@@ -564,8 +635,11 @@ function tripCard(t, cur, pax = 1) {
         h("div", { class: "trip-dates" }, `${fmtDay(day(t.depart_date))} → ${fmtDay(day(t.return_date))} · ${plural(t.nights, "night")}`)),
       h("div", { class: "trip-price" }, h("div", { class: "p" }, money(t.price, cur)), h("div", { class: "e" }, pax > 1 ? `total for ${plural(pax, "traveller")}` : `value score ${Math.round(t.effective_cost)}`))),
     t.legs.map((leg, i) => legCard(leg, titles[i] || "Leg", cur)),
-    t.warnings.length ? h("div", { class: "warns" }, t.warnings.map(w => h("div", { class: "warn" + (/^(SELF|Long)/.test(w) ? "" : " info") },
-      h("span", { "aria-hidden": "true" }, /^(SELF|Long)/.test(w) ? "⚠" : "ℹ"), w))) : null);
+    t.warnings.length ? h("div", { class: "warns" }, t.warnings.map(w => {
+      const bad = /^(SELF|Long|Tight|Not enough)/.test(w);
+      return h("div", { class: "warn" + (bad ? "" : " info") }, h("span", { "aria-hidden": "true" }, bad ? "⚠" : "ℹ"), w);
+    })) : null,
+    h("div", { class: "actions" }, h("button", { type: "button", class: "btn small", onclick: () => Builder.addTrip(t, { pax: paxLabel(resultsQuery), currency: cur }) }, "＋ Add all flights to Trip builder")));
 }
 function legTimes(leg) {
   const e = legEnds(leg), sh = dayShift(e.dep, e.arr);
@@ -595,7 +669,9 @@ function legCard(leg, title, cur) {
       h("div", { class: "leg-title" }, title, h("small", {}, [...seen.values()].join(" · "))),
       h("strong", {}, money(leg.price, cur))),
     legTimes(leg),
-    rows, h("div", { class: "actions" }, links, direct));
+    rows, h("div", { class: "actions" }, links, direct,
+      h("button", { type: "button", class: "btn small", title: "See every flight that day, including ones with no price", onclick: () => Builder.browse(leg.origin, leg.destination, leg.segments[0].departs.slice(0, 10)) }, "All flights that day"),
+      h("button", { type: "button", class: "btn small", onclick: () => Builder.addFlight(leg, { pax: paxLabel(resultsQuery), currency: cur }) }, "＋ Trip builder")));
 }
 
 // ------------------------------------------------------------------ chrome: theme, sidebar, init
@@ -623,7 +699,10 @@ async function init() {
     back: autocomplete($("#ac-back"), { id: "back-in", placeholder: "Same as destination", multi: true, ...cfg }),
     hubs: autocomplete($("#ac-hubs"), { id: "hubs-in", placeholder: "IST, ATH, VIE…", multi: true, ...cfg }),
   };
-  writeForm({ ...defaults(), ...(store.get("skyhop.form") || {}) });
+  const draft = store.get("skyhop.form") || {};
+  if (!store.get("skyhop.ils-default")) { draft.currency = "ILS"; draft.vot = VOT.ILS; store.set("skyhop.ils-default", true); }
+  writeForm({ ...defaults(), ...draft });
+  lastCurrency = readForm().currency;
   if (day($("#end").value) < new Date()) writeForm({ ...readForm(), start: defaults().start, end: defaults().end });
   $("#form").addEventListener("input", onFormChange); $("#form").addEventListener("change", onFormChange);
   $$("[data-step]").forEach(b => b.addEventListener("click", () => {
@@ -648,6 +727,8 @@ async function init() {
     showFormError("");
     try { await submitSearch(req); } catch (err) { showFormError(err.message); }
   });
+  Builder.init();
+  Finder.init();
   refreshHistory(); runEstimate();
   setInterval(() => { if (!document.hidden && !pollTimer) refreshHistory(); }, 60000);
 }
