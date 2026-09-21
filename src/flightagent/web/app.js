@@ -185,6 +185,7 @@ function writeForm(f) {
   $("#maxtravel").value = f.maxtravel; $("#laymin").value = f.laymin; $("#laymax").value = f.laymax;
   displayCurrency = f.currency;
   $("#vot").value = f.vot; $("#vot-out").textContent = money(f.vot, f.currency) + "/h"; $("#top").value = f.top; $("#maxcalls").value = f.maxcalls;
+  renderActiveFilters(readForm());
 }
 function toRequest(f) {
   const err = m => ({ error: m });
@@ -239,6 +240,24 @@ function renderKids() {
     adult ? `${plural(adult, "child")} aged 12+ counted as adult.` : "",
     !kids.length ? "Children are priced by age; leave empty if you're flying with adults only." : "",
   ].filter(Boolean).join(" ");
+}
+
+// Options that change the results but live under "More options" are listed next to the search button, each removable, so a
+// filter carried over from an earlier search can never be silently active.
+function renderActiveFilters(f) {
+  const nameOf = c => (config.airlines || {})[c] || c;
+  const chips = [];
+  const add = (label, clear) => chips.push(h("button", { type: "button", class: "af-chip", title: "Click to remove this filter", onclick: () => { clear(); onFormChange(); } }, label, h("span", { "aria-hidden": "true" }, " ✕")));
+  if (f.airlines.length) add(`${f.airmode === "only" ? "Only" : "Excluding"}: ${f.airlines.map(nameOf).join(", ")}`, () => ac.air.set([]));
+  if (f.bags !== "none") add(`Bags in price: ${{ cabin: "cabin bag", checked: "checked bag", both: "cabin + checked" }[f.bags]}`, () => { $$("input[name=bags]")[0].checked = true; });
+  if (f.same) add("Same airline both ways", () => { $("#same").checked = false; });
+  if (f.st && f.hubs.length) add(`Self-transfer via ${f.hubs.join(", ")}`, () => { $("#st").checked = false; });
+  if (f.connect) add("Also flying between destinations", () => { $("#connect").checked = false; });
+  if (f.maxtravel) add(`Max travel ${f.maxtravel}h each way`, () => { $("#maxtravel").value = ""; });
+  if (f.back.length) add(`Flying home from ${f.back.join(", ")}`, () => ac.back.set([]));
+  const box = $("#active-filters");
+  box.hidden = !chips.length;
+  box.replaceChildren(...(chips.length ? [h("span", { class: "af-label" }, "Active filters:"), ...chips] : []));
 }
 
 // The currency button changes the whole screen: results, history, trip builder and airline finder.
@@ -320,6 +339,7 @@ function onFormChange() {
   if (f.currency !== displayCurrency) { displayCurrency = f.currency; rerenderCurrency(); }
   store.set("skyhop.form", f);
   updateLengthHint(f.nmin, f.nmax);
+  renderActiveFilters(f);
   $("#vot-out").textContent = money(f.vot, f.currency) + "/h";
   clearTimeout(estTimer); estTimer = setTimeout(runEstimate, 300);
 }
@@ -402,6 +422,7 @@ function renderResult(row, opts = {}) {
       h("div", { class: "res-sub" }, `${fmtShort(day(q.window_start))} – ${fmtShort(day(q.window_end))} · ${nights}`,
         h("span", { class: "badge ok" }, `${res.api_calls + res.cache_hits} lookups${via ? ` · ${via}` : ""}${res.cache_hits ? ` · ${res.cache_hits} cached` : ""}`),
         paxCount(q) > 1 && h("span", { class: "badge run" }, `${paxLabel(q)} · totals`),
+        (q.airlines_exclude || []).length || (q.airlines_include || []).length ? h("span", { class: "badge warn" }, `${(q.airlines_include || []).length ? "Only" : "Excluding"}: ${((q.airlines_include || []).length ? q.airlines_include : q.airlines_exclude).map(c => (config.airlines || {})[c] || c).join(", ")}`) : null,
         (q.carry_on_bags || q.checked_bags) ? h("span", { class: "badge run", title: "Google adds estimated bag fees only where it has them (mostly US and Europe)" }, `🧳 est. fees for ${[q.carry_on_bags ? "cabin bag" : "", q.checked_bags ? "checked bag" : ""].filter(Boolean).join(" + ")} included`) : null,
         q.currency !== displayCurrency ? h("button", { type: "button", class: "badge warn conv-toggle", onclick: () => setShowOriginal(!showOriginal), title: `Searched in ${q.currency}. Shown in ${shownCur(q.currency)} at 1 ${shownCur(q.currency)} = ${(rates[q.currency] / rates[shownCur(q.currency)]).toFixed(3)} ${q.currency} (${ratesInfo.source}${ratesInfo.date ? `, ${ratesInfo.date}` : ""}). The airline's own price in that currency may differ a little.` }, showOriginal ? `Showing original ${q.currency} · click to convert to ${displayCurrency}` : `≈ Converted from ${q.currency} · click to see the original`) : null,
         h("span", { class: "badge run" }, `${res.elapsed_s}s`), h("span", {}, ago(row.created)))),
