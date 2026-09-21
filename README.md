@@ -16,6 +16,8 @@ cp .env.example .env            # FLIGHTAGENT_PROVIDER=mock works offline, no ke
     --self-transfer IST,ATH --connect --top 5        # add --json for machine output
 .venv/bin/uvicorn flightagent.api:app                 # POST /search, POST /search/report
 .venv/bin/pytest
+node src/flightagent/web/airport-search.test.js   # typo/alias airport search (buka -> Bucharest)
+python tools/build_airports.py                    # regenerate web/airports.json (OpenFlights + aliases)
 ```
 
 ## Providers

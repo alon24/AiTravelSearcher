@@ -56,26 +56,7 @@ let config = { provider: "mock", airline_sites: {} };
 // ------------------------------------------------------------------ airports + autocomplete
 let AIRPORTS = [];
 async function loadAirports() {
-  const rows = await (await fetch("airports.json")).json();
-  AIRPORTS = rows.map(([code, city, name, country, rank]) => ({
-    code, city, name, country, rank, c: city.toLowerCase(),
-    key: `${code} ${city} ${name} ${country}`.toLowerCase(),
-  }));
-}
-function searchAirports(q) {
-  q = q.trim().toLowerCase();
-  if (!q) return [];
-  const out = [];
-  for (const a of AIRPORTS) {
-    const code = a.code.toLowerCase();
-    let sc = 0;
-    if (code === q) sc = 100; else if (code.startsWith(q)) sc = 80; else if (a.c.startsWith(q)) sc = 70;
-    else if (a.c.includes(q)) sc = 45; else if (a.key.includes(q)) sc = 20;
-    if (!sc) continue;
-    out.push([sc + (a.rank === 1 ? 15 : a.rank === 2 ? 22 : 0), a]);
-  }
-  out.sort((x, y) => y[0] - x[0] || x[1].city.localeCompare(y[1].city));
-  return out.slice(0, 8).map(x => x[1]);
+  AIRPORTS = AirportSearch.prepare(await (await fetch("airports.json")).json());
 }
 const airport = code => AIRPORTS.find(a => a.code === code);
 
@@ -102,11 +83,16 @@ function autocomplete(root, { id, placeholder, multi, max = 8, onChange }) {
     input.value = ""; close(); draw(); onChange();
   }
   function show() {
-    items = searchAirports(input.value);
-    list.replaceChildren(...items.map((a, i) => h("li", { role: "option", "aria-selected": String(i === active), onmousedown: e => { e.preventDefault(); pick(a.code); } },
+    const results = AirportSearch.search(AIRPORTS, input.value);
+    items = results.map(r => r.a);
+    const q = input.value.trim();
+    const rows = items.map((a, i) => h("li", { role: "option", "aria-selected": String(i === active), onmousedown: e => { e.preventDefault(); pick(a.code); } },
       h("span", { class: "ac-code" }, a.code),
-      h("span", {}, h("div", { class: "ac-city" }, a.city), h("div", { class: "ac-sub" }, `${a.name} · ${a.country}`)))));
-    list.hidden = !items.length; input.setAttribute("aria-expanded", String(items.length > 0));
+      h("span", {}, h("div", { class: "ac-city" }, a.city), h("div", { class: "ac-sub" }, `${a.name} · ${a.country}`))));
+    if (results.length && results[0].kind === "fuzzy") rows.unshift(h("li", { class: "ac-hint", role: "presentation" }, `No exact match for “${q}”. Did you mean…`));
+    if (!results.length && q) rows.push(h("li", { class: "ac-hint", role: "presentation" }, "No match. Try a city, an airport name or a 3-letter code."));
+    list.replaceChildren(...rows);
+    list.hidden = !rows.length; input.setAttribute("aria-expanded", String(items.length > 0));
   }
   input.addEventListener("input", () => { active = -1; show(); });
   input.addEventListener("focus", show);
@@ -115,12 +101,13 @@ function autocomplete(root, { id, placeholder, multi, max = 8, onChange }) {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault(); if (list.hidden) show();
       active = (active + (e.key === "ArrowDown" ? 1 : -1) + items.length) % Math.max(items.length, 1);
-      $$("li", list).forEach((li, i) => li.setAttribute("aria-selected", String(i === active)));
+      $$("li[role=option]", list).forEach((li, i) => li.setAttribute("aria-selected", String(i === active)));
     } else if (e.key === "Enter") {
       const raw = input.value.trim();
       if (active >= 0 && items[active]) { e.preventDefault(); pick(items[active].code); }
-      else if (/^[A-Za-z]{3}$/.test(raw)) { e.preventDefault(); pick(raw); }
+      else if (/^[A-Za-z]{3}$/.test(raw) && AIRPORTS.some(a => a.code === raw.toUpperCase())) { e.preventDefault(); pick(raw); }
       else if (items[0]) { e.preventDefault(); pick(items[0].code); }
+      else if (/^[A-Za-z]{3}$/.test(raw)) { e.preventDefault(); pick(raw); }
     } else if (e.key === "Backspace" && !input.value && values.length) { values.pop(); draw(); onChange(); }
     else if (e.key === "Escape") close();
   });
@@ -299,21 +286,40 @@ function renderResult(row) {
   const directs = daily.flatMap(d => [d.cheapest, d.best_value].map(t => [d, t])).filter(([, t]) => t.stops === 0);
   const direct = directs.length ? directs.reduce((a, b) => (b[1].price < a[1].price ? b : a)) : null;
 
-  const view = { metric: "cheapest", tab: "chart", sel: cheapest.depart_date };
+  const view = { metric: "cheapest", tab: "chart", sel: cheapest.depart_date, pickOpen: null };
   const tripOf = d => (view.metric === "cheapest" ? d.cheapest : d.best_value);
   const order = destOrder(q, daily);
   const colorOf = label => { const i = order.indexOf(label); return `var(--series-${i >= 0 && i < 8 ? i + 1 : "other"})`; };
 
-  const pickCard = (kind, d, t, metric, hero) => h("button", { type: "button", class: "pick" + (hero ? " hero-pick" : ""),
-    onclick: () => { view.metric = metric; select(d.depart_date); syncMetric(); } },
-    h("span", { class: "k" }, kind), h("span", { class: "v" }, money(t.price, cur)),
-    h("span", { class: "d" }, `${t.destination} · ${fmtDay(day(t.depart_date))} → ${fmtDay(day(t.return_date))}`),
-    h("span", { class: "s" }, `${plural(t.nights, "night")} · ${t.stops === 0 ? "direct" : plural(t.stops, "stop")} · ${hm(t.total_travel_min)} in transit`));
-  box.append(h("div", { class: "picks" },
-    pickCard("Cheapest", cheapest, cheapest.cheapest, "cheapest", true),
-    pickCard("Best value", best, best.best_value, "best", false),
-    direct ? pickCard("Cheapest direct", direct[0], direct[1], direct[1] === direct[0].cheapest ? "cheapest" : "best", false)
-      : h("div", { class: "pick" }, h("span", { class: "k" }, "Direct flights"), h("span", { class: "v" }, "None"), h("span", { class: "s" }, "No nonstop trips in this window."))));
+  const pickDetail = h("div", { class: "pick-detail", hidden: true, "aria-live": "polite" });
+  const picks = [
+    { key: "cheapest", label: "Cheapest", d: cheapest, t: cheapest.cheapest, metric: "cheapest", hero: true },
+    { key: "best", label: "Best value", d: best, t: best.best_value, metric: "best", hero: false },
+    direct && { key: "direct", label: "Cheapest direct", d: direct[0], t: direct[1], metric: direct[1] === direct[0].cheapest ? "cheapest" : "best", hero: false },
+  ].filter(Boolean);
+  const pickBtns = picks.map(p => h("button", { type: "button", class: "pick" + (p.hero ? " hero-pick" : ""), "data-pick": p.key, "aria-expanded": "false", onclick: () => openPick(p.key) },
+    h("span", { class: "k" }, p.label), h("span", { class: "v" }, money(p.t.price, cur)),
+    h("span", { class: "d" }, `${p.t.destination} · ${fmtDay(day(p.t.depart_date))} → ${fmtDay(day(p.t.return_date))}`),
+    h("span", { class: "s" }, `${plural(p.t.nights, "night")} · ${p.t.stops === 0 ? "direct" : plural(p.t.stops, "stop")} · ${hm(p.t.total_travel_min)} in transit`),
+    h("span", { class: "more" }, h("span", { class: "chev", "aria-hidden": "true" }, "▾"), h("span", { class: "more-t" }, "Flight details"))));
+  box.append(h("div", { class: "picks" }, pickBtns, direct ? null : h("div", { class: "pick static" }, h("span", { class: "k" }, "Direct flights"), h("span", { class: "v" }, "None"), h("span", { class: "s" }, "No nonstop trips in this window."))), pickDetail);
+  function syncPicks() {
+    pickBtns.forEach(b => {
+      const open = view.pickOpen === b.dataset.pick;
+      b.classList.toggle("open", open); b.setAttribute("aria-expanded", String(open));
+      $(".chev", b).textContent = open ? "▴" : "▾"; $(".more-t", b).textContent = open ? "Hide details" : "Flight details";
+    });
+    const p = picks.find(x => x.key === view.pickOpen);
+    pickDetail.hidden = !p;
+    pickDetail.replaceChildren(...(p ? [tripCard(p.t, cur)] : []));
+  }
+  function openPick(key) {
+    const p = picks.find(x => x.key === key);
+    view.pickOpen = view.pickOpen === key ? null : key;
+    if (view.pickOpen) { view.metric = p.metric; view.sel = p.d.depart_date; syncMetric(); }
+    syncPicks();
+    if (view.pickOpen) pickDetail.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
 
   // ---- chart panel
   const chartHost = h("div", { class: "chart" }), tableHost = h("div", { class: "table-wrap", hidden: true });
@@ -336,7 +342,7 @@ function renderResult(row) {
   if (res.top.length) box.append(h("div", {}, h("h3", { style: "margin:6px 0 12px;font-size:18px;letter-spacing:-.02em" }, "Top picks overall"),
     h("div", { class: "trips" }, res.top.map(t => tripCard(t, cur)))));
 
-  function select(date) { view.sel = date; redraw(); drawDetail(); }
+  function select(date) { view.sel = date; if (view.pickOpen) { view.pickOpen = null; syncPicks(); } redraw(); drawDetail(); }
   function drawDetail() {
     const d = byDay.get(view.sel);
     detailHost.replaceChildren(d ? tripCard(tripOf(d), cur) : h("div", { class: "note" }, "Pick a day on the chart."));

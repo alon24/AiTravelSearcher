@@ -127,6 +127,8 @@ select.input {
 .ac-list li[aria-selected="true"], .ac-list li:hover { background: var(--accent-soft); }
 .ac-code { font-weight: 800; color: var(--accent-ink); letter-spacing: .03em; background: var(--accent-soft); border-radius: 8px; padding: 3px 0; text-align: center; font-size: 13px; }
 .ac-city { font-weight: 700; } .ac-sub { color: var(--muted); font-size: 12.5px; }
+.ac-list li.ac-hint { display: block; cursor: default; color: var(--muted); font-size: 12.5px; font-weight: 700; padding: 6px 10px; }
+.ac-list li.ac-hint:hover { background: transparent; }
 .chip {
   display: inline-flex; align-items: center; gap: 6px; background: var(--accent-soft); color: var(--accent-ink); font-weight: 800;
   border-radius: 999px; padding: 4px 6px 4px 11px; font-size: 13px;
@@ -197,7 +199,13 @@ input[type="range"] { accent-color: var(--accent); width: 100%; }
 .res-sub { color: var(--ink-2); margin-top: 4px; font-size: 14px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .picks { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
 .pick { padding: 20px; text-align: left; display: grid; gap: 6px; border: 1px solid var(--line); background: var(--card); border-radius: var(--r); box-shadow: var(--shadow); position: relative; overflow: hidden; }
-.pick:hover { border-color: var(--accent); }
+.pick { cursor: pointer; transition: transform .12s, border-color .12s, box-shadow .12s; font: inherit; color: inherit; }
+.pick:hover { border-color: var(--accent); transform: translateY(-2px); }
+.pick.static { cursor: default; } .pick.static:hover { transform: none; border-color: var(--line); }
+.pick.open { outline: 3px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 2px; }
+.pick .more { margin-top: 8px; display: inline-flex; align-items: center; gap: 6px; font-weight: 800; font-size: 13px; opacity: .9; }
+.pick-detail { grid-column: 1 / -1; }
+.pick-detail[hidden] { display: none; }
 .pick.hero-pick { background: var(--brand); color: #fff; border: 0; box-shadow: var(--shadow-lg); }
 .pick .k { font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; opacity: .8; }
 .pick .v { font-size: 44px; font-weight: 800; letter-spacing: -.04em; line-height: 1.05; }
