@@ -1,0 +1,24 @@
+# Joins the existing n8n network so n8n reaches this service at http://flightagent:8765
+services:
+  flightagent:
+    build: .
+    container_name: flightagent
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      FLIGHTAGENT_PROVIDER: ${FLIGHTAGENT_PROVIDER:-mock}
+      FLIGHTAGENT_CACHE_DB: /data/offers.sqlite   # keep the cache on the volume, whatever .env says
+    volumes:
+      - flightagent-cache:/data
+    ports:
+      - "127.0.0.1:8765:8765"   # host access for debugging only; 8000 is taken by Portainer
+    networks: [n8n_default]
+
+volumes:
+  flightagent-cache:
+
+networks:
+  n8n_default:
+    external: true
