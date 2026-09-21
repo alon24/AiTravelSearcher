@@ -70,6 +70,11 @@ async function api(path, opts) {
 }
 const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
+// Trip length: the form counts nights or days (a 5-night trip spans 6 calendar days); the API always works in nights.
+let unit = "nights";
+const unitOff = () => (unit === "days" ? 1 : 0);
+const tripLen = n => (unit === "days" ? `${plural(n + 1, "day")} (${plural(n, "night")})` : `${plural(n, "night")} (${plural(n + 1, "day")})`);
+const lenRange = (a, b) => (a === b ? tripLen(a) : unit === "days" ? `${a + 1}–${b + 1} days (${a}–${b} nights)` : `${a}–${b} nights (${a + 1}–${b + 1} days)`);
 let recheckTimer = 0, currentRow = null;
 const viewStore = new Map();
 function toast(msg) {
@@ -155,9 +160,10 @@ let kids = [];   // ages of the children in the form
 const num = (id, fallback) => { const v = parseFloat($(`#${id}`).value); return Number.isFinite(v) ? v : fallback; };
 
 function readForm() {
+  unit = $$("input[name=unit]").find(r => r.checked)?.value || "nights";
   return {
     from: ac.from.get(), to: ac.to.get(), back: ac.back.get(), hubs: ac.hubs.get(),
-    start: $("#start").value, end: $("#end").value, nmin: num("nmin", 0), nmax: num("nmax", 0),
+    start: $("#start").value, end: $("#end").value, nmin: num("nmin", 0) - unitOff(), nmax: num("nmax", 0) - unitOff(), unit,
     stops: +($$("input[name=stops]").find(r => r.checked)?.value ?? 1), currency: $$("input[name=currency]").find(r => r.checked)?.value || "ILS", adults: num("adults", 1),
     airmode: $$("input[name=airmode]").find(r => r.checked)?.value || "exclude", airlines: ac.air.get(),
     kids: [...kids], connect: $("#connect").checked, same: $("#same").checked, st: $("#st").checked, buffer: num("buffer", 4),
@@ -166,7 +172,9 @@ function readForm() {
 }
 function writeForm(f) {
   ac.from.set(f.from); ac.to.set(f.to); ac.back.set(f.back); ac.hubs.set(f.hubs);
-  $("#start").value = f.start; $("#end").value = f.end; $("#nmin").value = f.nmin; $("#nmax").value = f.nmax;
+  unit = f.unit || unit;
+  ($$("input[name=unit]").find(r => r.value === unit) || {}).checked = true;
+  $("#start").value = f.start; $("#end").value = f.end; showLength(f.nmin, f.nmax);
   const r = $$("input[name=stops]").find(x => +x.value === f.stops) || $$("input[name=stops]")[1]; r.checked = true;
   ($$("input[name=currency]").find(r => r.value === f.currency) || $$("input[name=currency]")[0]).checked = true; $("#adults").value = f.adults;
   kids = [...(f.kids || [])]; renderKids();
@@ -187,7 +195,7 @@ function toRequest(f) {
   if (f.adults + f.kids.length > 9) return err("At most 9 travellers per search.");
   if (infants > adultsEff) return err("Each child under 2 needs their own adult (one lap infant per adult).");
   if (f.nmin < 1 || f.nmax < f.nmin) return err("Nights: the minimum must be at least 1 and no more than the maximum.");
-  if (days < f.nmin) return err(`That window is only ${plural(days, "day")}, shorter than ${plural(f.nmin, "night")}.`);
+  if (days < f.nmin) return err(`That window is only ${plural(days, "day")}, shorter than ${tripLen(f.nmin)}.`);
   return { req: {
     origin: f.from[0], destinations: f.to, return_airports: f.back, connect_destinations: f.connect,
     window_start: f.start, window_end: f.end, min_nights: f.nmin, max_nights: f.nmax,
@@ -238,6 +246,16 @@ function rerenderCurrency() {
   if (window.Finder) Finder.refresh();
 }
 
+// Put a night range into the two inputs in the unit being shown, and explain what it means in calendar days.
+function showLength(nmin, nmax) {
+  const off = unitOff();
+  for (const [id, n] of [["nmin", nmin], ["nmax", nmax]]) { const el = $(`#${id}`); el.min = 1 + off; el.max = 60 + off; el.value = n + off; }
+  updateLengthHint(nmin, nmax);
+}
+function updateLengthHint(nmin, nmax) {
+  $("#nights-hint").textContent = nmin >= 1 && nmax >= nmin ? `${lenRange(nmin, nmax)}. The day you leave and the day you return both count as days.` : "";
+}
+
 // ------------------------------------------------------------------ estimate + submit
 let estTimer = 0, estSeq = 0, overBudget = false;
 function setEstimate(kind, text) {
@@ -268,6 +286,7 @@ function onFormChange() {
   }
   if (f.currency !== displayCurrency) { displayCurrency = f.currency; rerenderCurrency(); }
   store.set("skyhop.form", f);
+  updateLengthHint(f.nmin, f.nmax);
   $("#vot-out").textContent = money(f.vot, f.currency) + "/h";
   clearTimeout(estTimer); estTimer = setTimeout(runEstimate, 300);
 }
@@ -289,7 +308,7 @@ async function refreshHistory() {
 }
 function histItem(r) {
   const q = r.request;
-  const nights = q.min_nights === q.max_nights ? plural(q.min_nights, "night") : `${q.min_nights}–${q.max_nights} nights`;
+  const nights = lenRange(q.min_nights, q.max_nights);
   const p = r.progress, pct = p.total ? Math.round(100 * p.done / p.total) : 0;
   const status = r.status === "running" ? h("span", { class: "badge run" }, p.total ? `${pct}%` : "…")
     : r.status === "failed" ? h("span", { class: "badge fail" }, "Failed")
@@ -342,7 +361,7 @@ function renderResult(row, opts = {}) {
     return;
   }
   const res = row.result, cur = q.currency, daily = res.daily;
-  const nights = q.min_nights === q.max_nights ? plural(q.min_nights, "night") : `${q.min_nights}–${q.max_nights} nights`;
+  const nights = lenRange(q.min_nights, q.max_nights);
   const via = Object.entries(res.sources || {}).map(([k, n]) => `${k} ×${n}`).join(", ");
   box.append(h("div", { class: "res-head" },
     h("div", {},
@@ -383,7 +402,7 @@ function renderResult(row, opts = {}) {
     h("span", { class: "d" }, `${p.t.destination} · ${fmtDay(day(p.t.depart_date))} → ${fmtDay(day(p.t.return_date))}`),
     h("span", { class: "tm" }, h("b", {}, "Out"), `${fmtDay(day(p.t.legs[0].segments[0].departs))} · ${tmLine(p.t.legs[0])}`),
     h("span", { class: "tm" }, h("b", {}, "Back"), `${fmtDay(day(p.t.legs[p.t.legs.length - 1].segments[0].departs))} · ${tmLine(p.t.legs[p.t.legs.length - 1])}`),
-    h("span", { class: "s" }, `${plural(p.t.nights, "night")} · ${p.t.stops === 0 ? "direct" : plural(p.t.stops, "stop")} · ${hm(p.t.total_travel_min)} in transit`),
+    h("span", { class: "s" }, `${tripLen(p.t.nights)} · ${p.t.stops === 0 ? "direct" : plural(p.t.stops, "stop")} · ${hm(p.t.total_travel_min)} in transit`),
     h("span", { class: "more" }, h("span", { class: "chev", "aria-hidden": "true" }, "▾"), h("span", { class: "more-t" }, "Flight details"))));
   box.append(h("div", { class: "picks" }, pickBtns, direct ? null : h("div", { class: "pick static" }, h("span", { class: "k" }, "Direct flights"), h("span", { class: "v" }, "None"), h("span", { class: "s" }, "No nonstop trips in this window."))), pickDetail);
   function syncPicks() {
@@ -515,7 +534,7 @@ function showTip(x, color, cur, ev, target) {
   tip.replaceChildren(
     h("div", { class: "t-date" }, `${fmtDay(day(t.depart_date))} → ${fmtDay(day(t.return_date))}`),
     h("div", { class: "t-val" }, money(t.price, cur)),
-    h("div", { class: "t-row" }, h("span", { class: "key", style: `background:${color}` }), h("b", {}, t.destination), `· ${plural(t.nights, "night")}`),
+    h("div", { class: "t-row" }, h("span", { class: "key", style: `background:${color}` }), h("b", {}, t.destination), `· ${tripLen(t.nights)}`),
     h("div", { class: "t-row" }, `${t.airlines.join(", ")} · ${t.stops === 0 ? "direct" : plural(t.stops, "stop")} · ${hm(t.total_travel_min)}`),
     h("div", { class: "t-row" }, h("b", {}, "Out"), tmShort(t.legs[0])), h("div", { class: "t-row" }, h("b", {}, "Back"), tmShort(t.legs[t.legs.length - 1])));
   tip.hidden = false;
@@ -663,7 +682,7 @@ function tripCard(t, cur, pax = 1) {
   return h("article", { class: "card trip" },
     h("div", { class: "trip-head" },
       h("div", {}, h("div", { class: "trip-dest" }, t.destination, kind && h("span", { class: "badge run" }, kind), t.self_transfer && h("span", { class: "badge warn" }, "Self-transfer")),
-        h("div", { class: "trip-dates" }, `${fmtDay(day(t.depart_date))} → ${fmtDay(day(t.return_date))} · ${plural(t.nights, "night")}`)),
+        h("div", { class: "trip-dates" }, `${fmtDay(day(t.depart_date))} → ${fmtDay(day(t.return_date))} · ${tripLen(t.nights)}`)),
       h("div", { class: "trip-price" }, h("div", { class: "p" }, money(t.price, cur)), origNote(t.price, cur, "orig block"), h("div", { class: "e" }, pax > 1 ? `total for ${plural(pax, "traveller")}` : `value score ${Math.round(toShown(t.effective_cost, cur))}`))),
     t.legs.map((leg, i) => legCard(leg, titles[i] || "Leg", cur)),
     t.warnings.length ? h("div", { class: "warns" }, t.warnings.map(w => {
@@ -748,7 +767,13 @@ async function init() {
     onFormChange();
   }));
   $$("[data-nights]").forEach(b => b.addEventListener("click", () => {
-    const [a, z] = b.dataset.nights.split("-"); $("#nmin").value = a; $("#nmax").value = z; onFormChange();
+    const [a, z] = b.dataset.nights.split("-"); showLength(+a, +z); onFormChange();
+  }));
+  $$("input[name=unit]").forEach(r => r.addEventListener("change", () => {
+    const min = num("nmin", 1) - unitOff(), max = num("nmax", 1) - unitOff();       // still in the previous unit here
+    unit = r.value; showLength(min, max); onFormChange();
+    if (currentRow && currentRow.id === current && currentRow.status === "done") renderResult(currentRow, { keepScroll: true });
+    refreshHistory();
   }));
   $("#add-kid").addEventListener("click", () => { if (kids.length < 8) { kids.push(5); renderKids(); onFormChange(); } });
   $("#new-search").addEventListener("click", () => {

@@ -47,12 +47,17 @@
         <div class="field"><label for="start">Earliest departure</label><div class="input"><input type="date" id="start" required></div></div>
         <div class="field"><label for="end">Latest return</label><div class="input"><input type="date" id="end" required></div></div>
         <div class="field">
-          <label>Nights</label>
+          <div class="lbl-row"><span class="lbl">Trip length</span>
+            <div class="seg mini" role="radiogroup" aria-label="Count trip length in">
+              <label><input type="radio" name="unit" value="nights" checked>Nights</label>
+              <label><input type="radio" name="unit" value="days">Days</label>
+            </div></div>
           <div class="nights">
             <div class="stepper"><button type="button" data-step="-1" data-for="nmin" aria-label="Fewer minimum nights">−</button><input id="nmin" type="number" min="1" max="60" aria-label="Minimum nights"><button type="button" data-step="1" data-for="nmin" aria-label="More minimum nights">+</button></div>
             <span class="to">to</span>
             <div class="stepper"><button type="button" data-step="-1" data-for="nmax" aria-label="Fewer maximum nights">−</button><input id="nmax" type="number" min="1" max="60" aria-label="Maximum nights"><button type="button" data-step="1" data-for="nmax" aria-label="More maximum nights">+</button></div>
           </div>
+          <span class="hint" id="nights-hint"></span>
           <div class="presets">
             <button type="button" class="pill" data-nights="2-3">Weekend</button>
             <button type="button" class="pill" data-nights="4-7">Week</button>

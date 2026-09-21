@@ -305,6 +305,8 @@ td.price { font-weight: 800; text-align: right; } th.r { text-align: right; }
 .orig { display: block; font-size: 12px; font-weight: 700; opacity: .85; letter-spacing: 0; }
 .orig.block { color: var(--ink-2); font-size: 12.5px; }
 .conv-toggle { border: 0; cursor: pointer; font-family: inherit; text-align: left; } .conv-toggle:hover { filter: brightness(.96); text-decoration: underline; }
+.lbl-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.seg.mini { min-height: 30px; padding: 2px; border-radius: 10px; width: auto; grid-auto-columns: auto; } .seg.mini label { padding: 0 12px; font-size: 12px; border-radius: 8px; }
 .field .mini-sw { margin-top: 4px; font-size: 12.5px; color: var(--ink-2); }
 .ap2.np, .fs-price.np { color: var(--warn-ink); font-size: 13px; font-weight: 800; }
 .unp-row { display: grid; grid-template-columns: 88px 110px 120px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 12px; border-top: 1px solid var(--line); font-size: 14px; }
