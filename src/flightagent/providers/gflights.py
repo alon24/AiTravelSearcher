@@ -46,9 +46,13 @@ def parse_groups(groups: list[list], origin: str, dest: str, currency: str) -> l
 def parse_html(html: str, origin: str, dest: str, currency: str) -> list[Offer]:
     from selectolax.lexbor import LexborHTMLParser
 
-    script = LexborHTMLParser(html).css_first(r"script.ds\:1")
+    tree = LexborHTMLParser(html)
+    script = tree.css_first(r"script.ds\:1")
     if script is None:
-        raise RuntimeError("Google returned no result data (consent page, block or layout change)")
+        from .laya_classify import diagnose
+
+        text = tree.body.text(separator=" ", strip=True) if tree.body else ""
+        raise RuntimeError(f"Google returned no result data ({diagnose(text)})")
     raw = script.text().split("data:", 1)[1].rsplit(",", 1)[0]
     if raw.endswith("errorHasStatus: true"):
         return []

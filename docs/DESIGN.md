@@ -167,6 +167,34 @@ served each lookup.
   (`stale_ok`: even expired ones), with no lookups, and keeps the same history entry. `SearchResult.data_from` says how old the
   data is; the UI shows "Flight data from 3h ago: Search again to refresh" past 30 minutes.
 
+### Scrape-failure diagnostics (Laya, optional)
+- When `gflights` can't find the expected data script (`parse_html`), the original error was one generic message
+  ("consent page, block or layout change"). `providers/laya_classify.py` can turn that into a specific reason
+  (`consent`, `captcha`, `blocked`, `other`, or "looks like results but the script was missing" for a real layout
+  change) by classifying the page's visible text with [Laya](https://huggingface.co/convaiinnovations/laya), a fast
+  BERT-style typed-question classifier (not an LLM/chat model). Verified against real Google Flights consent/block
+  page text: correctly separated consent (93% probability), block/rate-limit (93%) and a results page.
+- **Runs as a separate shared service, not an in-process import.** Laya's runtime (torch + transformers) is
+  ~1GB even CPU-only, and duplicating that per project that wants it is wasteful (it once filled this machine's
+  disk mid-install). So it lives at `~/laya-service/` (own venv, installed once), a tiny FastAPI wrapper
+  (`server.py`) around `agent.predict()` with the model loaded once and kept warm, listening on
+  `127.0.0.1:8799`. `laya_classify.py` is a plain `httpx` client -- **no laya/torch dependency in this project
+  at all**. Started manually (`~/laya-service/start.sh`); nothing runs in the background otherwise.
+- **Off by default, purely diagnostic**: it only runs on this one failure path (not per-offer), never raises, and
+  falls back to the original generic message if disabled, the service isn't running, or anything errors. Enable
+  with `FLIGHTAGENT_LAYA=1` (service must already be started); point at a non-default host with
+  `FLIGHTAGENT_LAYA_URL`.
+- The service defaults to CPU (`LAYA_DEVICE=cpu` env var on the service, not this project) since the call volume
+  here doesn't justify GPU setup. For local GPU use: set `USE_TF=0` (avoids a TensorFlow-probe deadlock in
+  `laya.load()` if TensorFlow is also installed), and on older NVIDIA cards (Pascal/GTX 10-series, `sm_61`) the
+  default PyTorch CUDA wheel has no kernels for them and silently falls back to CPU -- fix by installing a pinned
+  CUDA build *before* installing `laya` (installing torch first means `laya`'s own install sees the requirement
+  already satisfied and won't overwrite it with a CUDA-mismatched or bigger build), e.g.
+  `pip install torch --index-url https://download.pytorch.org/whl/cu126` then `pip install laya`.
+- Not used for browsing to airline sites directly (fetching real fares/baggage from the carrier's own site) --
+  that would need actual browser automation (Playwright or similar) per airline, which is a separate, larger
+  piece of work than this diagnostic classifier.
+
 ### Current providers
 | Name | Source | Cost | Notes |
 |---|---|---|---|
