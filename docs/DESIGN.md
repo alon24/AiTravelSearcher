@@ -193,7 +193,40 @@ served each lookup.
   `pip install torch --index-url https://download.pytorch.org/whl/cu126` then `pip install laya`.
 - Not used for browsing to airline sites directly (fetching real fares/baggage from the carrier's own site) --
   that would need actual browser automation (Playwright or similar) per airline, which is a separate, larger
-  piece of work than this diagnostic classifier.
+  piece of work than this diagnostic classifier. See below.
+
+### Airline-site verification (El Al) -- backend built, currently blocked
+
+- `providers/elal_verify.py`: Playwright script that searches El Al's own site for a specific
+  route/date and reads the real per-fare-tier price and baggage text (not Google's estimate).
+  On-demand only (never part of a normal search); real selectors captured against the live site
+  2026-09-23, documented as fragile in the module docstring (no `data-testid` anywhere on the
+  site -- everything is a CSS class name or text match).
+- **Blocked in practice**: El Al runs a dedicated third-party anti-bot vendor (seen in its network
+  requests: `securitytrfx.com`, posting to a `.../blob/farenet/...` endpoint) that silently
+  doesn't render the search widget for an automated browser. Basic fingerprint masking
+  (`navigator.webdriver`, UA string -- confirmed with the user before trying, see chat history)
+  did **not** get past it. Going further (canvas/WebGL fingerprint spoofing, synthetic input
+  timing, etc.) would mean actively engineering to defeat a commercial bot-detection product,
+  which this project does not do. Calling the module today mostly returns `status="blocked"`.
+- **What does work**: a real, extension-driven browser tab is not caught by the same detection
+  (confirmed live -- see `browser-extension/`). That's the shipped path for "land on this exact
+  flight so I can buy it"; the Playwright module stays as a second, currently-blocked attempt at
+  a backend-only version, kept in case El Al's detection changes or a verifier provider (§5) is
+  wanted later.
+
+### Browser extension (`browser-extension/`) -- built, not yet end-to-end tested
+
+Lets a flight row in the web UI open a new tab on the airline's own site with that flight
+searched and selected, for the person to finish booking themselves -- no payment or passenger
+data ever touches this app. Architecture: a content script (`content-bridge.js`) marks the page
+and relays a custom DOM event to a background service worker, which opens a tab and injects a
+per-airline driver script (`drivers/elal.js`, plain DOM automation, same selectors as
+`elal_verify.py`). Optional: `EXTENSION_DRIVERS` in `app.js` gates the button so it simply
+doesn't render without the extension installed. See `browser-extension/README.md` for load/test
+instructions and current limitations (only El Al wired up; I validated the DOM logic manually
+but could not click through Chrome's native "Load unpacked" file picker myself to run the packaged
+extension end-to-end).
 
 ### Current providers
 | Name | Source | Cost | Notes |

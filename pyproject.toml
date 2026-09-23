@@ -7,6 +7,9 @@ dependencies = ["fastapi", "uvicorn[standard]", "pydantic>=2", "httpx", "python-
 
 [project.optional-dependencies]
 dev = ["pytest"]
+# On-demand El Al verification (providers/elal_verify.py) -- currently blocked by El Al's own
+# anti-bot vendor (see docs/DESIGN.md); kept in case that changes. Not a core dependency.
+verify = ["playwright"]
 
 [project.scripts]
 flightagent = "flightagent.cli:main"

@@ -757,6 +757,23 @@ function watchRecheck(row) {
   }, Math.min(wait, 20 * 60000));
 }
 
+// Browser-extension bridge (browser-extension/): lets a flight row trigger "search + select
+// this exact flight" on the airline's own site, in the user's real browser (not our backend --
+// server-side automation is blocked by El Al's bot detection, see docs/DESIGN.md). Optional:
+// with no extension installed, buttons using this just don't render, no broken links.
+const EXTENSION_DRIVERS = new Set(["LY"]); // keep in sync with browser-extension/background.js's DRIVERS
+const extensionAvailable = () => document.documentElement.dataset.skyhopExtension === "1";
+function selectOnAirlineSite(airline_code, destination, dateISO, flightNumber) {
+  window.dispatchEvent(new CustomEvent("skyhop-select-flight", {
+    detail: { airline: airline_code, destination, day: dateISO, flightNumber },
+  }));
+  toast(`Opening ${airline_code} — searching for ${flightNumber || "that flight"}…`);
+}
+window.addEventListener("skyhop-select-flight-result", (e) => {
+  const r = e.detail || {};
+  if (!r.ok) toast(`Couldn't open the airline site automatically: ${r.error || "unknown error"}`);
+});
+
 function unpricedPanel(res, row) {
   const list = res.unpriced || [];
   if (!list.length) return null;
@@ -782,6 +799,9 @@ function unpricedPanel(res, row) {
       h("span", { class: "actions" },
         h("a", { class: "btn small", target: "_blank", rel: "noopener noreferrer", title: config.airline_sites[u.airline_code] ? "Open the airline's own site to see the fare" : "We have no link for this airline: search for it",
           href: config.airline_sites[u.airline_code] || `https://www.google.com/search?q=${encodeURIComponent(`${u.airline} ${u.flights} ${u.origin} ${u.destination} ${u.date} book`)}` }, config.airline_sites[u.airline_code] ? `${u.airline} site ↗` : "Find on Google ↗"),
+        (extensionAvailable() && EXTENSION_DRIVERS.has(u.airline_code)) ?
+          h("button", { type: "button", class: "btn small", title: "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
+            onclick: () => selectOnAirlineSite(u.airline_code, u.destination, u.date, u.flights) }, `Select on ${u.airline} site ↗`) : null,
         h("button", { type: "button", class: "btn small", onclick: () => Builder.browse(u.origin, u.destination, u.date) }, "All flights that day"),
         u.link ? h("a", { class: "btn small", href: u.link, target: "_blank", rel: "noopener noreferrer" }, "Google Flights ↗") : null)))));
 }
