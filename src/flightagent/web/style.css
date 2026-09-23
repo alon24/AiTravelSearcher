@@ -306,8 +306,12 @@ td.price { font-weight: 800; text-align: right; } th.r { text-align: right; }
 .orig.block { color: var(--ink-2); font-size: 12.5px; }
 .conv-toggle { border: 0; cursor: pointer; font-family: inherit; text-align: left; } .conv-toggle:hover { filter: brightness(.96); text-decoration: underline; }
 #nights-hint { line-height: 1.35; }
-.row.air { grid-template-columns: minmax(0, .8fr) minmax(0, 2.4fr); align-items: end; }
-@media (max-width: 720px) { .row.air { grid-template-columns: 1fr; } }
+/* Airlines field: one label over a toggle + the input, so it reads as one control, not two. */
+.air-row { display: flex; gap: 10px; align-items: stretch; }
+.air-row .seg-air { flex: none; width: 220px; }
+.air-row .ac { flex: 1; min-width: 0; }
+@media (max-width: 640px) { .air-row { flex-direction: column; } .air-row .seg-air { width: 100%; } }
+.ac-empty-note { color: var(--muted); font-weight: 600; font-size: 13px; padding: 2px 2px; white-space: nowrap; }
 .ab { display: flex; gap: 8px 10px; flex-wrap: wrap; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 10px 14px; box-shadow: var(--shadow); }
 .ab-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .ab-chip { display: inline-flex; border: 1.5px solid var(--accent); border-radius: 999px; overflow: hidden; background: var(--accent-soft); }
