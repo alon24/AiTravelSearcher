@@ -640,27 +640,70 @@ function resolveAirline(text) {
   if (q.length >= 3) { const part = Object.entries(names).filter(([, n]) => n.toLowerCase().includes(q)).map(([c]) => c); if (part.length) return part; }
   return /^[A-Z0-9]{2}$/.test(up) ? [up] : [];
 }
+// Matching airlines for the dropdown, code/name-prefix matches first, then substring matches.
+function airlineCandidates(text, max = 8) {
+  const q = text.trim().toLowerCase();
+  if (!q) return [];
+  const names = config.airlines || {};
+  const starts = [], contains = [];
+  for (const [code, name] of Object.entries(names)) {
+    const lc = name.toLowerCase();
+    if (code.toLowerCase() === q || code.toLowerCase().startsWith(q) || lc.startsWith(q)) starts.push({ code, name });
+    else if (lc.includes(q)) contains.push({ code, name });
+  }
+  return [...starts, ...contains].slice(0, max);
+}
+
 function airlineTags(root, { onChange }) {
-  let values = [];
-  const input = h("input", { id: "air-in", type: "text", list: "air-list", placeholder: "Ryanair, FR…", autocomplete: "off" });
-  root.append(input);
+  let values = [], items = [], active = -1;
+  const input = h("input", { id: "air-in", type: "text", placeholder: "Ryanair, FR…", role: "combobox", "aria-expanded": "false", "aria-autocomplete": "list", autocomplete: "off" });
+  const list = h("ul", { class: "ac-list", role: "listbox", hidden: true });
+  const note = h("span", { class: "ac-empty-note" }, "None — all airlines shown");
+  root.append(note, input, list);
+
+  const close = () => { list.hidden = true; input.setAttribute("aria-expanded", "false"); active = -1; };
   const draw = () => {
     $$(".chip", root).forEach(c => c.remove());
     values.forEach(code => root.insertBefore(h("span", { class: "chip" }, config.airlines[code] ? `${code} · ${config.airlines[code]}` : code,
       h("button", { type: "button", "aria-label": `Remove ${code}`, onclick: e => { e.stopPropagation(); values = values.filter(v => v !== code); draw(); onChange(); } }, "×")), input));
+    note.hidden = values.length > 0;
+    // The note already says "None" when empty; don't also show a placeholder that repeats it.
+    input.placeholder = values.length ? "Add another…" : "";
+  };
+  const pick = (code) => {
+    if (!values.includes(code)) values.push(code);
+    input.value = ""; close(); draw(); onChange();
   };
   const add = () => {
     const codes = resolveAirline(input.value);
     if (!codes.length) return;
     codes.forEach(c => { if (!values.includes(c)) values.push(c); });
-    input.value = ""; draw(); onChange();
+    input.value = ""; close(); draw(); onChange();
   };
+  const show = () => {
+    note.hidden = values.length > 0 || input.value.length > 0;
+    items = airlineCandidates(input.value).filter(a => !values.includes(a.code));
+    const rows = items.map((a, i) => h("li", { role: "option", "aria-selected": String(i === active), onmousedown: e => { e.preventDefault(); pick(a.code); } },
+      h("span", { class: "ac-code" }, a.code), h("span", {}, h("div", { class: "ac-city" }, a.name))));
+    list.replaceChildren(...rows);
+    list.hidden = !rows.length; input.setAttribute("aria-expanded", String(rows.length > 0));
+  };
+  input.addEventListener("input", () => { active = -1; show(); });
+  input.addEventListener("focus", show);
+  input.addEventListener("blur", () => setTimeout(() => { add(); close(); }, 120));
   input.addEventListener("keydown", e => {
-    if (e.key === "Enter" || e.key === ",") { e.preventDefault(); add(); }
-    else if (e.key === "Backspace" && !input.value && values.length) { values.pop(); draw(); onChange(); }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault(); if (list.hidden) show();
+      active = (active + (e.key === "ArrowDown" ? 1 : -1) + items.length) % Math.max(items.length, 1);
+      $$("li[role=option]", list).forEach((li, i) => li.setAttribute("aria-selected", String(i === active)));
+    } else if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      if (active >= 0 && items[active]) pick(items[active].code); else add();
+    } else if (e.key === "Backspace" && !input.value && values.length) { values.pop(); draw(); onChange(); }
+    else if (e.key === "Escape") close();
   });
-  input.addEventListener("change", add); input.addEventListener("blur", add);
   root.addEventListener("click", () => input.focus());
+  draw();
   return { get: () => [...values], set: arr => { values = [...arr]; draw(); } };
 }
 
@@ -856,7 +899,6 @@ async function init() {
   $("#orig-toggle").addEventListener("change", e => setShowOriginal(e.target.checked));
   await loadAirports();
   const cfg = { onChange: onFormChange };
-  document.body.append(h("datalist", { id: "air-list" }, [...new Set(Object.values(config.airlines || {}))].sort().map(n => h("option", { value: n }))));
   ac = {
     air: airlineTags($("#ac-air"), cfg),
     from: autocomplete($("#ac-from"), { id: "from-in", placeholder: "City or airport", multi: false, ...cfg }),
