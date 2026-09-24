@@ -46,6 +46,18 @@ loaded, 2 search form driven, 3 results page reached and selection injected -- o
 with the reason in the tooltip. Chrome's per-site "Site access" toggles must be on for
 www.elal.com, booking.elal.com and the Skyhop origin (`localhost:8765` / `127.0.0.1:8765`).
 
+## TAROM (RO) -- v0.4.0
+
+TAROM's own search widget just opens `digital.tarom.ro/booking?search=<JSON>` (origin, destination,
+date; no token), so `background.js` opens that URL directly -- no form driving, nothing to break
+when they restyle the home page. `drivers/tarom.js` runs on the results page only: it opens each
+flight's "See itinerary details" (the flight number is only shown there), finds yours, expands its
+Economy fares and outlines the cheapest one. It never presses a fare's SELECT button.
+Selectors captured 2026-09-24 (Amadeus "refx" Angular Material UI). Verified by hand in Chrome
+against TLV->OTP 15 Oct (RO156, 4 fares, cheapest EUR 145.57); the packaged extension is untested.
+**Adding host permissions can make Chrome disable an unpacked extension on reload -- if the Skyhop
+page says "Assist off", re-enable it in `chrome://extensions`.**
+
 ## Load it (development mode)
 
 1. Chrome -> `chrome://extensions`

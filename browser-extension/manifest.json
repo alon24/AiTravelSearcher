@@ -1,12 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Skyhop Airline Assist",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "description": "From a Skyhop flight result, open the airline's own site in a new tab with that flight already selected, so you can finish booking it yourself.",
   "permissions": ["scripting", "tabs"],
   "host_permissions": [
     "https://www.elal.com/*",
-    "https://booking.elal.com/*"
+    "https://booking.elal.com/*",
+    "https://www.tarom.ro/*",
+    "https://digital.tarom.ro/*"
   ],
   "action": { "default_title": "Skyhop Airline Assist" },
   "background": { "service_worker": "background.js" },

@@ -898,7 +898,7 @@ function watchRecheck(row) {
 // this exact flight" on the airline's own site, in the user's real browser (not our backend --
 // server-side automation is blocked by El Al's bot detection, see docs/DESIGN.md). Optional:
 // with no extension installed, buttons using this just don't render, no broken links.
-const EXTENSION_DRIVERS = new Set(["LY"]); // keep in sync with browser-extension/background.js's DRIVERS
+const EXTENSION_DRIVERS = new Set(["LY", "RO"]); // keep in sync with browser-extension/background.js's DRIVERS
 const extensionAvailable = () => document.documentElement.dataset.skyhopExtension === "1";
 function selectOnAirlineSite(airline_code, destination, dateISO, flightNumber) {
   window.dispatchEvent(new CustomEvent("skyhop-select-flight", {

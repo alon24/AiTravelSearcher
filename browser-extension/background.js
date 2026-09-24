@@ -1,14 +1,30 @@
 // Receives "select-flight" requests relayed by content-bridge.js from the Skyhop web app,
 // opens a new tab on the airline's site, and injects that airline's driver script.
-// Only El Al is wired up (v1). Add more airlines by registering their start URL + driver file
-// here and adding a matching entry to drivers/ and host_permissions in manifest.json.
+// Wired up: El Al (LY) and TAROM (RO). Add more airlines by registering their start URL + driver
+// file here, a driver under drivers/, and the airline's domains in manifest.json's host_permissions.
 //
 // Multi-phase drivers: El Al's Search button navigates (www -> booking.elal.com), destroying the
 // injected script. Phase 1 is injected on the search page; this file then watches the tab and
 // injects the same driver again (same details) when the results page has loaded -- see
 // injectWhenResultsLoad(). The driver picks its phase from the page it lands on.
+//
+// Two kinds of driver:
+//   startUrl + file            -- El Al: open the airline's home page, drive its search form (phase 1),
+//                                 then inject again on the results page (phase 2).
+//   directUrl(details) + file  -- TAROM: its search is a plain URL (origin/destination/date, no token),
+//                                 so open that URL and only inject on the results page.
+// Outbound legs from TLV only, for now (that is all the Skyhop buttons offer).
 const DRIVERS = {
   LY: { startUrl: "https://www.elal.com/heb/israel", file: "drivers/elal.js", resultsMatch: "booking.elal.com/booking/flights" },
+  RO: {
+    file: "drivers/tarom.js",
+    resultsMatch: "digital.tarom.ro/booking/availability",
+    directUrl: (d) => "https://digital.tarom.ro/booking?lang=en-GB&search=" + encodeURIComponent(JSON.stringify({
+      travelers: [{ passengerTypeCode: "ADT" }],
+      commercialFareFamilies: ["EUROPE"],
+      itineraries: [{ departureDateTime: d.day, originLocationCode: "TLV", destinationLocationCode: d.destination }],
+    })) + "&portalFacts=" + encodeURIComponent(JSON.stringify([{ key: "currency", value: "EUR" }, { key: "channel", value: "desktop" }])),
+  },
 };
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -92,7 +108,7 @@ async function injectWhenResultsLoad(tabId, driver, details, timeoutMs = 120000)
     }
     await new Promise((r) => setTimeout(r, 500));
   }
-  await reportError("El Al's results page never loaded (waited 2 min)");
+  await reportError("the airline's results page never loaded (waited 2 min)");
   return false;
 }
 
@@ -104,12 +120,14 @@ async function handle({ airline, destination, day, returnDay, flightNumber }, se
   const details = { airline, destination, day, returnDay, flightNumber };
 
   try {
-    const tab = await chrome.tabs.create({ url: driver.startUrl });
+    const tab = await chrome.tabs.create({ url: driver.directUrl ? driver.directUrl(details) : driver.startUrl });
     await progress(0, `airline tab ${tab.id} opened, waiting for it to load`);
     await waitForLoad(tab.id);
     await progress(1, "airline tab loaded");
-    await inject(tab.id, driver, details);            // phase 1: search form
-    await progress(2, "search form driven, waiting for El Al's results page");
+    if (!driver.directUrl) {
+      await inject(tab.id, driver, details);          // phase 1: search form
+      await progress(2, "search form driven, waiting for the results page");
+    }
     if (await injectWhenResultsLoad(tab.id, driver, details)) // phase 2: pick the flight
       await progress(3, "results page reached, flight selection injected");
   } catch (e) {
