@@ -22,15 +22,24 @@ El Al's site found and fixed five real problems in `drivers/elal.js` / `backgrou
 4. **Typed destination text is not committed** -- the site kept the previous destination and
    would silently search the wrong airport. The driver now types per keystroke and clicks the
    suggestion whose code matches exactly, and fails loudly if there is none.
-5. Clicking Search **navigates** (www -> booking.elal.com), which destroys the injected script, so
-   "select the flight" could never run. `background.js` now hands off through
-   `chrome.storage.session` and re-injects on the results page (phase 2 picks the row by flight
-   number and clicks its **cheapest fare**; it does not pick a different flight if yours isn't
-   listed, it says so in the banner).
+5. Clicking Search **navigates** (www -> booking.elal.com, via an intermediate `/engine` page),
+   which destroys the injected script, so "select the flight" could never run. Phase 1 now leaves
+   the details in `window.name` (verified to survive the whole redirect chain) and a declarative
+   content script re-runs the driver on `/booking/flights`, which reads and consumes them. Phase 2
+   picks the row by flight number and clicks its **cheapest fare**; it does not pick a different
+   flight if yours isn't listed, it says so in a red banner.
+6. (v0.2.0) The first hand-off used `chrome.storage.session`, which needs a new `storage`
+   permission -- after reloading, Chrome appears to have **disabled the extension** (the page
+   marker `data-skyhop-extension` disappeared, so "nothing changed"). The permission is gone; the
+   manifest now asks for exactly what v0.1 did. **If the button doesn't appear, open
+   `chrome://extensions` and check Skyhop Airline Assist is enabled and shows no errors.**
 
-Verified live: TLV->CDG search reached the results page and selected LY323 with the fare tiers
-(LITE / CLASSIC / FLEX) showing. The extension itself must be **reloaded** in `chrome://extensions`
-after these changes (the manifest gained the `storage` permission).
+Also: the El Al tab must be focused for the destination list to open (it is, for the tab the
+extension opens and activates); the driver says so if the list never appears.
+
+Verified live, end to end with the real driver logic: TLV->CDG, one-way, 5 Nov -> search ->
+results -> LY323 selected at the cheapest fare with LITE / CLASSIC / FLEX showing. Not verified:
+the packaged extension itself (I can't load it), so the first click after reloading is the real test.
 
 ## Load it (development mode)
 

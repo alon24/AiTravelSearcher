@@ -1,12 +1,24 @@
 // Injected into a real, human tab by background.js. Runs in TWO phases because El Al's Search
 // button does a full page navigation (www.elal.com -> booking.elal.com), which destroys any
-// injected script -- so the driver is re-injected by background.js on the results page:
+// injected script -- so the driver runs again on the results page (manifest content_script):
 //   phase "search"  (host www.elal.com):     one-way, destination, date, confirm, search
 //   phase "select"  (host booking.elal.com): find the flight row and pick its cheapest fare
 // Selectors captured from the live site 2026-09-23/24 (same site as providers/elal_verify.py).
 // This never touches passenger or payment fields: it stops at the fare/baggage choice.
 (async () => {
-  const details = window.__skyhopFlightDetails || {};
+  // Details arrive either from background.js (phase 1, injected) or via window.name, which phase 1
+  // leaves behind before clicking Search (window.name survives the www -> booking.elal.com
+  // same-site navigation; manifest.json's content_scripts re-run this file on the results page).
+  const NAME_PREFIX = "skyhop:";
+  // Search goes through intermediate booking.elal.com pages (e.g. /engine) before the results
+  // page; leave window.name alone until we're actually on the results page.
+  if (location.host.includes("booking.elal.com") && !location.pathname.includes("/booking/flights")) return;
+  let details = window.__skyhopFlightDetails;
+  if (!details && typeof window.name === "string" && window.name.startsWith(NAME_PREFIX)) {
+    try { details = JSON.parse(window.name.slice(NAME_PREFIX.length)); } catch { /* ignore */ }
+    window.name = ""; // consume it: an ordinary later visit to the results page must not re-run
+  }
+  if (!details) return; // ordinary visit to El Al -- this extension stays out of the way
   const { destination, day, returnDay, flightNumber } = details;
   const HEBREW_MONTHS = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
                           "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"];
@@ -59,8 +71,14 @@
     const input = document.querySelectorAll("input.search-ui-input__input")[1];
     if (!input) throw new Error("Destination field not found");
     const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-    input.click();
+    // The suggestion flyout opens on a real focus event: if the input already has focus (it can
+    // after choosing one-way) .focus() alone does nothing, so blur first. It also needs this tab
+    // to actually have focus -- fine for the tab the extension just opened and activated.
+    input.blur();
+    await sleep(200);
     input.focus();
+    input.click();
+    await sleep(500);
     input.select();
     setValue.call(input, "");
     input.dispatchEvent(new Event("input", { bubbles: true }));
@@ -79,7 +97,7 @@
     // search the wrong airport): the suggestion entry for exactly this airport code must be clicked.
     const entry = await waitFor(() => Array.from(document.querySelectorAll(".search-input-location__item")).find((i) =>
       visible(i) && textOf(i.querySelector(".search-input-location__code") || i) === code), 5000);
-    if (!entry) throw new Error(`El Al has no airport with code ${code}`);
+    if (!entry) throw new Error(`El Al offered no airport with code ${code} (if this tab was in the background, bring it to the front and try again)`);
     entry.click();
     await sleep(800);
   }
@@ -142,8 +160,9 @@
     const search = Array.from(document.querySelectorAll("button")).find((b) => textOf(b).includes("חיפוש טיסה"));
     if (!search) throw new Error("Search button not found");
     status("Searching flights...");
+    window.name = NAME_PREFIX + JSON.stringify(details); // read by phase 2 on booking.elal.com
     search.click();
-    // The page now navigates; background.js re-injects this file on booking.elal.com.
+    // The page now navigates; the content script re-runs this file on booking.elal.com.
   }
 
   // ---------------------------------------------------------------- phase: select
