@@ -1018,7 +1018,23 @@ async function init() {
     b.hidden = false; b.className = "mode-badge " + (isMock ? "demo" : "live");
     b.textContent = isMock ? "⚠ DEMO DATA" : "LIVE";
     b.title = isMock ? "Fake prices from the mock provider -- nothing here is real" : `Live data from ${config.provider}`;
+    // Airline Assist extension status, right next to the mode badge: the purple "Select on site"
+    // buttons only exist when the extension is attached to this page, and without this there's no
+    // way to tell "extension off" from "extension broken" (the plain "El Al ↗" link opens the
+    // airline's homepage and never searches -- easy to mistake for the extension).
+    const ext = h("span", { class: "mode-badge ext-badge" });
+    b.after(ext);
   });
+  const syncExtBadge = () => {
+    const on = extensionAvailable();
+    $$(".ext-badge").forEach(e => {
+      e.classList.toggle("live", on); e.classList.toggle("demo", !on);
+      e.textContent = on ? "✈ Assist on" : "✈ Assist off";
+      e.title = on ? "Airline Assist extension detected: flights show a purple \"Select on site\" button"
+        : "Extension not detected on this page. Open chrome://extensions, make sure Skyhop Airline Assist is enabled, reload it, then reload this page. Until then only the plain airline homepage link works.";
+    });
+  };
+  syncExtBadge(); setTimeout(syncExtBadge, 1500); // the content script can attach just after load
   try { ratesInfo = await api("/api/rates"); rates = ratesInfo.rates; } catch { /* keep the approximate defaults */ }
   showOriginal = !!store.get("skyhop.showOriginal");
   $("#orig-toggle").checked = showOriginal;
