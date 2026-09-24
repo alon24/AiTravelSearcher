@@ -989,8 +989,16 @@ function legCard(leg, title, cur) {
   });
   const links = leg.deep_links.map((u, i) => h("a", { class: "btn small", href: u, target: "_blank", rel: "noopener noreferrer" },
     leg.deep_links.length > 1 ? `Google Flights · ticket ${i + 1} ↗` : "Google Flights ↗"));
-  const direct = [...seen].filter(([code]) => config.airline_sites[code]).map(([code, name]) =>
-    h("a", { class: "btn small", href: config.airline_sites[code], target: "_blank", rel: "noopener noreferrer" }, `${name} ↗`));
+  // With the extension on, the airline chip does the same as the "Select ... on site" button
+  // (people click the obvious airline link first); it stays a plain link where no driver applies.
+  const direct = [...seen].filter(([code]) => config.airline_sites[code]).map(([code, name]) => {
+    const sg = extensionAvailable() && EXTENSION_DRIVERS.has(code)
+      ? leg.segments.find(x => x.origin === "TLV" && x.airline_code === code) : null;
+    return h("a", { class: "btn small", href: config.airline_sites[code], target: "_blank", rel: "noopener noreferrer",
+      title: sg ? "Opens the airline's site with this flight selected" : null,
+      onclick: sg ? (e) => { e.preventDefault(); selectOnAirlineSite(code, sg.destination, sg.departs.slice(0, 10), `${code}${sg.flight_number}`); } : null },
+      `${name} ↗`);
+  });
   // Auto-select on the airline's own site (browser-extension/): per matching segment, since
   // flight number/destination are segment-specific. TLV-origin only for now (elal_verify.py scope).
   const autoSelect = extensionAvailable() ? leg.segments.filter(sg => sg.origin === "TLV" && EXTENSION_DRIVERS.has(sg.airline_code)).map(sg =>
