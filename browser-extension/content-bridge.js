@@ -6,11 +6,18 @@
 // Marks the page so app.js can detect the extension without messaging races on load.
 document.documentElement.setAttribute("data-skyhop-extension", "1");
 
+const reply = (detail) => window.dispatchEvent(new CustomEvent("skyhop-select-flight-result", { detail }));
+
 window.addEventListener("skyhop-select-flight", (e) => {
   const detail = e.detail || {};
-  chrome.runtime.sendMessage({ type: "select-flight", ...detail }, (response) => {
-    window.dispatchEvent(new CustomEvent("skyhop-select-flight-result", {
-      detail: response || { ok: false, error: chrome.runtime.lastError?.message || "no response" },
-    }));
-  });
+  // After the extension is reloaded, this (already injected) script is orphaned and
+  // chrome.runtime.sendMessage throws "Extension context invalidated" -- report it instead of
+  // failing silently; the fix is to reload the Skyhop page.
+  try {
+    chrome.runtime.sendMessage({ type: "select-flight", ...detail }, (response) => {
+      reply(response || { ok: false, error: chrome.runtime.lastError?.message || "no response" });
+    });
+  } catch (err) {
+    reply({ ok: false, error: "the extension was reloaded -- refresh this Skyhop page (F5) and try again" });
+  }
 });

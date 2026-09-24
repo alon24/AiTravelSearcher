@@ -905,8 +905,12 @@ function selectOnAirlineSite(airline_code, destination, dateISO, flightNumber) {
     detail: { airline: airline_code, destination, day: dateISO, flightNumber },
   }));
   toast(`Opening ${airline_code} — searching for ${flightNumber || "that flight"}…`);
+  // An orphaned content script (extension reloaded, page not) never answers at all.
+  extReplyTimer = setTimeout(() => toast("The extension didn't respond — refresh this page (F5) and try again"), 2500);
 }
+let extReplyTimer;
 window.addEventListener("skyhop-select-flight-result", (e) => {
+  clearTimeout(extReplyTimer);
   const r = e.detail || {};
   if (!r.ok) toast(`Couldn't open the airline site automatically: ${r.error || "unknown error"}`);
 });
