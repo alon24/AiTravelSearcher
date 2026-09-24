@@ -21,3 +21,11 @@ window.addEventListener("skyhop-select-flight", (e) => {
     reply({ ok: false, error: "the extension was reloaded -- refresh this Skyhop page (F5) and try again" });
   }
 });
+
+// Progress from the background script (stage number + text), shown by the page as a toast.
+try {
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg?.type === "progress")
+      window.dispatchEvent(new CustomEvent("skyhop-progress", { detail: { stage: msg.stage, text: msg.text } }));
+  });
+} catch (err) { /* orphaned after an extension reload */ }

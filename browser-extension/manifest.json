@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Skyhop Airline Assist",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "From a Skyhop flight result, open the airline's own site in a new tab with that flight already selected, so you can finish booking it yourself.",
   "permissions": ["scripting", "tabs"],
   "host_permissions": [

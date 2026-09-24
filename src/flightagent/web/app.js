@@ -909,6 +909,11 @@ function selectOnAirlineSite(airline_code, destination, dateISO, flightNumber) {
   extReplyTimer = setTimeout(() => toast("The extension didn't respond — refresh this page (F5) and try again"), 2500);
 }
 let extReplyTimer;
+window.addEventListener("skyhop-progress", (e) => {
+  clearTimeout(extReplyTimer);
+  const { stage, text } = e.detail || {};
+  toast(`Assist ${stage === "ERR" ? "failed" : `step ${stage}`}: ${text}`);
+});
 window.addEventListener("skyhop-select-flight-result", (e) => {
   clearTimeout(extReplyTimer);
   const r = e.detail || {};

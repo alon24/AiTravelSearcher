@@ -17,7 +17,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // many seconds) -- MV3 service workers can be killed mid-wait before ever calling sendResponse,
   // which surfaces as "message channel closed before a response was received". The new tab's own
   // status banner (drivers/*.js) already reports progress/errors directly.
-  handle(msg).catch((e) => console.error("[Skyhop background]", e));
+  handle(msg, sender.tab?.id).catch((e) => console.error("[Skyhop background]", e));
   sendResponse({ ok: true, started: true });
   return false;
 });
@@ -30,6 +30,8 @@ async function reportError(e) {
   let hint = "";
   if (/cannot access|permission|host/i.test(msg))
     hint = " -- open chrome://extensions > Skyhop Airline Assist > Site access and allow www.elal.com and booking.elal.com";
+  if (reportTabId !== null)
+    chrome.tabs.sendMessage(reportTabId, { type: "progress", stage: "ERR", text: msg + hint }).catch(() => {});
   await chrome.action.setBadgeBackgroundColor({ color: "#a11a2b" });
   await chrome.action.setBadgeText({ text: "ERR" });
   await chrome.action.setTitle({ title: `Skyhop Airline Assist failed: ${msg}${hint}` });
@@ -39,7 +41,12 @@ async function reportError(e) {
 // narrowed to a stage without opening DevTools: 1 tab opened+loaded, 2 phase 1 injected,
 // 3 results page seen and phase 2 injected. ERR (red) is reportError() above.
 // Diagnostics only: a failure here must never stop the flight selection itself.
+// The same trail is also sent to the Skyhop page (content-bridge.js turns it into a toast), because
+// the toolbar badge is invisible unless the extension is pinned.
+let reportTabId = null;
 async function progress(n, text) {
+  if (reportTabId !== null)
+    chrome.tabs.sendMessage(reportTabId, { type: "progress", stage: String(n), text }).catch(() => {});
   try {
     await chrome.action.setBadgeBackgroundColor({ color: "#0d6b45" });
     await chrome.action.setBadgeText({ text: String(n) });
@@ -89,7 +96,8 @@ async function injectWhenResultsLoad(tabId, driver, details, timeoutMs = 120000)
   return false;
 }
 
-async function handle({ airline, destination, day, returnDay, flightNumber }) {
+async function handle({ airline, destination, day, returnDay, flightNumber }, senderTabId) {
+  reportTabId = senderTabId ?? null;
   const driver = DRIVERS[airline];
   if (!driver) return reportError(`No driver yet for airline ${airline}`);
   await progress(0, "request received, opening the airline tab");
