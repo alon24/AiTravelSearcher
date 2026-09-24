@@ -209,7 +209,13 @@ function toRequest(f) {
     self_transfer_buffer_min: Math.round(f.buffer * 60), adults: f.adults, children_ages: f.kids, currency: f.currency,
     airlines_exclude: f.airmode === "exclude" ? f.airlines : [], airlines_include: f.airmode === "only" ? f.airlines : [],
     carry_on_bags: f.bags === "cabin" || f.bags === "both" ? 1 : 0, checked_bags: f.bags === "checked" || f.bags === "both" ? 1 : 0,
-    value_of_time_per_hour: f.vot, self_transfer_penalty: PENALTY[f.currency] ?? 40, top_n: f.top, max_api_calls: f.maxcalls,
+    value_of_time_per_hour: f.vot, self_transfer_penalty: PENALTY[f.currency] ?? 40,
+    // With several destinations, the flat top_n list needs enough headroom that "cheapest by
+    // route" (grouped client-side from res.top, see routePicks()) has a real shot at surfacing
+    // every destination, not just whichever ones happen to dominate the top of one global list.
+    // Measured limit of this approach: if one destination is cheaper on every single day in the
+    // window, no top_n is enough -- that needs the deferred backend _daily() fix (see DESIGN.md).
+    top_n: Math.max(f.top, Math.min(30, f.to.length * 8)), max_api_calls: f.maxcalls,
   } };
 }
 function requestToForm(q) {
@@ -387,11 +393,86 @@ async function openSearch(id, opts = {}) {
   if (current !== id) return;
   if (opts.fillForm) { writeForm(requestToForm(row.request)); store.set("skyhop.form", readForm()); runEstimate(); }
   refreshHistory();
+  syncStep1Summary(row);
   if (row.status === "running") { renderProgress(row); pollTimer = setTimeout(() => openSearch(id), 900); return; }
   renderResult(row);
 }
+// Step 1 (Trip) auto-collapses to a one-line summary once a search is running/done -- click the
+// summary to expand it back and edit. The step is genuinely finished with its job at that point;
+// this isn't decorative collapsing, it's freeing rail space for Step 2/3.
+function syncStep1Summary(row) {
+  const q = row.request, nights = lenRange(q.min_nights, q.max_nights);
+  $("#step-1-summary").textContent = `${q.origin} → ${q.destinations.join(", ")} · ${nights}`;
+  $("#step-1").open = false;
+}
 
 // ------------------------------------------------------------------ results
+// Rail Step 2 (Airlines): the real per-airline list only exists once a search has told us which
+// airlines fly this route, so it renders here -- not before a search runs.
+function renderStepAirlines(res, q, cur, row) {
+  const host = $("#step2-airlines");
+  host.replaceChildren();
+  const bar = airlineBar(res, q, row);
+  const panel = airlinePanel(res, q, cur, row);
+  if (bar) host.append(bar);
+  if (panel) host.append(panel);
+  const include = q.airlines_include || [], exclude = q.airlines_exclude || [];
+  const nameOf2 = c => (config.airlines || {})[c] || c;
+  $("#step-2-summary").textContent = include.length ? `Only: ${include.map(nameOf2).join(", ")}`
+    : exclude.length ? `Excluding: ${exclude.map(nameOf2).join(", ")}`
+    : (res.airlines || []).length ? `${res.airlines.length} airlines found` : "";
+}
+
+// Rail Step 3 (Compare): a live summary, not a form -- there's nothing to show until Steps 1-2
+// have produced results.
+function activateStep3(res, q, cur) {
+  const step3 = $("#step-3");
+  step3.classList.add("active");
+  const cheapest = (res.top || [])[0];
+  // Destination count is q.destinations.length (what was actually searched), NOT derived from
+  // res.top -- that list can be entirely one destination when it dominates on price (see
+  // routePicks()), which would otherwise make this say "1 destination" even when 2+ were searched.
+  $("#step-3-summary").textContent = cheapest
+    ? `from ${money(cheapest.price, cur)} · ${plural(q.destinations.length, "destination")} compared` : "";
+}
+
+// "Cheapest by route": res.top is a flat, globally-sorted list, but each Trip carries its own
+// destination -- group it client-side to show what EVERY searched destination costs, not just
+// whichever one dominates the global top-N (see toRequest()'s top_n bump for why this needs
+// enough headroom). Deliberately separate from the existing global Cheapest/Best value picks,
+// not a replacement for them -- those answer "what's the single best trip", this answers
+// "what does each place I searched actually cost".
+function routePicks(res, cur, paxN, searchedCount) {
+  const top = res.top || [];
+  const dests = new Set(top.map(t => t.destination));
+  if (searchedCount < 2) return null; // only one destination was searched -- nothing to compare
+  if (dests.size < 2) {
+    // Measured, real limitation (not a bug): when one destination is cheaper than the others on
+    // every single day in the window, the flat top-N list can end up entirely one destination --
+    // no client-side top_n bump fixes that. Say so rather than silently showing nothing.
+    return h("div", { class: "note" }, `Every one of the top ${top.length} trips found happened to be ${[...dests][0] || "the same destination"} -- the other destinations weren't competitive enough on price to make this list. Narrow the dates or check them individually to compare properly.`);
+  }
+  const byDest = new Map();
+  for (const t of top) if (!byDest.has(t.destination) || t.price < byDest.get(t.destination).price) byDest.set(t.destination, t);
+  const detail = h("div", { class: "pick-detail", hidden: true, "aria-live": "polite" });
+  let openDest = null;
+  const cards = [...byDest.entries()].sort((a, b) => a[1].price - b[1].price).map(([dest, t]) => {
+    const btn = h("button", { type: "button", class: "pick compact", "aria-expanded": "false", onclick: () => {
+      openDest = openDest === dest ? null : dest;
+      cards.forEach(b => b.setAttribute("aria-expanded", String(b === btn && openDest === dest)));
+      detail.hidden = !openDest;
+      detail.replaceChildren(...(openDest ? [tripCard(t, cur, paxN)] : []));
+      if (openDest) detail.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } },
+      h("span", { class: "k" }, dest), h("span", { class: "v" }, money(t.price, cur)), origNote(t.price, cur),
+      h("span", { class: "s" }, `${fmtDay(day(t.depart_date))} · ${t.stops === 0 ? "direct" : plural(t.stops, "stop")}`));
+    return btn;
+  });
+  return h("div", { class: "route-picks-wrap" },
+    h("div", { class: "af-label" }, byDest.size < dests.size ? `Cheapest by route (${byDest.size} of ${dests.size} destinations shown)` : "Cheapest by route"),
+    h("div", { class: "route-picks" }, cards), detail);
+}
+
 function renderProgress(row) {
   const { done, total } = row.progress, q = row.request;
   const fill = h("div", { class: "bar-fill" + (total ? "" : " indet"), style: total ? `width:${Math.max(4, Math.round(100 * done / total))}%` : null });
@@ -428,26 +509,24 @@ function renderResult(row, opts = {}) {
         h("span", { class: "badge run" }, `${res.elapsed_s}s`), h("span", {}, ago(row.created)),
         res.data_from && Date.now() / 1000 - res.data_from > 1800 ? h("span", { class: "badge warn", title: "Filtering reuses saved flights. Press Search again to fetch fresh prices." }, `Flight data from ${ago(res.data_from)} · Search again to refresh`) : null)),
     h("div", { class: "actions" },
-      h("button", { class: "btn", type: "button", onclick: () => { writeForm(requestToForm(q)); onFormChange(); window.scrollTo({ top: 0, behavior: "smooth" }); } }, "Edit"),
+      h("button", { class: "btn", type: "button", onclick: () => { writeForm(requestToForm(q)); onFormChange(); $("#step-1").open = true; $("#step-1").scrollIntoView({ behavior: "smooth", block: "start" }); } }, "Edit"),
       h("button", { class: "btn", type: "button", onclick: () => submitSearch(q) }, "Search again"))));
   res.warnings.forEach(w => box.append(h("div", { class: "note" }, w)));
+  renderStepAirlines(res, q, cur, row);
+  activateStep3(res, q, cur);
   if (!daily.length) {
     // Keep everything needed to change the filter: an airline filter that leaves no trips must not make the controls vanish.
     const filtered = (q.airlines_include || []).length || (q.airlines_exclude || []).length;
     const rest = [
-      airlineBar(res, q, row),
       h("div", { class: "note" }, filtered
-        ? "No trips match this airline filter. That airline may fly only one direction on these dates, or its flights may have no price (those are listed but never ranked). Every airline found is listed below: change the filter to continue."
+        ? "No trips match this airline filter. That airline may fly only one direction on these dates, or its flights may have no price (those are listed but never ranked). Change the filter in Step 2 on the left to continue."
         : "No trips matched. Try more stops, a wider window or a longer layover limit."),
       filtered ? h("div", { class: "actions" }, h("button", { type: "button", class: "btn", onclick: () => applyAirlineFilter(row, [], []) }, "Remove the airline filter")) : null,
-      airlinePanel(res, q, cur, row), unpricedPanel(res, row)].filter(Boolean);
+      unpricedPanel(res, row)].filter(Boolean);
     box.append(...rest);
     if ((res.unpriced || []).length) watchRecheck(row);
     return;
   }
-
-  const bar = airlineBar(res, q, row);
-  if (bar) box.append(bar);
 
   // ---- derived picks
   const byDay = new Map(daily.map(d => [d.depart_date, d]));
@@ -477,6 +556,8 @@ function renderResult(row, opts = {}) {
     h("span", { class: "s" }, `${tripLen(p.t.nights)} · ${p.t.stops === 0 ? "direct" : plural(p.t.stops, "stop")} · ${hm(p.t.total_travel_min)} in transit`),
     h("span", { class: "more" }, h("span", { class: "chev", "aria-hidden": "true" }, "▾"), h("span", { class: "more-t" }, "Flight details"))));
   box.append(h("div", { class: "picks" }, pickBtns, direct ? null : h("div", { class: "pick static" }, h("span", { class: "k" }, "Direct flights"), h("span", { class: "v" }, "None"), h("span", { class: "s" }, "No nonstop trips in this window."))), pickDetail);
+  const routePicksEl = routePicks(res, cur, paxCount(q), q.destinations.length);
+  if (routePicksEl) box.append(routePicksEl);
   function syncPicks() {
     pickBtns.forEach(b => {
       const open = view.pickOpen === b.dataset.pick;
@@ -495,8 +576,6 @@ function renderResult(row, opts = {}) {
     if (view.pickOpen) pickDetail.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
-  const airPanel = airlinePanel(res, q, cur, row);
-  if (airPanel) box.append(airPanel);
   const unpricedPanelEl = unpricedPanel(res, row);
   if (unpricedPanelEl) { box.append(unpricedPanelEl); watchRecheck(row); }
 
@@ -640,27 +719,70 @@ function resolveAirline(text) {
   if (q.length >= 3) { const part = Object.entries(names).filter(([, n]) => n.toLowerCase().includes(q)).map(([c]) => c); if (part.length) return part; }
   return /^[A-Z0-9]{2}$/.test(up) ? [up] : [];
 }
+// Matching airlines for the dropdown, code/name-prefix matches first, then substring matches.
+function airlineCandidates(text, max = 8) {
+  const q = text.trim().toLowerCase();
+  if (!q) return [];
+  const names = config.airlines || {};
+  const starts = [], contains = [];
+  for (const [code, name] of Object.entries(names)) {
+    const lc = name.toLowerCase();
+    if (code.toLowerCase() === q || code.toLowerCase().startsWith(q) || lc.startsWith(q)) starts.push({ code, name });
+    else if (lc.includes(q)) contains.push({ code, name });
+  }
+  return [...starts, ...contains].slice(0, max);
+}
+
 function airlineTags(root, { onChange }) {
-  let values = [];
-  const input = h("input", { id: "air-in", type: "text", list: "air-list", placeholder: "Ryanair, FR…", autocomplete: "off" });
-  root.append(input);
+  let values = [], items = [], active = -1;
+  const input = h("input", { id: "air-in", type: "text", placeholder: "Ryanair, FR…", role: "combobox", "aria-expanded": "false", "aria-autocomplete": "list", autocomplete: "off" });
+  const list = h("ul", { class: "ac-list", role: "listbox", hidden: true });
+  const note = h("span", { class: "ac-empty-note" }, "None — all airlines shown");
+  root.append(note, input, list);
+
+  const close = () => { list.hidden = true; input.setAttribute("aria-expanded", "false"); active = -1; };
   const draw = () => {
     $$(".chip", root).forEach(c => c.remove());
     values.forEach(code => root.insertBefore(h("span", { class: "chip" }, config.airlines[code] ? `${code} · ${config.airlines[code]}` : code,
       h("button", { type: "button", "aria-label": `Remove ${code}`, onclick: e => { e.stopPropagation(); values = values.filter(v => v !== code); draw(); onChange(); } }, "×")), input));
+    note.hidden = values.length > 0;
+    // The note already says "None" when empty; don't also show a placeholder that repeats it.
+    input.placeholder = values.length ? "Add another…" : "";
+  };
+  const pick = (code) => {
+    if (!values.includes(code)) values.push(code);
+    input.value = ""; close(); draw(); onChange();
   };
   const add = () => {
     const codes = resolveAirline(input.value);
     if (!codes.length) return;
     codes.forEach(c => { if (!values.includes(c)) values.push(c); });
-    input.value = ""; draw(); onChange();
+    input.value = ""; close(); draw(); onChange();
   };
+  const show = () => {
+    note.hidden = values.length > 0 || input.value.length > 0;
+    items = airlineCandidates(input.value).filter(a => !values.includes(a.code));
+    const rows = items.map((a, i) => h("li", { role: "option", "aria-selected": String(i === active), onmousedown: e => { e.preventDefault(); pick(a.code); } },
+      h("span", { class: "ac-code" }, a.code), h("span", {}, h("div", { class: "ac-city" }, a.name))));
+    list.replaceChildren(...rows);
+    list.hidden = !rows.length; input.setAttribute("aria-expanded", String(rows.length > 0));
+  };
+  input.addEventListener("input", () => { active = -1; show(); });
+  input.addEventListener("focus", show);
+  input.addEventListener("blur", () => setTimeout(() => { add(); close(); }, 120));
   input.addEventListener("keydown", e => {
-    if (e.key === "Enter" || e.key === ",") { e.preventDefault(); add(); }
-    else if (e.key === "Backspace" && !input.value && values.length) { values.pop(); draw(); onChange(); }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault(); if (list.hidden) show();
+      active = (active + (e.key === "ArrowDown" ? 1 : -1) + items.length) % Math.max(items.length, 1);
+      $$("li[role=option]", list).forEach((li, i) => li.setAttribute("aria-selected", String(i === active)));
+    } else if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      if (active >= 0 && items[active]) pick(items[active].code); else add();
+    } else if (e.key === "Backspace" && !input.value && values.length) { values.pop(); draw(); onChange(); }
+    else if (e.key === "Escape") close();
   });
-  input.addEventListener("change", add); input.addEventListener("blur", add);
   root.addEventListener("click", () => input.focus());
+  draw();
   return { get: () => [...values], set: arr => { values = [...arr]; draw(); } };
 }
 
@@ -797,11 +919,11 @@ function unpricedPanel(res, row) {
       h("span", { class: "unp-air" }, h("b", {}, u.flights), ` ${u.airline}`, u.stops ? ` · ${plural(u.stops, "stop")}` : " · nonstop",
         u.last_price != null ? h("span", { class: "badge warn", title: "Google showed this fare earlier and has since dropped it, so it may be out of date" }, `last seen ${money(u.last_price, row.request.currency)}, ${ago(u.last_seen)}`) : null),
       h("span", { class: "actions" },
+        (extensionAvailable() && EXTENSION_DRIVERS.has(u.airline_code)) ?
+          h("button", { type: "button", class: "btn small accent", title: "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
+            onclick: () => selectOnAirlineSite(u.airline_code, u.destination, u.date, u.flights) }, `✈ Select on ${u.airline} site ↗`) : null,
         h("a", { class: "btn small", target: "_blank", rel: "noopener noreferrer", title: config.airline_sites[u.airline_code] ? "Open the airline's own site to see the fare" : "We have no link for this airline: search for it",
           href: config.airline_sites[u.airline_code] || `https://www.google.com/search?q=${encodeURIComponent(`${u.airline} ${u.flights} ${u.origin} ${u.destination} ${u.date} book`)}` }, config.airline_sites[u.airline_code] ? `${u.airline} site ↗` : "Find on Google ↗"),
-        (extensionAvailable() && EXTENSION_DRIVERS.has(u.airline_code)) ?
-          h("button", { type: "button", class: "btn small", title: "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
-            onclick: () => selectOnAirlineSite(u.airline_code, u.destination, u.date, u.flights) }, `Select on ${u.airline} site ↗`) : null,
         h("button", { type: "button", class: "btn small", onclick: () => Builder.browse(u.origin, u.destination, u.date) }, "All flights that day"),
         u.link ? h("a", { class: "btn small", href: u.link, target: "_blank", rel: "noopener noreferrer" }, "Google Flights ↗") : null)))));
 }
@@ -845,12 +967,18 @@ function legCard(leg, title, cur) {
     leg.deep_links.length > 1 ? `Google Flights · ticket ${i + 1} ↗` : "Google Flights ↗"));
   const direct = [...seen].filter(([code]) => config.airline_sites[code]).map(([code, name]) =>
     h("a", { class: "btn small", href: config.airline_sites[code], target: "_blank", rel: "noopener noreferrer" }, `${name} ↗`));
+  // Auto-select on the airline's own site (browser-extension/): per matching segment, since
+  // flight number/destination are segment-specific. TLV-origin only for now (elal_verify.py scope).
+  const autoSelect = extensionAvailable() ? leg.segments.filter(sg => sg.origin === "TLV" && EXTENSION_DRIVERS.has(sg.airline_code)).map(sg =>
+    h("button", { type: "button", class: "btn small accent", title: "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
+      onclick: () => selectOnAirlineSite(sg.airline_code, sg.destination, sg.departs.slice(0, 10), `${sg.airline_code}${sg.flight_number}`) },
+      `✈ Select ${sg.airline_code}${sg.flight_number} on site ↗`)) : [];
   return h("div", { class: "leg" },
     h("div", { class: "leg-top" },
       h("div", { class: "leg-title" }, title, h("small", {}, [...seen.values()].join(" · "))),
       h("strong", { title: isConverted(cur) ? `Originally ${fmtMoney(leg.price, cur)}` : null }, money(leg.price, cur))),
     legTimes(leg),
-    rows, h("div", { class: "actions" }, links, direct,
+    rows, h("div", { class: "actions" }, autoSelect, links, direct,
       h("button", { type: "button", class: "btn small", title: "See every flight that day, including ones with no price", onclick: () => Builder.browse(leg.origin, leg.destination, leg.segments[0].departs.slice(0, 10)) }, "All flights that day"),
       h("button", { type: "button", class: "btn small", onclick: () => Builder.addFlight(leg, { pax: paxLabel(resultsQuery), currency: cur }) }, "＋ Trip builder")));
 }
@@ -870,13 +998,18 @@ async function init() {
   $("#menu").addEventListener("click", () => { $("#sidebar").classList.add("open"); $("#scrim").hidden = false; });
   $("#scrim").addEventListener("click", closeSidebar);
   try { config = await api("/api/config"); } catch { /* keep defaults */ }
+  const isMock = config.provider.split(",")[0].trim() === "mock";
+  $$(".mode-badge").forEach(b => {
+    b.hidden = false; b.className = "mode-badge " + (isMock ? "demo" : "live");
+    b.textContent = isMock ? "⚠ DEMO DATA" : "LIVE";
+    b.title = isMock ? "Fake prices from the mock provider -- nothing here is real" : `Live data from ${config.provider}`;
+  });
   try { ratesInfo = await api("/api/rates"); rates = ratesInfo.rates; } catch { /* keep the approximate defaults */ }
   showOriginal = !!store.get("skyhop.showOriginal");
   $("#orig-toggle").checked = showOriginal;
   $("#orig-toggle").addEventListener("change", e => setShowOriginal(e.target.checked));
   await loadAirports();
   const cfg = { onChange: onFormChange };
-  document.body.append(h("datalist", { id: "air-list" }, [...new Set(Object.values(config.airlines || {}))].sort().map(n => h("option", { value: n }))));
   ac = {
     air: airlineTags($("#ac-air"), cfg),
     from: autocomplete($("#ac-from"), { id: "from-in", placeholder: "City or airport", multi: false, ...cfg }),
@@ -909,7 +1042,12 @@ async function init() {
   }));
   $("#add-kid").addEventListener("click", () => { if (kids.length < 8) { kids.push(5); renderKids(); onFormChange(); } });
   $("#new-search").addEventListener("click", () => {
-    clearTimeout(pollTimer); current = null; $("#results").replaceChildren(); writeForm({ ...defaults(), from: readForm().from });
+    clearTimeout(pollTimer); current = null;
+    $("#results").replaceChildren(h("div", { class: "card empty-state" }, "Run a search on the left to see results here."));
+    writeForm({ ...defaults(), from: readForm().from });
+    $("#step-1").open = true; $("#step-1-summary").textContent = "";
+    $("#step-2").classList.remove("active"); $("#step-2-summary").textContent = ""; $("#step2-airlines").replaceChildren();
+    $("#step-3").classList.remove("active"); $("#step-3-summary").textContent = "Run a search to compare";
     onFormChange(); closeSidebar(); window.scrollTo({ top: 0, behavior: "smooth" }); $("#to-in").focus(); refreshHistory();
   });
   $("#form").addEventListener("submit", async e => {

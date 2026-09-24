@@ -8,8 +8,14 @@ const DRIVERS = {
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type !== "select-flight") return false;
-  handle(msg).then(sendResponse).catch((e) => sendResponse({ ok: false, error: String(e?.message || e) }));
-  return true; // keep the message channel open for the async response
+  // Respond immediately instead of awaiting the whole tab-load + injection sequence (can take
+  // many seconds) -- MV3 service workers can be killed mid-wait before ever calling sendResponse,
+  // which surfaces as "message channel closed before a response was received". The new tab's own
+  // status banner (drivers/*.js) already reports progress/errors directly, so nothing needs to
+  // wait on handle() finishing.
+  handle(msg).catch((e) => console.error("[Skyhop background]", e));
+  sendResponse({ ok: true, started: true });
+  return false;
 });
 
 async function handle({ airline, destination, day, returnDay, flightNumber }) {
