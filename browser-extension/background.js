@@ -91,8 +91,7 @@ async function injectWhenResultsLoad(tabId, driver, details, timeoutMs = 120000)
 async function handle({ airline, destination, day, returnDay, flightNumber }) {
   const driver = DRIVERS[airline];
   if (!driver) return reportError(`No driver yet for airline ${airline}`);
-  await chrome.action.setBadgeText({ text: "" });
-  await chrome.action.setTitle({ title: "Skyhop Airline Assist" });
+  await progress(0, "request received, opening the airline tab");
   const details = { airline, destination, day, returnDay, flightNumber };
 
   try {
