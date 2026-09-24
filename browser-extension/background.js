@@ -38,10 +38,13 @@ async function reportError(e) {
 // Progress trail on the toolbar icon (green number + tooltip), so "it didn't work" can be
 // narrowed to a stage without opening DevTools: 1 tab opened+loaded, 2 phase 1 injected,
 // 3 results page seen and phase 2 injected. ERR (red) is reportError() above.
+// Diagnostics only: a failure here must never stop the flight selection itself.
 async function progress(n, text) {
-  await chrome.action.setBadgeBackgroundColor({ color: "#0d6b45" });
-  await chrome.action.setBadgeText({ text: String(n) });
-  await chrome.action.setTitle({ title: `Skyhop Airline Assist: ${text}` });
+  try {
+    await chrome.action.setBadgeBackgroundColor({ color: "#0d6b45" });
+    await chrome.action.setBadgeText({ text: String(n) });
+    await chrome.action.setTitle({ title: `Skyhop Airline Assist: ${text}` });
+  } catch (e) { console.warn("[Skyhop background] progress failed", e); }
 }
 
 // Poll instead of waiting for one onUpdated event: if the page finishes loading before a listener
