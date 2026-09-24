@@ -9,12 +9,28 @@ silently blocks server-side automation (Playwright) even with basic fingerprint 
 **not** block a real, extension-driven browser tab -- this is the same trust boundary as you
 using the site yourself, not automated scraping. See `docs/DESIGN.md` for the full story.
 
-## Status: built, not yet tested end-to-end
+## Status: works on El Al (one-way, TLV origin); reload the extension after updates
 
-I validated the DOM selectors manually against the live site and the messaging architecture is
-standard, but I have not been able to load this extension and click through the actual flow --
-loading an unpacked extension needs Chrome's native "Load unpacked" file picker, which is outside
-what my browser automation tools can drive. **You'll need to do the first load-and-click test.**
+First real test failed ("opened the site but did not find the flight"). Debugging live against
+El Al's site found and fixed five real problems in `drivers/elal.js` / `background.js`:
+
+1. The search form defaults to **round trip**; with one date the search silently never ran ->
+   the driver now switches to one-way first.
+2. The calendar needs its **"אישור" (confirm)** clicked.
+3. Day cells were picked by index across a hidden third month -> now scoped to the right month
+   panel, and later months are reached with the month strip (real links), not an arrow.
+4. **Typed destination text is not committed** -- the site kept the previous destination and
+   would silently search the wrong airport. The driver now types per keystroke and clicks the
+   suggestion whose code matches exactly, and fails loudly if there is none.
+5. Clicking Search **navigates** (www -> booking.elal.com), which destroys the injected script, so
+   "select the flight" could never run. `background.js` now hands off through
+   `chrome.storage.session` and re-injects on the results page (phase 2 picks the row by flight
+   number and clicks its **cheapest fare**; it does not pick a different flight if yours isn't
+   listed, it says so in the banner).
+
+Verified live: TLV->CDG search reached the results page and selected LY323 with the fare tiers
+(LITE / CLASSIC / FLEX) showing. The extension itself must be **reloaded** in `chrome://extensions`
+after these changes (the manifest gained the `storage` permission).
 
 ## Load it (development mode)
 
