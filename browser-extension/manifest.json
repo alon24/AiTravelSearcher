@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Skyhop Airline Assist",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "From a Skyhop flight result, open the airline's own site in a new tab with that flight already selected, so you can finish booking it yourself.",
   "permissions": ["scripting", "tabs"],
   "host_permissions": [
@@ -15,11 +15,6 @@
       "matches": ["http://localhost:8765/*", "http://127.0.0.1:8765/*"],
       "js": ["content-bridge.js"],
       "run_at": "document_start"
-    },
-    {
-      "matches": ["https://booking.elal.com/*"],
-      "js": ["drivers/elal.js"],
-      "run_at": "document_idle"
     }
   ]
 }

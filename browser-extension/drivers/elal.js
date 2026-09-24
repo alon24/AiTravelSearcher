@@ -1,24 +1,15 @@
 // Injected into a real, human tab by background.js. Runs in TWO phases because El Al's Search
 // button does a full page navigation (www.elal.com -> booking.elal.com), which destroys any
-// injected script -- so the driver runs again on the results page (manifest content_script):
+// injected script -- so background.js injects the driver again on the results page:
 //   phase "search"  (host www.elal.com):     one-way, destination, date, confirm, search
 //   phase "select"  (host booking.elal.com): find the flight row and pick its cheapest fare
 // Selectors captured from the live site 2026-09-23/24 (same site as providers/elal_verify.py).
 // This never touches passenger or payment fields: it stops at the fare/baggage choice.
 (async () => {
-  // Details arrive either from background.js (phase 1, injected) or via window.name, which phase 1
-  // leaves behind before clicking Search (window.name survives the www -> booking.elal.com
-  // same-site navigation; manifest.json's content_scripts re-run this file on the results page).
-  const NAME_PREFIX = "skyhop:";
-  // Search goes through intermediate booking.elal.com pages (e.g. /engine) before the results
-  // page; leave window.name alone until we're actually on the results page.
-  if (location.host.includes("booking.elal.com") && !location.pathname.includes("/booking/flights")) return;
-  let details = window.__skyhopFlightDetails;
-  if (!details && typeof window.name === "string" && window.name.startsWith(NAME_PREFIX)) {
-    try { details = JSON.parse(window.name.slice(NAME_PREFIX.length)); } catch { /* ignore */ }
-    window.name = ""; // consume it: an ordinary later visit to the results page must not re-run
-  }
-  if (!details) return; // ordinary visit to El Al -- this extension stays out of the way
+  // Details are set by background.js right before each injection (once on the search page, once
+  // when the results page has loaded). No details = not started by Skyhop: do nothing.
+  const details = window.__skyhopFlightDetails;
+  if (!details) return;
   const { destination, day, returnDay, flightNumber } = details;
   const HEBREW_MONTHS = ["ינואר", "פברואר", "מרץ", "אפריל", "מאי", "יוני",
                           "יולי", "אוגוסט", "ספטמבר", "אוקטובר", "נובמבר", "דצמבר"];
@@ -160,9 +151,8 @@
     const search = Array.from(document.querySelectorAll("button")).find((b) => textOf(b).includes("חיפוש טיסה"));
     if (!search) throw new Error("Search button not found");
     status("Searching flights...");
-    window.name = NAME_PREFIX + JSON.stringify(details); // read by phase 2 on booking.elal.com
     search.click();
-    // The page now navigates; the content script re-runs this file on booking.elal.com.
+    // The page now navigates; background.js injects this file again on the results page.
   }
 
   // ---------------------------------------------------------------- phase: select

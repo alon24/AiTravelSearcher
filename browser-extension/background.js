@@ -4,12 +4,11 @@
 // here and adding a matching entry to drivers/ and host_permissions in manifest.json.
 //
 // Multi-phase drivers: El Al's Search button navigates (www -> booking.elal.com), destroying the
-// injected script. Phase 1 (injected here) leaves the details in window.name, which survives a
-// same-site navigation, and manifest.json's content_scripts re-run the same driver on the results
-// page, which picks the details up from window.name. No storage permission, nothing that depends
-// on this service worker staying alive.
+// injected script. Phase 1 is injected on the search page; this file then watches the tab and
+// injects the same driver again (same details) when the results page has loaded -- see
+// injectWhenResultsLoad(). The driver picks its phase from the page it lands on.
 const DRIVERS = {
-  LY: { startUrl: "https://www.elal.com/heb/israel", file: "drivers/elal.js" },
+  LY: { startUrl: "https://www.elal.com/heb/israel", file: "drivers/elal.js", resultsMatch: "booking.elal.com/booking/flights" },
 };
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
@@ -48,21 +47,45 @@ async function waitForLoad(tabId, timeoutMs = 20000) {
   // Still loading after the timeout: inject anyway rather than doing nothing.
 }
 
+async function inject(tabId, driver, details) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: (d) => { window.__skyhopFlightDetails = d; },
+    args: [details],
+  });
+  await chrome.scripting.executeScript({ target: { tabId }, files: [driver.file] });
+}
+
+// Phase 2 hand-off: search navigates away and destroys the phase-1 script. Instead of relying on
+// the page to carry state across (window.name + a content script -- the search worked but the
+// second half never ran in the packaged extension), the background watches the tab and injects
+// again with the same executeScript that already proved itself for phase 1. The polling calls are
+// also what keep this service worker alive while El Al thinks.
+async function injectWhenResultsLoad(tabId, driver, details, timeoutMs = 120000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    let tab;
+    try { tab = await chrome.tabs.get(tabId); } catch { return; } // tab was closed
+    if (tab.url && tab.url.includes(driver.resultsMatch) && tab.status === "complete") {
+      await inject(tabId, driver, details);
+      return;
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
 async function handle({ airline, destination, day, returnDay, flightNumber }) {
   const driver = DRIVERS[airline];
   if (!driver) return reportError(`No driver yet for airline ${airline}`);
   await chrome.action.setBadgeText({ text: "" });
   await chrome.action.setTitle({ title: "Skyhop Airline Assist" });
+  const details = { airline, destination, day, returnDay, flightNumber };
 
   try {
     const tab = await chrome.tabs.create({ url: driver.startUrl });
     await waitForLoad(tab.id);
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: (d) => { window.__skyhopFlightDetails = d; },
-      args: [{ airline, destination, day, returnDay, flightNumber }],
-    });
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: [driver.file] });
+    await inject(tab.id, driver, details);            // phase 1: search form
+    await injectWhenResultsLoad(tab.id, driver, details); // phase 2: pick the flight
   } catch (e) {
     await reportError(e);
   }
