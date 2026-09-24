@@ -397,13 +397,27 @@ async function openSearch(id, opts = {}) {
   if (row.status === "running") { renderProgress(row); pollTimer = setTimeout(() => openSearch(id), 900); return; }
   renderResult(row);
 }
-// Step 1 (Trip) auto-collapses to a one-line summary once a search is running/done -- click the
-// summary to expand it back and edit. The step is genuinely finished with its job at that point;
-// this isn't decorative collapsing, it's freeing rail space for Step 2/3.
+// Step nav: the rail chips are just navigation, the actual editable content (the form, the
+// airline picker) lives in #step-panel in the main pane where it has real width. Step 3 has no
+// editable content -- clicking it jumps to the comparison instead of opening the panel.
+function showStep(n) {
+  $$(".step-chip").forEach(c => c.classList.toggle("active", c.dataset.wizardStep === String(n)));
+  $("#step-panel").hidden = false;
+  $("#step1-panel").hidden = n !== 1;
+  $("#step2-panel").hidden = n !== 2;
+  $("#step-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+function hideStepPanel() {
+  $("#step-panel").hidden = true;
+  $$(".step-chip").forEach(c => c.classList.remove("active"));
+}
+// Step 1 (Trip) auto-collapses to a one-line summary once a search is running/done -- click it
+// to reopen and edit. The step is genuinely finished with its job at that point; this isn't
+// decorative collapsing, it's getting the form out of the way so results are visible immediately.
 function syncStep1Summary(row) {
   const q = row.request, nights = lenRange(q.min_nights, q.max_nights);
   $("#step-1-summary").textContent = `${q.origin} → ${q.destinations.join(", ")} · ${nights}`;
-  $("#step-1").open = false;
+  hideStepPanel();
 }
 
 // ------------------------------------------------------------------ results
@@ -426,8 +440,9 @@ function renderStepAirlines(res, q, cur, row) {
 // Rail Step 3 (Compare): a live summary, not a form -- there's nothing to show until Steps 1-2
 // have produced results.
 function activateStep3(res, q, cur) {
-  const step3 = $("#step-3");
-  step3.classList.add("active");
+  // .ready (results exist, worth clicking), not .active (that class means "this chip's content
+  // is the one currently open" -- Step 3 has no openable content, so it never gets .active).
+  $("#step-3").classList.add("ready");
   const cheapest = (res.top || [])[0];
   // Destination count is q.destinations.length (what was actually searched), NOT derived from
   // res.top -- that list can be entirely one destination when it dominates on price (see
@@ -509,7 +524,7 @@ function renderResult(row, opts = {}) {
         h("span", { class: "badge run" }, `${res.elapsed_s}s`), h("span", {}, ago(row.created)),
         res.data_from && Date.now() / 1000 - res.data_from > 1800 ? h("span", { class: "badge warn", title: "Filtering reuses saved flights. Press Search again to fetch fresh prices." }, `Flight data from ${ago(res.data_from)} · Search again to refresh`) : null)),
     h("div", { class: "actions" },
-      h("button", { class: "btn", type: "button", onclick: () => { writeForm(requestToForm(q)); onFormChange(); $("#step-1").open = true; $("#step-1").scrollIntoView({ behavior: "smooth", block: "start" }); } }, "Edit"),
+      h("button", { class: "btn", type: "button", onclick: () => { writeForm(requestToForm(q)); onFormChange(); showStep(1); } }, "Edit"),
       h("button", { class: "btn", type: "button", onclick: () => submitSearch(q) }, "Search again"))));
   res.warnings.forEach(w => box.append(h("div", { class: "note" }, w)));
   renderStepAirlines(res, q, cur, row);
@@ -1043,12 +1058,18 @@ async function init() {
   $("#add-kid").addEventListener("click", () => { if (kids.length < 8) { kids.push(5); renderKids(); onFormChange(); } });
   $("#new-search").addEventListener("click", () => {
     clearTimeout(pollTimer); current = null;
-    $("#results").replaceChildren(h("div", { class: "card empty-state" }, "Run a search on the left to see results here."));
+    $("#results").replaceChildren(h("div", { class: "card empty-state" }, "Fill in your trip above and hit \"Find flights\" to see results here."));
     writeForm({ ...defaults(), from: readForm().from });
-    $("#step-1").open = true; $("#step-1-summary").textContent = "";
-    $("#step-2").classList.remove("active"); $("#step-2-summary").textContent = ""; $("#step2-airlines").replaceChildren();
-    $("#step-3").classList.remove("active"); $("#step-3-summary").textContent = "Run a search to compare";
+    showStep(1); $("#step-1-summary").textContent = "";
+    $("#step-2-summary").textContent = ""; $("#step2-airlines").replaceChildren();
+    $("#step-3").classList.remove("ready"); $("#step-3-summary").textContent = "Run a search to compare";
     onFormChange(); closeSidebar(); window.scrollTo({ top: 0, behavior: "smooth" }); $("#to-in").focus(); refreshHistory();
+  });
+  $("#step-1").addEventListener("click", () => showStep(1));
+  $("#step-2").addEventListener("click", () => showStep(2));
+  $("#step-3").addEventListener("click", () => {
+    const picks = $(".picks");
+    if (picks) picks.scrollIntoView({ behavior: "smooth", block: "start" }); else toast("Run a search first.");
   });
   $("#form").addEventListener("submit", async e => {
     e.preventDefault();
