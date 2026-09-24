@@ -13,10 +13,29 @@
 </head>
 <body>
 <div class="app">
-  <aside class="sidebar" id="sidebar" aria-label="Past searches">
+  <aside class="sidebar" id="sidebar" aria-label="Search steps and past searches">
     <div class="brand side-brand"><span class="logo">✈</span><span>Skyhop</span></div>
     <button class="btn" id="new-search" type="button">＋ New search</button>
     <button class="btn open-builder" type="button">🧳 Trip builder · mix &amp; match</button>
+
+    <!-- Compact step nav: a short chip per step, not the form itself -- the form needs real
+         width, which the narrow rail can't give it. Clicking 1/2 opens that step's editor in the
+         main pane above the results; 3 has no editor, it jumps to the comparison. -->
+    <div class="steps" id="steps">
+      <button type="button" class="step-chip active" id="step-1" data-wizard-step="1">
+        <span class="step-num">1</span>
+        <span class="step-text"><span class="step-title">Trip</span><span class="step-summary" id="step-1-summary"></span></span>
+      </button>
+      <button type="button" class="step-chip" id="step-2" data-wizard-step="2">
+        <span class="step-num">2</span>
+        <span class="step-text"><span class="step-title">Airlines</span><span class="step-summary" id="step-2-summary"></span></span>
+      </button>
+      <button type="button" class="step-chip" id="step-3" data-wizard-step="3">
+        <span class="step-num">3</span>
+        <span class="step-text"><span class="step-title">Compare</span><span class="step-summary" id="step-3-summary">Run a search to compare</span></span>
+      </button>
+    </div>
+
     <div class="side-title">Past searches</div>
     <div class="hist" id="history"></div>
   </aside>
@@ -24,131 +43,138 @@
 
   <main>
     <div class="topbar">
-      <button class="btn icon-btn" id="menu" type="button" aria-label="Open past searches">☰</button>
+      <button class="btn icon-btn" id="menu" type="button" aria-label="Open search steps and past searches">☰</button>
       <div class="brand"><span class="logo">✈</span><span>Skyhop</span></div>
+      <span class="mode-badge" id="mode-badge" hidden></span>
       <button class="btn icon-btn theme-toggle" type="button" aria-label="Toggle dark mode">🌓</button>
     </div>
 
-    <section class="hero" style="display:flex;justify-content:space-between;gap:16px;align-items:flex-start">
-      <div>
-        <h1>Fly somewhere <span>for less.</span></h1>
-        <p>Pick a few cities and a flexible window. Skyhop checks every day, mixes airlines and finds the cheapest trip.</p>
-      </div>
-      <button class="btn icon-btn theme-toggle desk-only" type="button" aria-label="Toggle dark mode">🌓</button>
-    </section>
+    <div class="main-head desk-only">
+      <div><h1>Fly somewhere <span>for less.</span></h1>
+        <p>Fill in a few cities and a flexible window below. Skyhop checks every day, mixes airlines and finds the cheapest trip.</p></div>
+      <span class="mode-badge" id="mode-badge-desk" hidden></span>
+      <button class="btn icon-btn theme-toggle" type="button" aria-label="Toggle dark mode">🌓</button>
+    </div>
 
-    <form class="card search" id="form" autocomplete="off" novalidate>
-      <div class="row two">
-        <div class="field"><label for="from-in">From</label><div class="ac" id="ac-from"></div></div>
-        <div class="field"><label for="to-in">To <span class="hint">· add several to compare</span></label><div class="ac" id="ac-to"></div></div>
+    <div class="card step-panel" id="step-panel">
+      <div id="step1-panel">
+        <form class="search" id="form" autocomplete="off" novalidate>
+          <div class="row two">
+            <div class="field"><label for="from-in">From</label><div class="ac" id="ac-from"></div></div>
+            <div class="field"><label for="to-in">To <span class="hint">· add several to compare</span></label><div class="ac" id="ac-to"></div></div>
+          </div>
+
+          <div class="row dates">
+            <div class="field"><label for="start">Earliest departure</label><div class="input"><input type="date" id="start" required></div></div>
+            <div class="field"><label for="end">Latest return</label><div class="input"><input type="date" id="end" required></div></div>
+            <div class="field">
+              <div class="lbl-row"><span class="lbl">Trip length</span>
+                <div class="seg mini" role="radiogroup" aria-label="Count trip length in">
+                  <label><input type="radio" name="unit" value="nights" checked>Nights</label>
+                  <label><input type="radio" name="unit" value="days">Days</label>
+                </div></div>
+              <div class="nights">
+                <div class="stepper"><button type="button" data-step="-1" data-for="nmin" aria-label="Fewer minimum nights">−</button><input id="nmin" type="number" min="1" max="60" aria-label="Minimum nights"><button type="button" data-step="1" data-for="nmin" aria-label="More minimum nights">+</button></div>
+                <span class="to">to</span>
+                <div class="stepper"><button type="button" data-step="-1" data-for="nmax" aria-label="Fewer maximum nights">−</button><input id="nmax" type="number" min="1" max="60" aria-label="Maximum nights"><button type="button" data-step="1" data-for="nmax" aria-label="More maximum nights">+</button></div>
+              </div>
+              <span class="hint" id="nights-hint"></span>
+              <div class="presets">
+                <button type="button" class="pill" data-nights="2-3">Weekend</button>
+                <button type="button" class="pill" data-nights="4-7">Week</button>
+                <button type="button" class="pill" data-nights="10-14">Two weeks</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="row opts">
+            <div class="field">
+              <span class="lbl">Stops (each way)</span>
+              <div class="seg" role="radiogroup" aria-label="Stops">
+                <label><input type="radio" name="stops" value="0">Direct</label>
+                <label><input type="radio" name="stops" value="1" checked>Up to 1</label>
+                <label><input type="radio" name="stops" value="2">Up to 2</label>
+              </div>
+            </div>
+            <div class="field">
+              <span class="lbl">Currency</span>
+              <div class="seg" role="radiogroup" aria-label="Currency">
+                <label><input type="radio" name="currency" value="ILS" checked>₪ ILS</label>
+                <label><input type="radio" name="currency" value="USD">$ USD</label>
+                <label><input type="radio" name="currency" value="GBP">£ GBP</label>
+                <label><input type="radio" name="currency" value="EUR">€ EUR</label>
+              </div>
+              <label class="switch mini-sw" title="Show each price in the currency it was searched in, without converting"><input type="checkbox" id="orig-toggle"> Show original currency</label>
+            </div>
+            <div class="field"><label for="adults">Adults</label>
+              <div class="stepper"><button type="button" data-step="-1" data-for="adults" aria-label="Fewer travellers">−</button><input id="adults" type="number" min="1" max="9"><button type="button" data-step="1" data-for="adults" aria-label="More travellers">+</button></div></div>
+          </div>
+
+          <div class="field kids-field">
+            <label>Children <span class="hint">· add each child's age on the travel date</span></label>
+            <div class="kids-list" id="kids-list"></div>
+            <div class="kids-row"><button type="button" class="pill" id="add-kid">＋ Add a child</button><span class="hint" id="kids-note"></span></div>
+          </div>
+
+          <details class="more" id="more">
+            <summary>More options</summary>
+            <div class="more-grid">
+              <div class="field"><label for="back-in">Fly home from <span class="hint">· different airport (open-jaw)</span></label><div class="ac" id="ac-back"></div></div>
+              <div class="field"><label class="switch"><input type="checkbox" id="connect"> Also fly between my destinations</label><span class="hint">Paris → London style multi-stop trips</span></div>
+              <div class="field"><label class="switch"><input type="checkbox" id="same"> Same airline both ways</label><span class="hint">Off = mix airlines to save money</span></div>
+              <div class="field"><label class="switch"><input type="checkbox" id="st"> Allow separate tickets (self-transfer)</label>
+                <div class="ac" id="ac-hubs"></div><span class="hint">Hub airports, e.g. IST, ATH. You re-check bags there.</span></div>
+              <div class="field"><label for="buffer">Self-transfer buffer (hours)</label><div class="input"><input type="number" id="buffer" min="1" max="24" step="0.5"></div></div>
+              <div class="field"><label for="maxtravel">Max travel per direction (hours)</label><div class="input"><input type="number" id="maxtravel" min="1" max="60" placeholder="No limit"></div></div>
+              <div class="field"><label for="laymin">Layover between (hours)</label>
+                <div class="nights"><div class="input"><input type="number" id="laymin" min="0" step="0.5" aria-label="Minimum layover hours"></div><span class="to">to</span><div class="input"><input type="number" id="laymax" min="1" step="1" aria-label="Maximum layover hours"></div></div></div>
+              <div class="field"><label for="vot">Value of an hour of travel: <b id="vot-out"></b></label><input type="range" id="vot" min="0" max="200" step="1"><span class="hint">Higher = long trips ranked lower in "best value"</span></div>
+              <div class="field wide"><span class="lbl">Bags included in the price</span>
+                <div class="seg" role="radiogroup" aria-label="Bags included in the price">
+                  <label><input type="radio" name="bags" value="none" checked>None</label>
+                  <label><input type="radio" name="bags" value="cabin">Cabin bag</label>
+                  <label><input type="radio" name="bags" value="checked">Checked bag</label>
+                  <label><input type="radio" name="bags" value="both">Both</label>
+                </div>
+                <span class="hint">Google adds an estimated fee where it has one (mostly US and European airlines). For most Tel Aviv routes it has none, so prices stay the base fare.</span></div>
+
+              <div class="field"><label for="top">Top picks to show</label><div class="input"><input type="number" id="top" min="1" max="20"></div></div>
+              <div class="field"><label for="maxcalls">Max lookups per search</label><div class="input"><input type="number" id="maxcalls" min="1" max="5000"></div></div>
+            </div>
+          </details>
+        </form>
       </div>
 
-      <div class="row dates">
-        <div class="field"><label for="start">Earliest departure</label><div class="input"><input type="date" id="start" required></div></div>
-        <div class="field"><label for="end">Latest return</label><div class="input"><input type="date" id="end" required></div></div>
-        <div class="field">
-          <div class="lbl-row"><span class="lbl">Trip length</span>
-            <div class="seg mini" role="radiogroup" aria-label="Count trip length in">
-              <label><input type="radio" name="unit" value="nights" checked>Nights</label>
-              <label><input type="radio" name="unit" value="days">Days</label>
+      <div id="step2-panel" hidden>
+        <div class="row air" id="airline-controls">
+          <div class="field"><span class="lbl">Airlines</span>
+            <div class="seg seg-air" role="radiogroup" aria-label="Airline filter mode">
+              <label><input type="radio" name="airmode" value="exclude" checked form="form">Exclude</label>
+              <label><input type="radio" name="airmode" value="only" form="form">Only</label>
             </div></div>
-          <div class="nights">
-            <div class="stepper"><button type="button" data-step="-1" data-for="nmin" aria-label="Fewer minimum nights">−</button><input id="nmin" type="number" min="1" max="60" aria-label="Minimum nights"><button type="button" data-step="1" data-for="nmin" aria-label="More minimum nights">+</button></div>
-            <span class="to">to</span>
-            <div class="stepper"><button type="button" data-step="-1" data-for="nmax" aria-label="Fewer maximum nights">−</button><input id="nmax" type="number" min="1" max="60" aria-label="Maximum nights"><button type="button" data-step="1" data-for="nmax" aria-label="More maximum nights">+</button></div>
-          </div>
-          <span class="hint" id="nights-hint"></span>
-          <div class="presets">
-            <button type="button" class="pill" data-nights="2-3">Weekend</button>
-            <button type="button" class="pill" data-nights="4-7">Week</button>
-            <button type="button" class="pill" data-nights="10-14">Two weeks</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="row opts">
-        <div class="field">
-          <span class="lbl">Stops (each way)</span>
-          <div class="seg" role="radiogroup" aria-label="Stops">
-            <label><input type="radio" name="stops" value="0">Direct</label>
-            <label><input type="radio" name="stops" value="1" checked>Up to 1</label>
-            <label><input type="radio" name="stops" value="2">Up to 2</label>
-          </div>
-        </div>
-        <div class="field">
-          <span class="lbl">Currency</span>
-          <div class="seg" role="radiogroup" aria-label="Currency">
-            <label><input type="radio" name="currency" value="ILS" checked>₪ ILS</label>
-            <label><input type="radio" name="currency" value="USD">$ USD</label>
-            <label><input type="radio" name="currency" value="GBP">£ GBP</label>
-            <label><input type="radio" name="currency" value="EUR">€ EUR</label>
-          </div>
-          <label class="switch mini-sw" title="Show each price in the currency it was searched in, without converting"><input type="checkbox" id="orig-toggle"> Show original currency</label>
-        </div>
-        <div class="field"><label for="adults">Adults</label>
-          <div class="stepper"><button type="button" data-step="-1" data-for="adults" aria-label="Fewer travellers">−</button><input id="adults" type="number" min="1" max="9"><button type="button" data-step="1" data-for="adults" aria-label="More travellers">+</button></div></div>
-      </div>
-
-      <div class="field kids-field">
-        <label>Children <span class="hint">· add each child's age on the travel date</span></label>
-        <div class="kids-list" id="kids-list"></div>
-        <div class="kids-row"><button type="button" class="pill" id="add-kid">＋ Add a child</button><span class="hint" id="kids-note"></span></div>
-      </div>
-
-      <div class="field air-field">
-        <span class="lbl">Airlines</span>
-        <div class="air-row">
-          <div class="seg seg-air" role="radiogroup" aria-label="Airline filter mode">
-            <label><input type="radio" name="airmode" value="exclude" checked>Exclude</label>
-            <label><input type="radio" name="airmode" value="only">Only</label>
-          </div>
           <label for="air-in" class="sr-only">Airlines to exclude or allow</label>
           <div class="ac" id="ac-air"></div>
+          <span class="hint">Type a name or code (Ryanair, FR) and pick from the list. After a search, the airlines actually found on this route show below, with their cheapest fare.</span>
         </div>
-        <span class="hint">Type a name or code (Ryanair, FR) and pick from the list. After a search, filter by the airlines found right under the results header.</span>
+        <div id="step2-airlines"></div>
       </div>
-
-      <details class="more" id="more">
-        <summary>More options</summary>
-        <div class="more-grid">
-          <div class="field"><label for="back-in">Fly home from <span class="hint">· different airport (open-jaw)</span></label><div class="ac" id="ac-back"></div></div>
-          <div class="field"><label class="switch"><input type="checkbox" id="connect"> Also fly between my destinations</label><span class="hint">Paris → London style multi-stop trips</span></div>
-          <div class="field"><label class="switch"><input type="checkbox" id="same"> Same airline both ways</label><span class="hint">Off = mix airlines to save money</span></div>
-          <div class="field"><label class="switch"><input type="checkbox" id="st"> Allow separate tickets (self-transfer)</label>
-            <div class="ac" id="ac-hubs"></div><span class="hint">Hub airports, e.g. IST, ATH. You re-check bags there.</span></div>
-          <div class="field"><label for="buffer">Self-transfer buffer (hours)</label><div class="input"><input type="number" id="buffer" min="1" max="24" step="0.5"></div></div>
-          <div class="field"><label for="maxtravel">Max travel per direction (hours)</label><div class="input"><input type="number" id="maxtravel" min="1" max="60" placeholder="No limit"></div></div>
-          <div class="field"><label for="laymin">Layover between (hours)</label>
-            <div class="nights"><div class="input"><input type="number" id="laymin" min="0" step="0.5" aria-label="Minimum layover hours"></div><span class="to">to</span><div class="input"><input type="number" id="laymax" min="1" step="1" aria-label="Maximum layover hours"></div></div></div>
-          <div class="field"><label for="vot">Value of an hour of travel: <b id="vot-out"></b></label><input type="range" id="vot" min="0" max="200" step="1"><span class="hint">Higher = long trips ranked lower in "best value"</span></div>
-          <div class="field wide"><span class="lbl">Bags included in the price</span>
-            <div class="seg" role="radiogroup" aria-label="Bags included in the price">
-              <label><input type="radio" name="bags" value="none" checked>None</label>
-              <label><input type="radio" name="bags" value="cabin">Cabin bag</label>
-              <label><input type="radio" name="bags" value="checked">Checked bag</label>
-              <label><input type="radio" name="bags" value="both">Both</label>
-            </div>
-            <span class="hint">Google adds an estimated fee where it has one (mostly US and European airlines). For most Tel Aviv routes it has none, so prices stay the base fare.</span></div>
-
-          <div class="field"><label for="top">Top picks to show</label><div class="input"><input type="number" id="top" min="1" max="20"></div></div>
-          <div class="field"><label for="maxcalls">Max lookups per search</label><div class="input"><input type="number" id="maxcalls" min="1" max="5000"></div></div>
-        </div>
-      </details>
 
       <div class="active-filters" id="active-filters" hidden aria-label="Active filters"></div>
       <div class="form-error" id="form-error" hidden></div>
       <div class="submit-row">
         <div class="estimate idle" id="estimate"><span class="dot"></span><span id="estimate-text">Pick where you're going</span></div>
-        <button class="btn primary" id="go" type="submit">Find flights →</button>
+        <button class="btn primary" id="go" type="submit" form="form">Find flights →</button>
       </div>
-    </form>
+    </div>
 
     <details class="card panel finder" id="finder">
       <summary>✈ Which airlines fly to…? <span class="hint">Find airlines by country</span></summary>
       <div id="finder-body"><p class="hint">Loading…</p></div>
     </details>
 
-    <section id="results" aria-live="polite"></section>
+    <section id="results" aria-live="polite">
+      <div class="card empty-state" id="empty-state">Fill in your trip above and hit "Find flights" to see results here.</div>
+    </section>
   </main>
 </div>
 <div class="tooltip" id="tooltip" hidden></div>

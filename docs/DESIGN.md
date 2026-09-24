@@ -193,7 +193,75 @@ served each lookup.
   `pip install torch --index-url https://download.pytorch.org/whl/cu126` then `pip install laya`.
 - Not used for browsing to airline sites directly (fetching real fares/baggage from the carrier's own site) --
   that would need actual browser automation (Playwright or similar) per airline, which is a separate, larger
-  piece of work than this diagnostic classifier.
+  piece of work than this diagnostic classifier. See below.
+
+### Airline-site verification (El Al) -- backend built, currently blocked
+
+- `providers/elal_verify.py`: Playwright script that searches El Al's own site for a specific
+  route/date and reads the real per-fare-tier price and baggage text (not Google's estimate).
+  On-demand only (never part of a normal search); real selectors captured against the live site
+  2026-09-23, documented as fragile in the module docstring (no `data-testid` anywhere on the
+  site -- everything is a CSS class name or text match).
+- **Blocked in practice**: El Al runs a dedicated third-party anti-bot vendor (seen in its network
+  requests: `securitytrfx.com`, posting to a `.../blob/farenet/...` endpoint) that silently
+  doesn't render the search widget for an automated browser. Basic fingerprint masking
+  (`navigator.webdriver`, UA string -- confirmed with the user before trying, see chat history)
+  did **not** get past it. Going further (canvas/WebGL fingerprint spoofing, synthetic input
+  timing, etc.) would mean actively engineering to defeat a commercial bot-detection product,
+  which this project does not do. Calling the module today mostly returns `status="blocked"`.
+- **What does work**: a real, extension-driven browser tab is not caught by the same detection
+  (confirmed live -- see `browser-extension/`). That's the shipped path for "land on this exact
+  flight so I can buy it"; the Playwright module stays as a second, currently-blocked attempt at
+  a backend-only version, kept in case El Al's detection changes or a verifier provider (§5) is
+  wanted later.
+
+### Browser extension (`browser-extension/`) -- built and verified end-to-end
+
+Lets a flight row in the web UI open a new tab on the airline's own site with that flight
+searched and selected, for the person to finish booking themselves -- no payment or passenger
+data ever touches this app. Architecture: a content script (`content-bridge.js`) marks the page
+and relays a custom DOM event to a background service worker, which opens a tab and injects a
+per-airline driver script (`drivers/elal.js`, plain DOM automation, same selectors as
+`elal_verify.py`). Optional: `EXTENSION_DRIVERS` in `app.js` gates the button so it simply
+doesn't render without the extension installed. See `browser-extension/README.md` for load/test
+instructions. Only El Al wired up.
+- **Fixed after first real test**: the background service worker's message listener used to
+  `await` the entire tab-load + script-injection sequence before calling `sendResponse` -- MV3
+  service workers can be killed mid-wait before that ever happens, surfacing as "message channel
+  closed before a response was received" and the tab silently never opening. Fix: respond
+  immediately on receipt, let the automation continue independently (the new tab's own status
+  banner reports progress/errors directly, nothing needs to wait on the background script).
+- Chrome's newer per-site permission model defaults a fresh unpacked extension's host permissions
+  to **off** until granted in `chrome://extensions` -> the extension card -> "Site access" --
+  declarative `content_scripts` (the Skyhop-page marker) are auto-granted, but `chrome.scripting
+  .executeScript` (the actual driver injection into the airline's tab) is not. Toggle on
+  `https://www.elal.com/*` and `https://booking.elal.com/*` there if a fresh install doesn't work.
+
+### Rail/pane redesign (Sept 2026)
+
+The UI was restructured from one long single-column page (full search form on top, every result
+section stacked below it) into a master/pane layout: a left rail with three numbered, genuinely
+sequential steps -- **1 Trip** (the search form, auto-collapses to a summary once a search runs),
+**2 Airlines** (the exclude/only filter, plus the real per-airline list once a search has told us
+which airlines exist on the route), **3 Compare** (a live summary, not a form) -- and a right pane
+for results, now at a wider `main` max-width since the form no longer duplicates there. Rationale
+and full design notes: see the approved plan this was built from (steps, token decisions, what
+was deliberately reused vs. new).
+- **Per-route "cheapest"**: `res.daily`/`DailyBest` collapses every destination searched into one
+  global winner per calendar day (`engine.py::_daily()`, unchanged) -- a real bug behind "cheap
+  should be per route, not just cheap". Frontend fix (no backend change): `routePicks()` in
+  `app.js` groups `res.top` (already flat, already carries `.destination`) by destination for a
+  "Cheapest by route" strip, with `top_n` bumped when multiple destinations are searched. Measured
+  real limitation, not a bug: if one destination is cheaper than the others on *every single day*
+  in the window, no client-side `top_n` fixes that -- the strip shows an honest explanation instead
+  of silently disappearing or showing a misleading single-destination "comparison". Properly fixing
+  this needs `_daily()` to group by `(depart_date, destination)`, deferred as a fast-follow.
+- **Mix & Match's airline filter unified**: it used to have its own independent, unsynced local
+  hide-list (`mix.js`'s old `S.filters.hidden`) alongside the real shared filter -- removed. Found
+  and fixed a second, deeper bug while verifying this: `S.q`/`S.row` (and therefore the flight-list
+  cache key `lkl()`) only refreshed when the selected *day* changed, not when the shared filter
+  changed on the same day -- so Mix & Match could show flights fetched under a stale filter. Fixed
+  by refreshing `S.q`/`S.row` on every render and folding the filter's signature into `lkl()`.
 
 ### Current providers
 | Name | Source | Cost | Notes |

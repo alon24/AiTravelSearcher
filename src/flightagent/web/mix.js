@@ -3,11 +3,18 @@
    any outbound with any return. Lists come from /api/searches/{id}/flights (the cache the search filled), bag-fee
    estimates from /api/searches/{id}/bagfees (only where Google has fee data). Helpers come from app.js. */
 const MixMatch = (() => {
-  let S = { key: "", showAll: false, filters: { sort: "price", nonstop: false, hidden: new Set() } };
+  // Airline filtering here is the ONE shared filter (rail Step 2 in index.html), same as everywhere
+  // else in the app -- no separate local hide-list. S.showAll is the one deliberate, clearly-labeled
+  // escape hatch (peek at what the filter is hiding), not a second filter system.
+  let S = { key: "", showAll: false, filters: { sort: "price", nonstop: false } };
   const labelOf = f => f.segments.map(s => `${s.airline_code}${s.flight_number}`).join("+");
   const sameFlight = (a, b) => a && b && labelOf(a) === labelOf(b) && a.segments[0].departs === b.segments[0].departs;
   const lk = (o, d, date) => `${o}>${d}|${date}`;
-  const lkl = (o, d, date) => lk(o, d, date) + (S.showAll ? "|all" : "");     // lists differ with and without the airline filter
+  // Lists differ with/without the showAll bypass AND with the shared airline filter itself (Step 2
+  // in the rail) -- include its signature so a filter change (same day, no key change) invalidates
+  // the cache instead of silently showing flights fetched under the previous filter.
+  const filterSig = q => (q ? `${(q.airlines_include || []).join(",")}>${(q.airlines_exclude || []).join(",")}` : "");
+  const lkl = (o, d, date) => lk(o, d, date) + (S.showAll ? "|all" : "") + "|" + filterSig(S.q);
 
   function route(trip) {
     if (trip.kind === "open_jaw") { const [a, b] = trip.destination.split("→"); return { dest: a, back: b }; }
@@ -23,7 +30,10 @@ const MixMatch = (() => {
       const r = route(trip);
       S = { ...S, key, row, q, dest: r.dest, back: r.back, retDate: trip.return_date, out: null, ret: null, lists: {}, fees: {}, check: null, pre: trip };
     }
-    S.ctx = ctx; S.cur = q.currency;
+    // row/q refresh on every render, not just when the day changes -- the shared airline filter
+    // (rail Step 2) can change without the selected day changing, and S.row/S.q must reflect that
+    // immediately (lkl() above already invalidates the affected list cache entries).
+    S.row = row; S.q = q; S.ctx = ctx; S.cur = q.currency;
     draw(host);
   }
 
@@ -48,7 +58,7 @@ const MixMatch = (() => {
 
   function visible(list) {
     const f = S.filters, sort = { price: x => (x.priced === false ? Infinity : x.price), time: x => x.duration_min, early: x => legEnds(x).dep.getTime() }[f.sort];
-    return list.flights.filter(x => (!f.nonstop || x.stops === 0) && !x.airlines.some(a => f.hidden.has(a))).sort((a, b) => sort(a) - sort(b));
+    return list.flights.filter(x => !f.nonstop || x.stops === 0).sort((a, b) => sort(a) - sort(b));
   }
 
   function bagChips(f, fees) {
@@ -67,13 +77,21 @@ const MixMatch = (() => {
 
   function row(f, cur, picked, onPick, fees) {
     const e = legEnds(f), sh = dayShift(e.dep, e.arr), names = [...new Set(f.segments.map(s => s.airline || s.airline_code))];
-    return h("button", { type: "button", class: "mm-row" + (picked ? " picked" : ""), "aria-pressed": String(!!picked), onclick: onPick },
+    // Auto-select on the airline's own site (browser-extension/): TLV-origin only for now. The row
+    // itself needs to stay clickable for "pick this flight", so this is a real nested <button> --
+    // that means the row can no longer be a <button> itself (invalid HTML), hence role="button" below.
+    const autoSeg = extensionAvailable() ? f.segments.find(sg => sg.origin === "TLV" && EXTENSION_DRIVERS.has(sg.airline_code)) : null;
+    return h("div", { class: "mm-row" + (picked ? " picked" : ""), role: "button", tabindex: "0", "aria-pressed": String(!!picked),
+        onclick: onPick, onkeydown: ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); onPick(); } } },
       h("div", { class: "mm-times" }, h("b", {}, fmtTime(e.dep)), h("span", { class: "ap" }, e.from), h("span", { class: "arrow" }, "→"), h("b", {}, fmtTime(e.arr), sh > 0 ? h("sup", {}, `+${sh}`) : null), h("span", { class: "ap" }, e.to)),
       h("div", { class: "mm-meta" }, h("span", { class: "mm-air" }, names.join(" · ")), h("span", { class: "mm-code" }, f.segments.map(s => `${s.airline_code}${s.flight_number}`).join(" + ")),
         h("span", {}, `${hm(f.duration_min)} · ${f.stops === 0 ? "direct" : plural(f.stops, "stop")}`),
         f.layovers_min.length ? h("span", { class: "badge ok" }, f.layovers_min.map((m, i) => `${hm(m)} in ${f.segments[i].destination}`).join(", ")) : null),
       h("div", { class: "mm-bags" }, bagChips(f, fees)),
-      h("div", { class: "mm-price" }, f.priced === false ? h("span", { class: "np" }, "No price shown") : [money(f.price, cur), origNote(f.price, cur, "orig block")]));
+      h("div", { class: "mm-price" }, f.priced === false ? h("span", { class: "np" }, "No price shown") : [money(f.price, cur), origNote(f.price, cur, "orig block")]),
+      autoSeg ? h("button", { type: "button", class: "btn small accent mm-auto", title: "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
+        onclick: ev => { ev.stopPropagation(); selectOnAirlineSite(autoSeg.airline_code, autoSeg.destination, autoSeg.departs.slice(0, 10), `${autoSeg.airline_code}${autoSeg.flight_number}`); } },
+        `✈ Select ${autoSeg.airline_code}${autoSeg.flight_number} on site ↗`) : null);
   }
 
   function column(host, title, o, d, date, kind) {
@@ -125,7 +143,6 @@ const MixMatch = (() => {
     if (!retDates.includes(S.retDate)) retDates.push(S.retDate);
     retDates.sort();
     const select = (opts, value, onChange, label) => h("select", { class: "input mini", "aria-label": label, onchange: e => onChange(e.target.value) }, opts.map(([v, t]) => h("option", { value: v, selected: v === value }, t)));
-    const allAirlines = new Map(); Object.values(S.lists).forEach(l => (l.flights || []).forEach(f => f.segments.forEach(s => allAirlines.set(s.airline_code, s.airline || s.airline_code))));
     const F = S.filters;
     const controls = h("div", { class: "mm-controls" },
       q.destinations.length > 1 ? h("label", {}, "Fly out to ", select(q.destinations.map(d => [d, d]), S.dest, v => { S.dest = v; S.out = null; S.check = null; draw(host); }, "Destination")) : null,
@@ -134,15 +151,16 @@ const MixMatch = (() => {
       h("label", {}, "Return day ", select(retDates.map(d => [d, `${fmtDay(day(d))} · ${tripLen(Math.round((day(d) - day(outDate)) / 864e5))}`]), S.retDate, v => { S.retDate = v; S.ret = null; S.check = null; draw(host); }, "Return day")));
     const filters = h("div", { class: "mm-filters" },
       select([["price", "Cheapest first"], ["time", "Fastest first"], ["early", "Earliest first"]], F.sort, v => { F.sort = v; draw(host); }, "Sort"),
-      h("label", { class: "switch mini-sw" }, h("input", { type: "checkbox", checked: F.nonstop, onchange: e => { F.nonstop = e.target.checked; draw(host); } }), "Nonstop only"),
-      h("div", { class: "tb-air" }, [...allAirlines].map(([code, name]) => h("button", { type: "button", class: "pill" + (F.hidden.has(code) ? " off" : ""), "aria-pressed": String(!F.hidden.has(code)),
-        title: F.hidden.has(code) ? "Hidden: click to show" : "Click to hide this airline", onclick: () => { F.hidden.has(code) ? F.hidden.delete(code) : F.hidden.add(code); draw(host); } }, name))));
+      h("label", { class: "switch mini-sw" }, h("input", { type: "checkbox", checked: F.nonstop, onchange: e => { F.nonstop = e.target.checked; draw(host); } }), "Nonstop only"));
     const cols = h("div", { class: "mm-cols" }, column(host, "Outbound", q.origin, S.dest, outDate, "out"), column(host, "Return", S.back, q.origin, S.retDate, "ret"));
     const inc = q.airlines_include || [], exc = q.airlines_exclude || [], nameOf = c => (config.airlines || {})[c] || c;
     const hidden = [lkl(q.origin, S.dest, outDate), lkl(S.back, q.origin, S.retDate)].reduce((n, k) => n + ((S.lists[k] || {}).hidden_by_filter || 0), 0);
+    // The one deliberate escape hatch from the shared filter (rail Step 2) -- a real .switch, not
+    // a pill that could be mistaken for a second filter control.
     const banner = inc.length || exc.length ? h("div", { class: "note af-banner" },
-      S.showAll ? "Showing every airline, including ones your filter removes from the results above. " : `Airline filter on (${inc.length ? "only " + inc.map(nameOf).join(", ") : "excluding " + exc.map(nameOf).join(", ")}). ${hidden ? `${plural(hidden, "flight")} from other airlines ${hidden === 1 ? "is" : "are"} hidden here.` : "Nothing is hidden on these days."} `,
-      h("button", { type: "button", class: "btn small", onclick: () => { S.showAll = !S.showAll; draw(host); } }, S.showAll ? "Apply the filter" : "Show all airlines")) : null;
+      h("label", { class: "switch mini-sw" }, h("input", { type: "checkbox", checked: S.showAll, onchange: e => { S.showAll = e.target.checked; draw(host); } }), "Ignore my airline filter for this comparison"),
+      S.showAll ? " Showing every airline, including ones your filter removes from the results above."
+        : ` Airline filter on (${inc.length ? "only " + inc.map(nameOf).join(", ") : "excluding " + exc.map(nameOf).join(", ")}, set in Step 2 on the left). ${hidden ? `${plural(hidden, "flight")} from other airlines ${hidden === 1 ? "is" : "are"} hidden here.` : "Nothing is hidden on these days."}`) : null;
     host.replaceChildren(...[banner, controls, filters, cols, summary(host)].filter(Boolean));
   }
   return { render };

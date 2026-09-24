@@ -209,7 +209,13 @@ function toRequest(f) {
     self_transfer_buffer_min: Math.round(f.buffer * 60), adults: f.adults, children_ages: f.kids, currency: f.currency,
     airlines_exclude: f.airmode === "exclude" ? f.airlines : [], airlines_include: f.airmode === "only" ? f.airlines : [],
     carry_on_bags: f.bags === "cabin" || f.bags === "both" ? 1 : 0, checked_bags: f.bags === "checked" || f.bags === "both" ? 1 : 0,
-    value_of_time_per_hour: f.vot, self_transfer_penalty: PENALTY[f.currency] ?? 40, top_n: f.top, max_api_calls: f.maxcalls,
+    value_of_time_per_hour: f.vot, self_transfer_penalty: PENALTY[f.currency] ?? 40,
+    // With several destinations, the flat top_n list needs enough headroom that "cheapest by
+    // route" (grouped client-side from res.top, see routePicks()) has a real shot at surfacing
+    // every destination, not just whichever ones happen to dominate the top of one global list.
+    // Measured limit of this approach: if one destination is cheaper on every single day in the
+    // window, no top_n is enough -- that needs the deferred backend _daily() fix (see DESIGN.md).
+    top_n: Math.max(f.top, Math.min(30, f.to.length * 8)), max_api_calls: f.maxcalls,
   } };
 }
 function requestToForm(q) {
@@ -387,11 +393,101 @@ async function openSearch(id, opts = {}) {
   if (current !== id) return;
   if (opts.fillForm) { writeForm(requestToForm(row.request)); store.set("skyhop.form", readForm()); runEstimate(); }
   refreshHistory();
+  syncStep1Summary(row);
   if (row.status === "running") { renderProgress(row); pollTimer = setTimeout(() => openSearch(id), 900); return; }
   renderResult(row);
 }
+// Step nav: the rail chips are just navigation, the actual editable content (the form, the
+// airline picker) lives in #step-panel in the main pane where it has real width. Step 3 has no
+// editable content -- clicking it jumps to the comparison instead of opening the panel.
+function showStep(n) {
+  $$(".step-chip").forEach(c => c.classList.toggle("active", c.dataset.wizardStep === String(n)));
+  $("#step-panel").hidden = false;
+  $("#step1-panel").hidden = n !== 1;
+  $("#step2-panel").hidden = n !== 2;
+  $("#step-panel").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+function hideStepPanel() {
+  $("#step-panel").hidden = true;
+  $$(".step-chip").forEach(c => c.classList.remove("active"));
+}
+// Step 1 (Trip) auto-collapses to a one-line summary once a search is running/done -- click it
+// to reopen and edit. The step is genuinely finished with its job at that point; this isn't
+// decorative collapsing, it's getting the form out of the way so results are visible immediately.
+function syncStep1Summary(row) {
+  const q = row.request, nights = lenRange(q.min_nights, q.max_nights);
+  $("#step-1-summary").textContent = `${q.origin} → ${q.destinations.join(", ")} · ${nights}`;
+  hideStepPanel();
+}
 
 // ------------------------------------------------------------------ results
+// Rail Step 2 (Airlines): the real per-airline list only exists once a search has told us which
+// airlines fly this route, so it renders here -- not before a search runs.
+function renderStepAirlines(res, q, cur, row) {
+  const host = $("#step2-airlines");
+  host.replaceChildren();
+  const bar = airlineBar(res, q, row);
+  const panel = airlinePanel(res, q, cur, row);
+  if (bar) host.append(bar);
+  if (panel) host.append(panel);
+  const include = q.airlines_include || [], exclude = q.airlines_exclude || [];
+  const nameOf2 = c => (config.airlines || {})[c] || c;
+  $("#step-2-summary").textContent = include.length ? `Only: ${include.map(nameOf2).join(", ")}`
+    : exclude.length ? `Excluding: ${exclude.map(nameOf2).join(", ")}`
+    : (res.airlines || []).length ? `${res.airlines.length} airlines found` : "";
+}
+
+// Rail Step 3 (Compare): a live summary, not a form -- there's nothing to show until Steps 1-2
+// have produced results.
+function activateStep3(res, q, cur) {
+  // .ready (results exist, worth clicking), not .active (that class means "this chip's content
+  // is the one currently open" -- Step 3 has no openable content, so it never gets .active).
+  $("#step-3").classList.add("ready");
+  const cheapest = (res.top || [])[0];
+  // Destination count is q.destinations.length (what was actually searched), NOT derived from
+  // res.top -- that list can be entirely one destination when it dominates on price (see
+  // routePicks()), which would otherwise make this say "1 destination" even when 2+ were searched.
+  $("#step-3-summary").textContent = cheapest
+    ? `from ${money(cheapest.price, cur)} · ${plural(q.destinations.length, "destination")} compared` : "";
+}
+
+// "Cheapest by route": res.top is a flat, globally-sorted list, but each Trip carries its own
+// destination -- group it client-side to show what EVERY searched destination costs, not just
+// whichever one dominates the global top-N (see toRequest()'s top_n bump for why this needs
+// enough headroom). Deliberately separate from the existing global Cheapest/Best value picks,
+// not a replacement for them -- those answer "what's the single best trip", this answers
+// "what does each place I searched actually cost".
+function routePicks(res, cur, paxN, searchedCount) {
+  const top = res.top || [];
+  const dests = new Set(top.map(t => t.destination));
+  if (searchedCount < 2) return null; // only one destination was searched -- nothing to compare
+  if (dests.size < 2) {
+    // Measured, real limitation (not a bug): when one destination is cheaper than the others on
+    // every single day in the window, the flat top-N list can end up entirely one destination --
+    // no client-side top_n bump fixes that. Say so rather than silently showing nothing.
+    return h("div", { class: "note" }, `Every one of the top ${top.length} trips found happened to be ${[...dests][0] || "the same destination"} -- the other destinations weren't competitive enough on price to make this list. Narrow the dates or check them individually to compare properly.`);
+  }
+  const byDest = new Map();
+  for (const t of top) if (!byDest.has(t.destination) || t.price < byDest.get(t.destination).price) byDest.set(t.destination, t);
+  const detail = h("div", { class: "pick-detail", hidden: true, "aria-live": "polite" });
+  let openDest = null;
+  const cards = [...byDest.entries()].sort((a, b) => a[1].price - b[1].price).map(([dest, t]) => {
+    const btn = h("button", { type: "button", class: "pick compact", "aria-expanded": "false", onclick: () => {
+      openDest = openDest === dest ? null : dest;
+      cards.forEach(b => b.setAttribute("aria-expanded", String(b === btn && openDest === dest)));
+      detail.hidden = !openDest;
+      detail.replaceChildren(...(openDest ? [tripCard(t, cur, paxN)] : []));
+      if (openDest) detail.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    } },
+      h("span", { class: "k" }, dest), h("span", { class: "v" }, money(t.price, cur)), origNote(t.price, cur),
+      h("span", { class: "s" }, `${fmtDay(day(t.depart_date))} · ${t.stops === 0 ? "direct" : plural(t.stops, "stop")}`));
+    return btn;
+  });
+  return h("div", { class: "route-picks-wrap" },
+    h("div", { class: "af-label" }, byDest.size < dests.size ? `Cheapest by route (${byDest.size} of ${dests.size} destinations shown)` : "Cheapest by route"),
+    h("div", { class: "route-picks" }, cards), detail);
+}
+
 function renderProgress(row) {
   const { done, total } = row.progress, q = row.request;
   const fill = h("div", { class: "bar-fill" + (total ? "" : " indet"), style: total ? `width:${Math.max(4, Math.round(100 * done / total))}%` : null });
@@ -428,26 +524,24 @@ function renderResult(row, opts = {}) {
         h("span", { class: "badge run" }, `${res.elapsed_s}s`), h("span", {}, ago(row.created)),
         res.data_from && Date.now() / 1000 - res.data_from > 1800 ? h("span", { class: "badge warn", title: "Filtering reuses saved flights. Press Search again to fetch fresh prices." }, `Flight data from ${ago(res.data_from)} · Search again to refresh`) : null)),
     h("div", { class: "actions" },
-      h("button", { class: "btn", type: "button", onclick: () => { writeForm(requestToForm(q)); onFormChange(); window.scrollTo({ top: 0, behavior: "smooth" }); } }, "Edit"),
+      h("button", { class: "btn", type: "button", onclick: () => { writeForm(requestToForm(q)); onFormChange(); showStep(1); } }, "Edit"),
       h("button", { class: "btn", type: "button", onclick: () => submitSearch(q) }, "Search again"))));
   res.warnings.forEach(w => box.append(h("div", { class: "note" }, w)));
+  renderStepAirlines(res, q, cur, row);
+  activateStep3(res, q, cur);
   if (!daily.length) {
     // Keep everything needed to change the filter: an airline filter that leaves no trips must not make the controls vanish.
     const filtered = (q.airlines_include || []).length || (q.airlines_exclude || []).length;
     const rest = [
-      airlineBar(res, q, row),
       h("div", { class: "note" }, filtered
-        ? "No trips match this airline filter. That airline may fly only one direction on these dates, or its flights may have no price (those are listed but never ranked). Every airline found is listed below: change the filter to continue."
+        ? "No trips match this airline filter. That airline may fly only one direction on these dates, or its flights may have no price (those are listed but never ranked). Change the filter in Step 2 on the left to continue."
         : "No trips matched. Try more stops, a wider window or a longer layover limit."),
       filtered ? h("div", { class: "actions" }, h("button", { type: "button", class: "btn", onclick: () => applyAirlineFilter(row, [], []) }, "Remove the airline filter")) : null,
-      airlinePanel(res, q, cur, row), unpricedPanel(res, row)].filter(Boolean);
+      unpricedPanel(res, row)].filter(Boolean);
     box.append(...rest);
     if ((res.unpriced || []).length) watchRecheck(row);
     return;
   }
-
-  const bar = airlineBar(res, q, row);
-  if (bar) box.append(bar);
 
   // ---- derived picks
   const byDay = new Map(daily.map(d => [d.depart_date, d]));
@@ -477,6 +571,8 @@ function renderResult(row, opts = {}) {
     h("span", { class: "s" }, `${tripLen(p.t.nights)} · ${p.t.stops === 0 ? "direct" : plural(p.t.stops, "stop")} · ${hm(p.t.total_travel_min)} in transit`),
     h("span", { class: "more" }, h("span", { class: "chev", "aria-hidden": "true" }, "▾"), h("span", { class: "more-t" }, "Flight details"))));
   box.append(h("div", { class: "picks" }, pickBtns, direct ? null : h("div", { class: "pick static" }, h("span", { class: "k" }, "Direct flights"), h("span", { class: "v" }, "None"), h("span", { class: "s" }, "No nonstop trips in this window."))), pickDetail);
+  const routePicksEl = routePicks(res, cur, paxCount(q), q.destinations.length);
+  if (routePicksEl) box.append(routePicksEl);
   function syncPicks() {
     pickBtns.forEach(b => {
       const open = view.pickOpen === b.dataset.pick;
@@ -495,8 +591,6 @@ function renderResult(row, opts = {}) {
     if (view.pickOpen) pickDetail.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }
 
-  const airPanel = airlinePanel(res, q, cur, row);
-  if (airPanel) box.append(airPanel);
   const unpricedPanelEl = unpricedPanel(res, row);
   if (unpricedPanelEl) { box.append(unpricedPanelEl); watchRecheck(row); }
 
@@ -800,6 +894,32 @@ function watchRecheck(row) {
   }, Math.min(wait, 20 * 60000));
 }
 
+// Browser-extension bridge (browser-extension/): lets a flight row trigger "search + select
+// this exact flight" on the airline's own site, in the user's real browser (not our backend --
+// server-side automation is blocked by El Al's bot detection, see docs/DESIGN.md). Optional:
+// with no extension installed, buttons using this just don't render, no broken links.
+const EXTENSION_DRIVERS = new Set(["LY"]); // keep in sync with browser-extension/background.js's DRIVERS
+const extensionAvailable = () => document.documentElement.dataset.skyhopExtension === "1";
+function selectOnAirlineSite(airline_code, destination, dateISO, flightNumber) {
+  window.dispatchEvent(new CustomEvent("skyhop-select-flight", {
+    detail: { airline: airline_code, destination, day: dateISO, flightNumber },
+  }));
+  toast(`Opening ${airline_code} — searching for ${flightNumber || "that flight"}…`);
+  // An orphaned content script (extension reloaded, page not) never answers at all.
+  extReplyTimer = setTimeout(() => toast("The extension didn't respond — refresh this page (F5) and try again"), 2500);
+}
+let extReplyTimer;
+window.addEventListener("skyhop-progress", (e) => {
+  clearTimeout(extReplyTimer);
+  const { stage, text } = e.detail || {};
+  toast(`Assist ${stage === "ERR" ? "failed" : `step ${stage}`}: ${text}`);
+});
+window.addEventListener("skyhop-select-flight-result", (e) => {
+  clearTimeout(extReplyTimer);
+  const r = e.detail || {};
+  if (!r.ok) toast(`Couldn't open the airline site automatically: ${r.error || "unknown error"}`);
+});
+
 function unpricedPanel(res, row) {
   const list = res.unpriced || [];
   if (!list.length) return null;
@@ -823,6 +943,9 @@ function unpricedPanel(res, row) {
       h("span", { class: "unp-air" }, h("b", {}, u.flights), ` ${u.airline}`, u.stops ? ` · ${plural(u.stops, "stop")}` : " · nonstop",
         u.last_price != null ? h("span", { class: "badge warn", title: "Google showed this fare earlier and has since dropped it, so it may be out of date" }, `last seen ${money(u.last_price, row.request.currency)}, ${ago(u.last_seen)}`) : null),
       h("span", { class: "actions" },
+        (extensionAvailable() && EXTENSION_DRIVERS.has(u.airline_code)) ?
+          h("button", { type: "button", class: "btn small accent", title: "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
+            onclick: () => selectOnAirlineSite(u.airline_code, u.destination, u.date, u.flights) }, `✈ Select on ${u.airline} site ↗`) : null,
         h("a", { class: "btn small", target: "_blank", rel: "noopener noreferrer", title: config.airline_sites[u.airline_code] ? "Open the airline's own site to see the fare" : "We have no link for this airline: search for it",
           href: config.airline_sites[u.airline_code] || `https://www.google.com/search?q=${encodeURIComponent(`${u.airline} ${u.flights} ${u.origin} ${u.destination} ${u.date} book`)}` }, config.airline_sites[u.airline_code] ? `${u.airline} site ↗` : "Find on Google ↗"),
         h("button", { type: "button", class: "btn small", onclick: () => Builder.browse(u.origin, u.destination, u.date) }, "All flights that day"),
@@ -866,14 +989,28 @@ function legCard(leg, title, cur) {
   });
   const links = leg.deep_links.map((u, i) => h("a", { class: "btn small", href: u, target: "_blank", rel: "noopener noreferrer" },
     leg.deep_links.length > 1 ? `Google Flights · ticket ${i + 1} ↗` : "Google Flights ↗"));
-  const direct = [...seen].filter(([code]) => config.airline_sites[code]).map(([code, name]) =>
-    h("a", { class: "btn small", href: config.airline_sites[code], target: "_blank", rel: "noopener noreferrer" }, `${name} ↗`));
+  // With the extension on, the airline chip does the same as the "Select ... on site" button
+  // (people click the obvious airline link first); it stays a plain link where no driver applies.
+  const direct = [...seen].filter(([code]) => config.airline_sites[code]).map(([code, name]) => {
+    const sg = extensionAvailable() && EXTENSION_DRIVERS.has(code)
+      ? leg.segments.find(x => x.origin === "TLV" && x.airline_code === code) : null;
+    return h("a", { class: "btn small", href: config.airline_sites[code], target: "_blank", rel: "noopener noreferrer",
+      title: sg ? "Opens the airline's site with this flight selected" : null,
+      onclick: sg ? (e) => { e.preventDefault(); selectOnAirlineSite(code, sg.destination, sg.departs.slice(0, 10), `${code}${sg.flight_number}`); } : null },
+      `${name} ↗`);
+  });
+  // Auto-select on the airline's own site (browser-extension/): per matching segment, since
+  // flight number/destination are segment-specific. TLV-origin only for now (elal_verify.py scope).
+  const autoSelect = extensionAvailable() ? leg.segments.filter(sg => sg.origin === "TLV" && EXTENSION_DRIVERS.has(sg.airline_code)).map(sg =>
+    h("button", { type: "button", class: "btn small accent", title: "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
+      onclick: () => selectOnAirlineSite(sg.airline_code, sg.destination, sg.departs.slice(0, 10), `${sg.airline_code}${sg.flight_number}`) },
+      `✈ Select ${sg.airline_code}${sg.flight_number} on site ↗`)) : [];
   return h("div", { class: "leg" },
     h("div", { class: "leg-top" },
       h("div", { class: "leg-title" }, title, h("small", {}, [...seen.values()].join(" · "))),
       h("strong", { title: isConverted(cur) ? `Originally ${fmtMoney(leg.price, cur)}` : null }, money(leg.price, cur))),
     legTimes(leg),
-    rows, h("div", { class: "actions" }, links, direct,
+    rows, h("div", { class: "actions" }, autoSelect, links, direct,
       h("button", { type: "button", class: "btn small", title: "See every flight that day, including ones with no price", onclick: () => Builder.browse(leg.origin, leg.destination, leg.segments[0].departs.slice(0, 10)) }, "All flights that day"),
       h("button", { type: "button", class: "btn small", onclick: () => Builder.addFlight(leg, { pax: paxLabel(resultsQuery), currency: cur }) }, "＋ Trip builder")));
 }
@@ -893,6 +1030,28 @@ async function init() {
   $("#menu").addEventListener("click", () => { $("#sidebar").classList.add("open"); $("#scrim").hidden = false; });
   $("#scrim").addEventListener("click", closeSidebar);
   try { config = await api("/api/config"); } catch { /* keep defaults */ }
+  const isMock = config.provider.split(",")[0].trim() === "mock";
+  $$(".mode-badge").forEach(b => {
+    b.hidden = false; b.className = "mode-badge " + (isMock ? "demo" : "live");
+    b.textContent = isMock ? "⚠ DEMO DATA" : "LIVE";
+    b.title = isMock ? "Fake prices from the mock provider -- nothing here is real" : `Live data from ${config.provider}`;
+    // Airline Assist extension status, right next to the mode badge: the purple "Select on site"
+    // buttons only exist when the extension is attached to this page, and without this there's no
+    // way to tell "extension off" from "extension broken" (the plain "El Al ↗" link opens the
+    // airline's homepage and never searches -- easy to mistake for the extension).
+    const ext = h("span", { class: "mode-badge ext-badge" });
+    b.after(ext);
+  });
+  const syncExtBadge = () => {
+    const on = extensionAvailable();
+    $$(".ext-badge").forEach(e => {
+      e.classList.toggle("live", on); e.classList.toggle("demo", !on);
+      e.textContent = on ? "✈ Assist on" : "✈ Assist off";
+      e.title = on ? "Airline Assist extension detected: flights show a purple \"Select on site\" button"
+        : "Extension not detected on this page. Open chrome://extensions, make sure Skyhop Airline Assist is enabled, reload it, then reload this page. Until then only the plain airline homepage link works.";
+    });
+  };
+  syncExtBadge(); setTimeout(syncExtBadge, 1500); // the content script can attach just after load
   try { ratesInfo = await api("/api/rates"); rates = ratesInfo.rates; } catch { /* keep the approximate defaults */ }
   showOriginal = !!store.get("skyhop.showOriginal");
   $("#orig-toggle").checked = showOriginal;
@@ -931,8 +1090,19 @@ async function init() {
   }));
   $("#add-kid").addEventListener("click", () => { if (kids.length < 8) { kids.push(5); renderKids(); onFormChange(); } });
   $("#new-search").addEventListener("click", () => {
-    clearTimeout(pollTimer); current = null; $("#results").replaceChildren(); writeForm({ ...defaults(), from: readForm().from });
+    clearTimeout(pollTimer); current = null;
+    $("#results").replaceChildren(h("div", { class: "card empty-state" }, "Fill in your trip above and hit \"Find flights\" to see results here."));
+    writeForm({ ...defaults(), from: readForm().from });
+    showStep(1); $("#step-1-summary").textContent = "";
+    $("#step-2-summary").textContent = ""; $("#step2-airlines").replaceChildren();
+    $("#step-3").classList.remove("ready"); $("#step-3-summary").textContent = "Run a search to compare";
     onFormChange(); closeSidebar(); window.scrollTo({ top: 0, behavior: "smooth" }); $("#to-in").focus(); refreshHistory();
+  });
+  $("#step-1").addEventListener("click", () => showStep(1));
+  $("#step-2").addEventListener("click", () => showStep(2));
+  $("#step-3").addEventListener("click", () => {
+    const picks = $(".picks");
+    if (picks) picks.scrollIntoView({ behavior: "smooth", block: "start" }); else toast("Run a search first.");
   });
   $("#form").addEventListener("submit", async e => {
     e.preventDefault();
