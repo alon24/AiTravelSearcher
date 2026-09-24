@@ -35,6 +35,15 @@ async function reportError(e) {
   await chrome.action.setTitle({ title: `Skyhop Airline Assist failed: ${msg}${hint}` });
 }
 
+// Progress trail on the toolbar icon (green number + tooltip), so "it didn't work" can be
+// narrowed to a stage without opening DevTools: 1 tab opened+loaded, 2 phase 1 injected,
+// 3 results page seen and phase 2 injected. ERR (red) is reportError() above.
+async function progress(n, text) {
+  await chrome.action.setBadgeBackgroundColor({ color: "#0d6b45" });
+  await chrome.action.setBadgeText({ text: String(n) });
+  await chrome.action.setTitle({ title: `Skyhop Airline Assist: ${text}` });
+}
+
 // Poll instead of waiting for one onUpdated event: if the page finishes loading before a listener
 // is attached (or the worker is restarted), that event never comes and nothing is ever injected.
 async function waitForLoad(tabId, timeoutMs = 20000) {
@@ -65,13 +74,15 @@ async function injectWhenResultsLoad(tabId, driver, details, timeoutMs = 120000)
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     let tab;
-    try { tab = await chrome.tabs.get(tabId); } catch { return; } // tab was closed
+    try { tab = await chrome.tabs.get(tabId); } catch { return false; } // tab was closed
     if (tab.url && tab.url.includes(driver.resultsMatch) && tab.status === "complete") {
       await inject(tabId, driver, details);
-      return;
+      return true;
     }
     await new Promise((r) => setTimeout(r, 500));
   }
+  await reportError("El Al's results page never loaded (waited 2 min)");
+  return false;
 }
 
 async function handle({ airline, destination, day, returnDay, flightNumber }) {
@@ -84,8 +95,11 @@ async function handle({ airline, destination, day, returnDay, flightNumber }) {
   try {
     const tab = await chrome.tabs.create({ url: driver.startUrl });
     await waitForLoad(tab.id);
+    await progress(1, "airline tab loaded");
     await inject(tab.id, driver, details);            // phase 1: search form
-    await injectWhenResultsLoad(tab.id, driver, details); // phase 2: pick the flight
+    await progress(2, "search form driven, waiting for El Al's results page");
+    if (await injectWhenResultsLoad(tab.id, driver, details)) // phase 2: pick the flight
+      await progress(3, "results page reached, flight selection injected");
   } catch (e) {
     await reportError(e);
   }

@@ -23,9 +23,10 @@ El Al's site found and fixed five real problems in `drivers/elal.js` / `backgrou
    would silently search the wrong airport. The driver now types per keystroke and clicks the
    suggestion whose code matches exactly, and fails loudly if there is none.
 5. Clicking Search **navigates** (www -> booking.elal.com, via an intermediate `/engine` page),
-   which destroys the injected script, so "select the flight" could never run. Phase 1 now leaves
-   the details in `window.name` (verified to survive the whole redirect chain) and a declarative
-   content script re-runs the driver on `/booking/flights`, which reads and consumes them. Phase 2
+   which destroys the injected script, so "select the flight" could never run. The `window.name` +
+   declarative-content-script hand-off (v0.2) worked by hand but never ran in the packaged
+   extension, so since v0.3.0 `background.js` watches the tab and injects the driver again
+   (`executeScript`, same details) once the URL is `/booking/flights` and loaded. Phase 2
    picks the row by flight number and clicks its **cheapest fare**; it does not pick a different
    flight if yours isn't listed, it says so in a red banner.
 6. (v0.2.0) The first hand-off used `chrome.storage.session`, which needs a new `storage`
@@ -37,9 +38,13 @@ El Al's site found and fixed five real problems in `drivers/elal.js` / `backgrou
 Also: the El Al tab must be focused for the destination list to open (it is, for the tab the
 extension opens and activates); the driver says so if the list never appears.
 
-Verified live, end to end with the real driver logic: TLV->CDG, one-way, 5 Nov -> search ->
-results -> LY323 selected at the cheapest fare with LITE / CLASSIC / FLEX showing. Not verified:
-the packaged extension itself (I can't load it), so the first click after reloading is the real test.
+Verified end to end in the packaged v0.3.0 extension (user's Chrome): TLV->FCO one-way ->
+results -> LY383 selected at the cheapest fare, banner shown.
+
+**Diagnostics without DevTools:** the toolbar icon shows a green stage number -- 1 airline tab
+loaded, 2 search form driven, 3 results page reached and selection injected -- or a red `ERR`
+with the reason in the tooltip. Chrome's per-site "Site access" toggles must be on for
+www.elal.com, booking.elal.com and the Skyhop origin (`localhost:8765` / `127.0.0.1:8765`).
 
 ## Load it (development mode)
 
