@@ -23,26 +23,47 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return false;
 });
 
+// Failures used to be invisible (the tab opened, nothing happened, nothing said why). Now the
+// toolbar icon shows a red ERR badge and its tooltip carries the reason.
+async function reportError(e) {
+  const msg = String(e?.message || e);
+  console.error("[Skyhop background]", msg);
+  let hint = "";
+  if (/cannot access|permission|host/i.test(msg))
+    hint = " -- open chrome://extensions > Skyhop Airline Assist > Site access and allow www.elal.com and booking.elal.com";
+  await chrome.action.setBadgeBackgroundColor({ color: "#a11a2b" });
+  await chrome.action.setBadgeText({ text: "ERR" });
+  await chrome.action.setTitle({ title: `Skyhop Airline Assist failed: ${msg}${hint}` });
+}
+
+// Poll instead of waiting for one onUpdated event: if the page finishes loading before a listener
+// is attached (or the worker is restarted), that event never comes and nothing is ever injected.
+async function waitForLoad(tabId, timeoutMs = 20000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const t = await chrome.tabs.get(tabId);
+    if (t.status === "complete") return;
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  // Still loading after the timeout: inject anyway rather than doing nothing.
+}
+
 async function handle({ airline, destination, day, returnDay, flightNumber }) {
   const driver = DRIVERS[airline];
-  if (!driver) return { ok: false, error: `No driver yet for airline ${airline}` };
+  if (!driver) return reportError(`No driver yet for airline ${airline}`);
+  await chrome.action.setBadgeText({ text: "" });
+  await chrome.action.setTitle({ title: "Skyhop Airline Assist" });
 
-  const tab = await chrome.tabs.create({ url: driver.startUrl });
-  await new Promise((resolve) => {
-    const listener = (tabId, info) => {
-      if (tabId === tab.id && info.status === "complete") {
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve();
-      }
-    };
-    chrome.tabs.onUpdated.addListener(listener);
-  });
-
-  await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    func: (d) => { window.__skyhopFlightDetails = d; },
-    args: [{ airline, destination, day, returnDay, flightNumber }],
-  });
-  await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: [driver.file] });
-  return { ok: true, tabId: tab.id };
+  try {
+    const tab = await chrome.tabs.create({ url: driver.startUrl });
+    await waitForLoad(tab.id);
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: (d) => { window.__skyhopFlightDetails = d; },
+      args: [{ airline, destination, day, returnDay, flightNumber }],
+    });
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: [driver.file] });
+  } catch (e) {
+    await reportError(e);
+  }
 }
