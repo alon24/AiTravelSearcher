@@ -57,6 +57,7 @@ async function waitForLoad(tabId, timeoutMs = 20000) {
     await new Promise((r) => setTimeout(r, 300));
   }
   // Still loading after the timeout: inject anyway rather than doing nothing.
+  await progress("1?", "airline tab still loading after 20s, injecting anyway");
 }
 
 async function inject(tabId, driver, details) {
@@ -96,6 +97,7 @@ async function handle({ airline, destination, day, returnDay, flightNumber }) {
 
   try {
     const tab = await chrome.tabs.create({ url: driver.startUrl });
+    await progress(0, `airline tab ${tab.id} opened, waiting for it to load`);
     await waitForLoad(tab.id);
     await progress(1, "airline tab loaded");
     await inject(tab.id, driver, details);            // phase 1: search form
