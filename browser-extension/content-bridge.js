@@ -29,3 +29,17 @@ try {
       window.dispatchEvent(new CustomEvent("skyhop-progress", { detail: { stage: msg.stage, text: msg.text } }));
   });
 } catch (err) { /* orphaned after an extension reload */ }
+
+// Which airlines the extension covers (and whether each is verified / bespoke / learned / still to be learned),
+// published on the page so app.js needn't keep its own copy of the list. Re-published on focus so an airline learned
+// in another tab shows up without a reload.
+function publishAirlines(retries = 2) {
+  try {
+    chrome.runtime.sendMessage({ type: "list-airlines" }, (r) => {
+      if (chrome.runtime.lastError || !r?.ok) { if (retries) setTimeout(() => publishAirlines(retries - 1), 1000); return; }
+      document.documentElement.setAttribute("data-skyhop-airlines", JSON.stringify(r.airlines));
+    });
+  } catch (err) { /* orphaned after an extension reload */ }
+}
+publishAirlines();
+window.addEventListener("focus", () => publishAirlines(0));

@@ -1,0 +1,610 @@
+{
+ "_doc": "Airlines Skyhop Assist knows about (currently: airlines that fly from TLV; US/Europe/Asia lists come next). The list, codes and domains are from general knowledge and NOT verified unless status says so. mode: 'url' = results page is a URL template ({origin} {dest} {date} or {date:PATTERN} with YYYY MM DD; {dest:l} lower-case), read by the generic drivers/results.js; 'bespoke' = own driver in background.js BESPOKE; 'discover' = template not known yet -- the extension learns it from ONE search you do by hand. status: 'verified' (the template loaded a real results page and the flight cards were seen -- so far only Wizz Air), 'bespoke', 'learned-only', 'discover'. hosts are registrable domains; manifest.json host_permissions are generated from them by tools/sync_assist_manifest.py.",
+ "airlines": {
+  "LY": {
+   "name": "El Al",
+   "aliases": [],
+   "hosts": [
+    "elal.com"
+   ],
+   "mode": "bespoke",
+   "status": "bespoke"
+  },
+  "6H": {
+   "name": "Israir",
+   "aliases": [],
+   "hosts": [
+    "israir.co.il"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "IZ": {
+   "name": "Arkia",
+   "aliases": [],
+   "hosts": [
+    "arkia.com",
+    "arkia.co.il"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "BZ": {
+   "name": "Bluebird Airways",
+   "aliases": [],
+   "hosts": [
+    "bluebirdair.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "W6": {
+   "name": "Wizz Air",
+   "aliases": [
+    "W4",
+    "W9"
+   ],
+   "hosts": [
+    "wizzair.com"
+   ],
+   "mode": "url",
+   "status": "verified",
+   "url": "https://www.wizzair.com/en-gb/booking/select-flight/{origin}/{dest}/{date}/null/1/0/0/null",
+   "match": "wizzair.com/en-gb/booking/select-flight"
+  },
+  "FR": {
+   "name": "Ryanair",
+   "aliases": [
+    "RK"
+   ],
+   "hosts": [
+    "ryanair.com"
+   ],
+   "mode": "discover",
+   "status": "discover",
+   "note": "2026-09-26: /gb/en/trip/flights/select?...&originIata=TLV&destinationIata=FCO&dateOut=... opens the right search (Tel Aviv to Rome Fiumicino, 23 Oct, consent dialog first) but flights never loaded past the spinner in a tool-driven tab, so no card was ever seen -- unverified; teach it with one manual search instead."
+  },
+  "U2": {
+   "name": "easyJet",
+   "aliases": [],
+   "hosts": [
+    "easyjet.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "HV": {
+   "name": "Transavia",
+   "aliases": [],
+   "hosts": [
+    "transavia.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "VY": {
+   "name": "Vueling",
+   "aliases": [],
+   "hosts": [
+    "vueling.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "EW": {
+   "name": "Eurowings",
+   "aliases": [],
+   "hosts": [
+    "eurowings.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "4Y": {
+   "name": "Discover Airlines",
+   "aliases": [],
+   "hosts": [
+    "discover-airlines.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "BT": {
+   "name": "airBaltic",
+   "aliases": [],
+   "hosts": [
+    "airbaltic.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "A3": {
+   "name": "Aegean",
+   "aliases": [
+    "OA"
+   ],
+   "hosts": [
+    "aegeanair.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "GQ": {
+   "name": "SKY express",
+   "aliases": [],
+   "hosts": [
+    "skyexpress.gr"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "CY": {
+   "name": "Cyprus Airways",
+   "aliases": [],
+   "hosts": [
+    "cyprusairways.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "RO": {
+   "name": "TAROM",
+   "aliases": [],
+   "hosts": [
+    "tarom.ro"
+   ],
+   "mode": "bespoke",
+   "status": "bespoke"
+  },
+  "H4": {
+   "name": "HiSky",
+   "aliases": [],
+   "hosts": [
+    "hisky.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "JU": {
+   "name": "Air Serbia",
+   "aliases": [],
+   "hosts": [
+    "airserbia.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "OU": {
+   "name": "Croatia Airlines",
+   "aliases": [],
+   "hosts": [
+    "croatiaairlines.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "FB": {
+   "name": "Bulgaria Air",
+   "aliases": [],
+   "hosts": [
+    "air.bg"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "U8": {
+   "name": "Tus Air",
+   "aliases": [],
+   "hosts": [
+    "tusairways.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "AF": {
+   "name": "Air France",
+   "aliases": [],
+   "hosts": [
+    "airfrance.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "KL": {
+   "name": "KLM",
+   "aliases": [],
+   "hosts": [
+    "klm.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "LH": {
+   "name": "Lufthansa",
+   "aliases": [],
+   "hosts": [
+    "lufthansa.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "LX": {
+   "name": "SWISS",
+   "aliases": [],
+   "hosts": [
+    "swiss.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "OS": {
+   "name": "Austrian",
+   "aliases": [],
+   "hosts": [
+    "austrian.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "SN": {
+   "name": "Brussels Airlines",
+   "aliases": [],
+   "hosts": [
+    "brusselsairlines.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "AZ": {
+   "name": "ITA Airways",
+   "aliases": [],
+   "hosts": [
+    "ita-airways.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "IB": {
+   "name": "Iberia",
+   "aliases": [],
+   "hosts": [
+    "iberia.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "TP": {
+   "name": "TAP Air Portugal",
+   "aliases": [],
+   "hosts": [
+    "flytap.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "UX": {
+   "name": "Air Europa",
+   "aliases": [],
+   "hosts": [
+    "aireuropa.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "BA": {
+   "name": "British Airways",
+   "aliases": [],
+   "hosts": [
+    "britishairways.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "VS": {
+   "name": "Virgin Atlantic",
+   "aliases": [],
+   "hosts": [
+    "virginatlantic.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "AY": {
+   "name": "Finnair",
+   "aliases": [],
+   "hosts": [
+    "finnair.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "SK": {
+   "name": "SAS",
+   "aliases": [],
+   "hosts": [
+    "flysas.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "LO": {
+   "name": "LOT",
+   "aliases": [],
+   "hosts": [
+    "lot.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "OK": {
+   "name": "Czech Airlines",
+   "aliases": [],
+   "hosts": [
+    "csa.cz"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "TK": {
+   "name": "Turkish Airlines",
+   "aliases": [],
+   "hosts": [
+    "turkishairlines.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "PC": {
+   "name": "Pegasus",
+   "aliases": [],
+   "hosts": [
+    "flypgs.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "VF": {
+   "name": "AJet",
+   "aliases": [],
+   "hosts": [
+    "ajet.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "XQ": {
+   "name": "SunExpress",
+   "aliases": [],
+   "hosts": [
+    "sunexpress.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "A9": {
+   "name": "Georgian Airways",
+   "aliases": [],
+   "hosts": [
+    "georgian-airways.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "J2": {
+   "name": "AZAL",
+   "aliases": [],
+   "hosts": [
+    "azal.az"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "KC": {
+   "name": "Air Astana",
+   "aliases": [],
+   "hosts": [
+    "airastana.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "HY": {
+   "name": "Uzbekistan Airways",
+   "aliases": [],
+   "hosts": [
+    "uzairways.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "9U": {
+   "name": "Air Moldova",
+   "aliases": [],
+   "hosts": [
+    "airmoldova.md"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "ET": {
+   "name": "Ethiopian",
+   "aliases": [],
+   "hosts": [
+    "ethiopianairlines.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "MS": {
+   "name": "EgyptAir",
+   "aliases": [],
+   "hosts": [
+    "egyptair.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "RJ": {
+   "name": "Royal Jordanian",
+   "aliases": [],
+   "hosts": [
+    "rj.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "EK": {
+   "name": "Emirates",
+   "aliases": [],
+   "hosts": [
+    "emirates.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "FZ": {
+   "name": "flydubai",
+   "aliases": [],
+   "hosts": [
+    "flydubai.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "EY": {
+   "name": "Etihad",
+   "aliases": [],
+   "hosts": [
+    "etihad.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "G9": {
+   "name": "Air Arabia",
+   "aliases": [],
+   "hosts": [
+    "airarabia.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "GF": {
+   "name": "Gulf Air",
+   "aliases": [],
+   "hosts": [
+    "gulfair.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "AI": {
+   "name": "Air India",
+   "aliases": [],
+   "hosts": [
+    "airindia.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "CX": {
+   "name": "Cathay Pacific",
+   "aliases": [],
+   "hosts": [
+    "cathaypacific.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "TG": {
+   "name": "Thai Airways",
+   "aliases": [],
+   "hosts": [
+    "thaiairways.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "HU": {
+   "name": "Hainan Airlines",
+   "aliases": [],
+   "hosts": [
+    "hainanairlines.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "CA": {
+   "name": "Air China",
+   "aliases": [],
+   "hosts": [
+    "airchina.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "UA": {
+   "name": "United",
+   "aliases": [],
+   "hosts": [
+    "united.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "DL": {
+   "name": "Delta",
+   "aliases": [],
+   "hosts": [
+    "delta.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "AA": {
+   "name": "American",
+   "aliases": [],
+   "hosts": [
+    "aa.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "AC": {
+   "name": "Air Canada",
+   "aliases": [],
+   "hosts": [
+    "aircanada.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "TS": {
+   "name": "Air Transat",
+   "aliases": [],
+   "hosts": [
+    "airtransat.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "CM": {
+   "name": "Copa Airlines",
+   "aliases": [],
+   "hosts": [
+    "copaair.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  },
+  "AM": {
+   "name": "Aeromexico",
+   "aliases": [],
+   "hosts": [
+    "aeromexico.com"
+   ],
+   "mode": "discover",
+   "status": "discover"
+  }
+ }
+}

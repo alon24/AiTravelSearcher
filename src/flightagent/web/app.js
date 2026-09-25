@@ -904,11 +904,25 @@ function watchRecheck(row) {
 // this exact flight" on the airline's own site, in the user's real browser (not our backend --
 // server-side automation is blocked by El Al's bot detection, see docs/DESIGN.md). Optional:
 // with no extension installed, buttons using this just don't render, no broken links.
-const EXTENSION_DRIVERS = new Set(["LY", "RO"]); // keep in sync with browser-extension/background.js's DRIVERS
+// Airlines the extension covers come FROM the extension (content-bridge.js publishes browser-extension/airlines.json's
+// codes on the page): {code: {name, status}}, status = verified | bespoke | learned | discover (first use teaches it).
+const assistAirlines = () => { try { return JSON.parse(document.documentElement.dataset.skyhopAirlines || "{}"); } catch { return {}; } };
+const EXTENSION_DRIVERS = { has: (code) => code in assistAirlines() };
+const assistStatus = (code) => assistAirlines()[code]?.status;
 const extensionAvailable = () => document.documentElement.dataset.skyhopExtension === "1";
-function selectOnAirlineSite(airline_code, destination, dateISO, flightNumber) {
+// What the airline's own site calls a place ("Rome", not FCO) and the other codes it might search by (the city code ROM).
+function placeInfo(code) {
+  const a = airport(code);
+  if (!a) return { name: "", codes: [code] };
+  const city = a.city.split(/[- ]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  const cityCodes = AIRPORTS.filter(x => x.rank === 2 && x.city === a.city && x.country === a.country).map(x => x.code);
+  return { name: city, codes: [code, ...cityCodes] };
+}
+function selectOnAirlineSite(airline_code, destination, dateISO, flightNumber, departTime) {
+  const from = placeInfo("TLV"), to = placeInfo(destination);
   window.dispatchEvent(new CustomEvent("skyhop-select-flight", {
-    detail: { airline: airline_code, destination, day: dateISO, flightNumber },
+    detail: { airline: airline_code, destination, day: dateISO, flightNumber, departTime,
+      originName: from.name, destinationName: to.name, destCodes: to.codes },
   }));
   toast(`Opening ${airline_code} — searching for ${flightNumber || "that flight"}…`);
   // An orphaned content script (extension reloaded, page not) never answers at all.
@@ -950,8 +964,8 @@ function unpricedPanel(res, row) {
         u.last_price != null ? h("span", { class: "badge warn", title: "Google showed this fare earlier and has since dropped it, so it may be out of date" }, `last seen ${money(u.last_price, row.request.currency)}, ${ago(u.last_seen)}`) : null),
       h("span", { class: "actions" },
         (extensionAvailable() && EXTENSION_DRIVERS.has(u.airline_code)) ?
-          h("button", { type: "button", class: "btn small accent", title: "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
-            onclick: () => selectOnAirlineSite(u.airline_code, u.destination, u.date, u.flights) }, `✈ Select on ${u.airline} site ↗`) : null,
+          h("button", { type: "button", class: "btn small accent", title: assistStatus(sg.airline_code) === "discover" ? "First time for this airline: opens its site and learns its results page from ONE search you do by hand; after that this button does the search for you" : "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
+            onclick: () => selectOnAirlineSite(u.airline_code, u.destination, u.date, u.flights, (u.departs || "").slice(11, 16)) }, `✈ Select on ${u.airline} site ↗`) : null,
         h("a", { class: "btn small", target: "_blank", rel: "noopener noreferrer", title: config.airline_sites[u.airline_code] ? "Open the airline's own site to see the fare" : "We have no link for this airline: search for it",
           href: config.airline_sites[u.airline_code] || `https://www.google.com/search?q=${encodeURIComponent(`${u.airline} ${u.flights} ${u.origin} ${u.destination} ${u.date} book`)}` }, config.airline_sites[u.airline_code] ? `${u.airline} site ↗` : "Find on Google ↗"),
         h("button", { type: "button", class: "btn small", onclick: () => Builder.browse(u.origin, u.destination, u.date) }, "All flights that day"),
@@ -1002,14 +1016,14 @@ function legCard(leg, title, cur) {
       ? leg.segments.find(x => x.origin === "TLV" && x.airline_code === code) : null;
     return h("a", { class: "btn small", href: config.airline_sites[code], target: "_blank", rel: "noopener noreferrer",
       title: sg ? "Opens the airline's site with this flight selected" : null,
-      onclick: sg ? (e) => { e.preventDefault(); selectOnAirlineSite(code, sg.destination, sg.departs.slice(0, 10), `${code}${sg.flight_number}`); } : null },
+      onclick: sg ? (e) => { e.preventDefault(); selectOnAirlineSite(code, sg.destination, sg.departs.slice(0, 10), `${code}${sg.flight_number}`, sg.departs.slice(11, 16)); } : null },
       `${name} ↗`);
   });
   // Auto-select on the airline's own site (browser-extension/): per matching segment, since
   // flight number/destination are segment-specific. TLV-origin only for now (elal_verify.py scope).
   const autoSelect = extensionAvailable() ? leg.segments.filter(sg => sg.origin === "TLV" && EXTENSION_DRIVERS.has(sg.airline_code)).map(sg =>
-    h("button", { type: "button", class: "btn small accent", title: "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
-      onclick: () => selectOnAirlineSite(sg.airline_code, sg.destination, sg.departs.slice(0, 10), `${sg.airline_code}${sg.flight_number}`) },
+    h("button", { type: "button", class: "btn small accent", title: assistStatus(sg.airline_code) === "discover" ? "First time for this airline: opens its site and learns its results page from ONE search you do by hand; after that this button does the search for you" : "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
+      onclick: () => selectOnAirlineSite(sg.airline_code, sg.destination, sg.departs.slice(0, 10), `${sg.airline_code}${sg.flight_number}`, sg.departs.slice(11, 16)) },
       `✈ Select ${sg.airline_code}${sg.flight_number} on site ↗`)) : [];
   return h("div", { class: "leg" },
     h("div", { class: "leg-top" },

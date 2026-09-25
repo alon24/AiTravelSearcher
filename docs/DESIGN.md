@@ -237,6 +237,66 @@ instructions. Only El Al wired up.
   .executeScript` (the actual driver injection into the airline's tab) is not. Toggle on
   `https://www.elal.com/*` and `https://booking.elal.com/*` there if a fresh install doesn't work.
 
+### Wizz Air (W6): elements located on the fly with Laya (Sept 2026, measured 2026-09-25)
+
+Goal: support an airline without writing a per-site script in advance -- find the page's elements at run time
+with Laya. Laya is a typed-question classifier (`choice` / `score` / `noul`), not an LLM: it can rank "is this
+element <role>?" and classify a page, but it cannot read a price, write a selector or click. So the split is
+**Laya locates and classifies, plain code reads numbers and verifies**.
+
+**What was measured**
+- *Direct URL:* `wizzair.com/en-gb/booking/select-flight/<from>/<to>/<date>/null/1/0/0/null` renders results in a
+  real Chrome tab with no form to drive (same idea as TAROM). Cards show times and two prices but **no flight
+  number**, so the flight is matched by departure time (`departTime`, now passed by the web app).
+- *Laya accuracy for picking elements:* a single `choice` question over N candidates was unreliable (it picked
+  "Sign in" for "accept cookies", and 2/4 tasks wrong on a clean list) and only fits ~192 tokens of options.
+  **One `noul` ("is this page element <role>?") per candidate** is much better: on the real Wizz labels
+  "Deny all" scored 0.83 for "declines optional cookies" vs 0.01 for "Accept all", and the fare `SELECT` button
+  0.79. Margins are still thin (a "Sign in" link once outscored "Search"; "Find Booking" scored 0.80 as a
+  fare button), so `laya-agent.js` never trusts the top score alone: minimum score, a veto on labels that could
+  leave the flow or spend money, best-3-in-order, and a `verify()` after every click.
+- *Cookie banner:* Usercentrics, inside an **open shadow root** -- invisible to `document.querySelectorAll`, so the
+  candidate finder pierces shadow roots.
+
+**Options built, for comparison**
+| | Extension + Laya (`drivers/results.js`, `drivers/laya-agent.js`) | Playwright + Laya (`providers/wizzair_verify.py`) |
+|---|---|---|
+| Runs in | your real Chrome tab | headless Chromium on the server |
+| Result | works: cookie banner declined, flight matched by time, cheapest fare outlined (verified end to end in the packaged extension with the real Laya service: TLV->FCO 23 Oct, W46044 19:40, cheapest fare outlined) | `status="blocked"`: HTTP 405 + a "Human Verification" page; Laya classifies it "blocked" |
+| Bot check | not triggered | triggered; **not** bypassed -- no fingerprint masking (nothing was agreed for Wizz Air, unlike El Al above) |
+| Needs | Laya service running (`~/laya-service/start.sh`) | `flightagent[verify]`, Laya optional |
+| Laya's role | cookie button, fare-button check, page-type when no cards | page-type only |
+
+Not built: a form-driving variant (typing origin/destination, calendar). The direct URL makes it strictly more
+fragile (dates and airport suggestions are numbers/codes, where a classifier is weakest) for no gain on one-way
+TLV-origin searches. The extension's Laya calls go through `background.js` (a service worker may fetch
+`127.0.0.1:8799`; the airline page may not).
+
+### Airline registry, generic driver and learning (Sept 2026, TLV airlines first)
+
+`browser-extension/airlines.json` lists the airlines Assist knows (66 that fly, or recently flew, out of TLV; a US / Europe /
+Asia expansion is planned next). Codes, names and domains are from general knowledge and **only Wizz Air is verified**;
+El Al and TAROM are bespoke drivers. Per airline `mode` says how to open a search:
+- `url` -- results page is a URL template (`{origin} {dest} {date}` / `{date:DD/MM/YYYY}`), read by the generic
+  `drivers/results.js` (cards found by shape, Laya for the cookie/fare buttons and page type). No airline code.
+- `discover` -- template unknown (the default): the first click opens the airline's home page and **learns the template
+  from one search you do by hand** (`discover()` in `background.js`). The learned URL is stored in `chrome.storage.local`
+  with airport codes and date turned into placeholders, then that airline works like a `url` one. A URL carrying a
+  long opaque value (session token) is refused -- that airline needs a form-driving driver. Airlines whose site uses
+  another airport code than IATA (city codes, internal ids) can't be learned either; they stay `discover`.
+- The web app no longer keeps its own list: `content-bridge.js` publishes the airline codes on the page
+  (`data-skyhop-airlines`), so adding an airline is an `airlines.json` entry plus `tools/sync_assist_manifest.py`
+  (regenerates `host_permissions`; `tests/test_assist_registry.py` fails if they drift).
+- Learned end to end on Tus Air (U8): the address `booking.tusairways.com/flight-results/TLV-FCO/2026-10-02/NA/1/0/0` gave the
+  template. Its "Select" is a `<span>` in a `<div>` in an `<a>`, not a `<button>`, so `results.js` treats anything with a
+  pointer cursor and a short label as a control. **Laya is weak at "which control selects a fare"**: it scored `strong "Price
+  per person"` 0.93 and `<div>Select</div>` 0.31 (0.88 once described as `button "Select"`), so the code first narrows to
+  controls whose label has a select-type word (Select/Choose/Book/...) and Laya only confirms among them (>= 0.5; >= 0.85
+  when no control has such a word). Laya is reliable for the cookie decline button and the page type, less so here.
+- Tried and inconclusive: Ryanair's results URL opens the right search but its flights never loaded in a tool-driven tab.
+- Known gaps: 24-hour clock times only in `results.js` (US airlines show 12-hour), and a card layout that isn't
+  "times + price + button in one block".
+
 ### Rail/pane redesign (Sept 2026)
 
 The UI was restructured from one long single-column page (full search form on top, every result

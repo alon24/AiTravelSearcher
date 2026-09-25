@@ -90,7 +90,7 @@ const MixMatch = (() => {
       h("div", { class: "mm-bags" }, bagChips(f, fees)),
       h("div", { class: "mm-price" }, f.priced === false ? h("span", { class: "np" }, "No price shown") : [money(f.price, cur), origNote(f.price, cur, "orig block")]),
       autoSeg ? h("button", { type: "button", class: "btn small accent mm-auto", title: "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
-        onclick: ev => { ev.stopPropagation(); selectOnAirlineSite(autoSeg.airline_code, autoSeg.destination, autoSeg.departs.slice(0, 10), `${autoSeg.airline_code}${autoSeg.flight_number}`); } },
+        onclick: ev => { ev.stopPropagation(); selectOnAirlineSite(autoSeg.airline_code, autoSeg.destination, autoSeg.departs.slice(0, 10), `${autoSeg.airline_code}${autoSeg.flight_number}`, autoSeg.departs.slice(11, 16)); } },
         `✈ Select ${autoSeg.airline_code}${autoSeg.flight_number} on site ↗`) : null);
   }
 

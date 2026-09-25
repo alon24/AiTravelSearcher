@@ -89,3 +89,27 @@ sync -- they automate the same site with the same selectors, just in JS (real br
 4. Reload the extension (`chrome://extensions` -> refresh icon) and re-test by hand first --
    don't assume a driver written by pattern-matching `elal.js` actually works against a real,
    different site's DOM.
+
+## Wizz Air (W6) -- v0.5.0, elements found on the fly with Laya
+
+Wizz's results are a plain URL, so `background.js` opens it directly and injects `drivers/laya-agent.js` then
+`drivers/results.js`. There are **no Wizz selectors**: the driver finds the cookie banner's decline button, the
+flight cards and the fare buttons at run time (Laya ranks "is this element ...?", regexes read times/prices),
+matches the flight by departure time, and outlines the cheapest fare. It never presses SELECT.
+**Needs the Laya service running** (`~/laya-service/start.sh`); it says so in the banner if it isn't.
+New permissions: `https://www.wizzair.com/*` and `http://127.0.0.1:8799/*` (the Laya service, called from the
+service worker). **Adding host permissions can make Chrome disable an unpacked extension on reload -- if the
+Skyhop page says "Assist off", re-enable it in `chrome://extensions`.** Verified end to end in the packaged v0.5.3 extension with the real Laya service
+(TLV->FCO 23 Oct, W46044 19:40: cheapest fare outlined, banner shown). Chrome's Site access must be on for
+www.wizzair.com and 127.0.0.1:8799 ("Automatically allow access on the following sites"), otherwise injection fails.
+The web app must pass `departTime` (all three Select buttons do) because Wizz's cards show no flight number.
+
+## Airline registry, generic driver and learning -- v0.6.0
+
+Airlines live in `airlines.json` (see its `_doc`); `drivers/results.js` is the generic, selector-free results driver
+(formerly `wizzair.js`). An airline whose results-page URL isn't known yet (`discover`, i.e. all but Wizz Air, El Al
+and TAROM today) is **taught by you once**: the first click opens its home page with a banner asking for one
+TLV -> destination search on that date, by hand; the extension remembers the results URL as a template and
+the button does it for you from then on. After editing `airlines.json` run `python3 tools/sync_assist_manifest.py`.
+**New in 0.6.0: the `storage` permission and ~68 host permissions -- Chrome may disable the extension on reload;
+re-enable it, and keep "Automatically allow access on the following sites" on.**

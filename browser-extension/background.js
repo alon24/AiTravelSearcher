@@ -1,20 +1,20 @@
-// Receives "select-flight" requests relayed by content-bridge.js from the Skyhop web app,
-// opens a new tab on the airline's site, and injects that airline's driver script.
-// Wired up: El Al (LY) and TAROM (RO). Add more airlines by registering their start URL + driver
-// file here, a driver under drivers/, and the airline's domains in manifest.json's host_permissions.
+// Receives "select-flight" requests relayed by content-bridge.js from the Skyhop web app, opens a new tab
+// on the airline's own site and injects a driver that finds the flight and outlines its cheapest fare.
+//
+// Which airlines exist, and how each one is opened, lives in airlines.json (see its _doc):
+//   mode "bespoke"  -- own driver + start page, defined in BESPOKE below (El Al, TAROM);
+//   mode "url"      -- results page is a URL template; generic drivers/results.js finds cards/fares on the fly with
+//                      Laya (drivers/laya-agent.js), nothing airline-specific in code (Wizz Air is the first);
+//   mode "discover" -- template not known yet: open the airline's home page and LEARN it from one search the
+//                      user does by hand (discover() below); stored in chrome.storage.local, used next time.
+// Adding an airline = an airlines.json entry (+ `python3 tools/sync_assist_manifest.py` for host permissions).
 //
 // Multi-phase drivers: El Al's Search button navigates (www -> booking.elal.com), destroying the
 // injected script. Phase 1 is injected on the search page; this file then watches the tab and
 // injects the same driver again (same details) when the results page has loaded -- see
-// injectWhenResultsLoad(). The driver picks its phase from the page it lands on.
-//
-// Two kinds of driver:
-//   startUrl + file            -- El Al: open the airline's home page, drive its search form (phase 1),
-//                                 then inject again on the results page (phase 2).
-//   directUrl(details) + file  -- TAROM: its search is a plain URL (origin/destination/date, no token),
-//                                 so open that URL and only inject on the results page.
-// Outbound legs from TLV only, for now (that is all the Skyhop buttons offer).
-const DRIVERS = {
+// injectWhenResultsLoad(). Outbound legs from TLV only, for now (all the Skyhop buttons offer).
+const AGENT = ["drivers/laya-agent.js", "drivers/results.js"];
+const BESPOKE = {
   LY: { startUrl: "https://www.elal.com/heb/israel", file: "drivers/elal.js", resultsMatch: "booking.elal.com/booking/flights" },
   RO: {
     file: "drivers/tarom.js",
@@ -26,6 +26,102 @@ const DRIVERS = {
     })) + "&portalFacts=" + encodeURIComponent(JSON.stringify([{ key: "currency", value: "EUR" }, { key: "channel", value: "desktop" }])),
   },
 };
+
+// ---- registry (airlines.json) + templates learned from the user's own searches ----
+let registryPromise;
+const registry = () => (registryPromise ||= fetch(chrome.runtime.getURL("airlines.json")).then((r) => r.json()).then((j) => j.airlines));
+async function lookup(code) {   // by IATA code or alias ("W4" -> Wizz Air's "W6" entry)
+  for (const [key, e] of Object.entries(await registry())) if (key === code || (e.aliases || []).includes(code)) return { key, ...e };
+  return null;
+}
+const getLearned = async () => (await chrome.storage.local.get("learned")).learned || {};
+
+// Template placeholders: {origin} {dest} ({dest:l} lower-case) {date} = YYYY-MM-DD, {date:DD/MM/YYYY} etc.
+const DATE_PATTERNS = ["YYYY-MM-DD", "DD-MM-YYYY", "DD/MM/YYYY", "YYYY/MM/DD", "MM/DD/YYYY", "DD.MM.YYYY", "YYYYMMDD", "DDMMYYYY", "DDMMYY", "YYMMDD"];
+const fmtDate = (iso, pat) => { const [Y, M, D] = iso.split("-"); return pat.replace("YYYY", Y).replace("YY", Y.slice(2)).replace("MM", M).replace("DD", D); };
+// {destcity} is the destination's CITY code (ROM for FCO) for sites that search by city rather than airport.
+const fill = (tpl, d) => tpl
+  .replace(/\{(origin|dest|destcity)(?::(l))?\}/g, (_, k, l) => { const v = k === "origin" ? d.origin : k === "dest" ? d.destination : (d.destCity || d.destination); return l ? v.toLowerCase() : v; })
+  .replace(/\{date(?::([A-Za-z\-\/.]+))?\}/g, (_, pat) => fmtDate(d.day, pat || "YYYY-MM-DD"));
+
+// Turn the URL of a results page the user reached by hand into a template, or explain why it can't be one.
+// Returns {url, match} | {rejected: reason} | null (not a results page for this search yet).
+function learnFrom(url, d) {
+  const code = (c) => new RegExp(`(?<![A-Za-z])${c}(?![A-Za-z])`, "gi");
+  const datePat = DATE_PATTERNS.find((p) => url.includes(fmtDate(d.day, p)) || url.includes(encodeURIComponent(fmtDate(d.day, p))));
+  // The site may search by the airport code (FCO) or the city code (ROM): accept whichever the URL shows.
+  const found = [d.destination, ...(d.destCodes || [])].find((c) => code(c).test(url));
+  if (!datePat || !found) return null;
+  const casing = (m, ph) => (m === m.toLowerCase() ? ph.replace("}", ":l}") : ph);
+  let tpl = url.replace(code(found), (m) => casing(m, found === d.destination ? "{dest}" : "{destcity}")).replace(code(d.origin), (m) => casing(m, "{origin}"));
+  const plain = fmtDate(d.day, datePat);
+  tpl = tpl.split(plain).join(`{date:${datePat}}`).split(encodeURIComponent(plain)).join(`{date:${datePat}}`);
+  // A session token in the query string would be replayed stale (and is not ours to keep): refuse those airlines.
+  try {
+    for (const [, v] of new URL(url).searchParams) {
+      if (/^[A-Za-z0-9_\-=.]{24,}$/.test(v) && !v.includes(found)) return { rejected: "the URL carries a long opaque value (a session token?), so it can't be replayed -- this airline needs a form-driving driver" };
+    }
+  } catch { /* not a parseable URL: keep going */ }
+  const match = tpl.replace(/^https?:\/\//, "").split(/[?{]/)[0];
+  return { url: tpl, match };
+}
+
+// Laya service calls, made here because an extension service worker may fetch http://127.0.0.1:8799
+// (host_permissions) while the airline's page may not. Diagnostic/locating aid only: any failure comes
+// back as {ok:false, error} and the driver decides what to do.
+const LAYA_URL = "http://127.0.0.1:8799";
+async function layaClassify(state, questions) {
+  const r = await fetch(LAYA_URL + "/classify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Laya-Caller": "skyhop-extension" },
+    body: JSON.stringify({ state, questions }),
+  });
+  if (!r.ok) throw new Error("Laya HTTP " + r.status);
+  return (await r.json()).answers;
+}
+const PAGE_TYPES = {
+  results: "Flight search results: flight times, prices, airline names, select buttons.",
+  consent: "A cookie/privacy consent wall asking to accept or manage cookies before continuing.",
+  captcha: "A CAPTCHA, 'are you a robot', or other human-verification challenge.",
+  blocked: "An error, rate-limit, quota, or 'unusual traffic' blocking message.",
+  no_flights: "A message that no flights are available for the chosen route and date.",
+  other: "Something else that doesn't match the above.",
+};
+
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (!msg?.type?.startsWith("laya-")) return false;
+  (async () => {
+    if (msg.type === "laya-ping") { await fetch(LAYA_URL + "/health").then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); }); return {}; }
+    if (msg.type === "laya-page") {
+      const a = await layaClassify(msg.text, { page_type: { type: "choice", instructions: "Classify what kind of airline web page this text is from.", criteria: PAGE_TYPES } });
+      return { choice: a.page_type.choice };
+    }
+    if (msg.type === "laya-rank") {   // one binary question per candidate element; the service serialises them
+      const scores = [];
+      for (const state of msg.states) {
+        const a = await layaClassify(state, { q: { type: "noul", instructions: "Is this page element " + msg.role + "?" } });
+        scores.push(a.q.noul);
+      }
+      return { scores };
+    }
+    throw new Error("unknown laya message " + msg.type);
+  })().then((r) => sendResponse({ ok: true, ...r }), (e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+  return true;   // async response
+});
+
+// The Skyhop page asks which airlines Assist covers (content-bridge.js publishes the answer on the page).
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type !== "list-airlines") return false;
+  (async () => {
+    const learned = await getLearned(), out = {};
+    for (const [key, e] of Object.entries(await registry())) {
+      const status = e.mode === "discover" ? (learned[key] ? "learned" : "discover") : e.status;
+      for (const c of [key, ...(e.aliases || [])]) out[c] = { name: e.name, status };
+    }
+    return out;
+  })().then((airlines) => sendResponse({ ok: true, airlines }), (e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+  return true;
+});
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type !== "select-flight") return false;
@@ -45,7 +141,7 @@ async function reportError(e) {
   console.error("[Skyhop background]", msg);
   let hint = "";
   if (/cannot access|permission|host/i.test(msg))
-    hint = " -- open chrome://extensions > Skyhop Airline Assist > Site access and allow www.elal.com and booking.elal.com";
+    hint = " -- open chrome://extensions > Skyhop Airline Assist > Site access and allow this airline's site (\"Automatically allow access on the following sites\")";
   if (reportTabId !== null)
     chrome.tabs.sendMessage(reportTabId, { type: "progress", stage: "ERR", text: msg + hint }).catch(() => {});
   await chrome.action.setBadgeBackgroundColor({ color: "#a11a2b" });
@@ -84,12 +180,28 @@ async function waitForLoad(tabId, timeoutMs = 20000) {
 }
 
 async function inject(tabId, driver, details) {
-  await chrome.scripting.executeScript({
+  // Each step is labelled so a failure says WHICH one (and a visible marker proves the tab accepted a script at all).
+  // The details step returns instantly, so if it hasn't finished in 8 s the tab is not accepting scripts (stuck
+  // at "2+" with no banner used to be the only symptom); say so instead of hanging.
+  const step = async (label, run, limitMs = 0) => {
+    try {
+      return await (limitMs ? Promise.race([run(), new Promise((_, rej) => setTimeout(() => rej(new Error(`no answer after ${limitMs / 1000}s (the tab isn't accepting scripts -- check Site access for this site, or that this is the tab the extension opened)`)), limitMs))]) : run());
+    } catch (e) { throw new Error(`${label}: ${e?.message || e}`); }
+  };
+  await step("setting the flight details on the page", () => chrome.scripting.executeScript({
     target: { tabId },
-    func: (d) => { window.__skyhopFlightDetails = d; },
+    func: (d) => {
+      window.__skyhopFlightDetails = d;
+      let b = document.getElementById("skyhop-status-banner");
+      if (!b) { b = document.createElement("div"); b.id = "skyhop-status-banner"; document.documentElement.appendChild(b); }
+      b.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:2147483647;color:#fff;font:14px/1.4 system-ui,sans-serif;" +
+        "padding:10px 16px;text-align:center;direction:ltr;background:#1a1a2e;";
+      b.textContent = "Skyhop Assist: extension injected, starting the driver…";
+    },
     args: [details],
-  });
-  await chrome.scripting.executeScript({ target: { tabId }, files: [driver.file] });
+  }), 8000);
+  for (const file of [].concat(driver.file))
+    await step(`running ${file}`, () => chrome.scripting.executeScript({ target: { tabId }, files: [file] }));
 }
 
 // Phase 2 hand-off: search navigates away and destroys the phase-1 script. Instead of relying on
@@ -107,7 +219,12 @@ async function injectWhenResultsLoad(tabId, driver, details, timeoutMs = 120000)
       if (!matchedAt) { matchedAt = Date.now(); await progress(2, "results page reached, waiting for it to settle"); }
       // Normally wait for "complete", but some sites (TAROM) keep a request open so the tab never
       // reports it -- after 4 s on the results URL inject anyway; the driver waits for its own elements.
-      if (tab.status === "complete" || Date.now() - matchedAt > 4000) {
+      // waitComplete drivers (Wizz Air) insist on "complete" (20 s cap) and then a settle pause: an early inject
+      // into a page that reloads afterwards silently loses the driver (no banner, nothing outlined).
+      const early = driver.waitComplete ? Date.now() - matchedAt > 20000 : Date.now() - matchedAt > 4000;
+      if (tab.status === "complete" || early) {
+        if (driver.waitComplete) await new Promise((r) => setTimeout(r, 2500));
+        await progress("2+", "driver injected and running -- watch the banner at the top of the airline tab");
         await inject(tabId, driver, details);
         return true;
       }
@@ -118,14 +235,87 @@ async function injectWhenResultsLoad(tabId, driver, details, timeoutMs = 120000)
   return false;
 }
 
-async function handle({ airline, destination, day, returnDay, flightNumber }, senderTabId) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// A banner in the airline tab (same one the drivers use); best effort -- the toolbar/toast still report.
+async function tabBanner(tabId, text, isError = false) {
+  try {
+    await chrome.scripting.executeScript({ target: { tabId }, args: [text, isError], func: (t, err) => {
+      let b = document.getElementById("skyhop-status-banner");
+      if (!b) { b = document.createElement("div"); b.id = "skyhop-status-banner"; document.documentElement.appendChild(b); }
+      b.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:2147483647;color:#fff;font:14px/1.4 system-ui,sans-serif;" +
+        "padding:10px 16px;text-align:center;direction:ltr;background:" + (err ? "#a11a2b" : "#1a1a2e") + ";";
+      b.textContent = "Skyhop Assist: " + t;
+    } });
+  } catch (e) { console.warn("[Skyhop background] banner failed", e); }
+}
+
+// First use of a "discover" airline: open its home page and learn the results-page URL from ONE search the user
+// does by hand, then carry on as a normal "url" airline (this very page included). Only the URL is kept, and only
+// as a template with the airport codes and date turned into placeholders (a session token is refused).
+// "Tel Aviv (TLV) → Rome (FCO), 2 Oct 2026, one way": the names the airline's own site shows, with the codes we use.
+const place = (name, code) => (name ? `${name} (${code})` : code);
+const niceDay = (iso) => new Date(iso + "T12:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+const ask = (d) => `${place(d.originName, d.origin)} → ${place(d.destinationName, d.destination)} on ${niceDay(d.day)}, one way (either the city or its airport is fine)`;
+
+async function discover(entry, details) {
+  const tab = await chrome.tabs.create({ url: `https://www.${entry.hosts[0]}/` });
+  await waitForLoad(tab.id);
+  await tabBanner(tab.id, `Skyhop doesn't know ${entry.name}'s results page yet. Please search ${ask(details)} here once, any way you like; ` +
+    `Skyhop remembers it and next time the button does the search for you.`);
+  await progress("L", `learning ${entry.name}: do one search on its site -- ${ask(details)}`);
+  const start = Date.now();
+  let lastUrl = "", seenAt = 0, explained = false;
+  while (Date.now() - start < 10 * 60000) {
+    let t;
+    try { t = await chrome.tabs.get(tab.id); } catch { return; }   // tab closed: give up quietly
+    const got = t.url && learnFrom(t.url, details);
+    if (got?.rejected) { await tabBanner(tab.id, `couldn't learn ${entry.name}: ${got.rejected}`, true); return reportError(`couldn't learn ${entry.name}: ${got.rejected}`); }
+    if (got) {
+      const learned = await getLearned();
+      learned[entry.key] = { url: got.url, match: got.match, learnedAt: Date.now() };
+      await chrome.storage.local.set({ learned });
+      await tabBanner(tab.id, `learned ${entry.name}'s results page -- from now on the button opens it directly. Looking for your flight…`);
+      await progress("L+", `learned ${entry.name}`);
+      if (await injectWhenResultsLoad(tab.id, { file: AGENT, waitComplete: true, resultsMatch: got.match }, details))
+        await progress(3, "results page reached, flight selection injected");
+      return;
+    }
+    // A new page loads with no banner (the old one died with the old page): say again what is wanted, and once
+    // the page has settled without its address showing the search, say why that can't be learned.
+    if (t.url && t.url !== lastUrl && t.status === "complete") {
+      lastUrl = t.url; seenAt = Date.now(); explained = false;
+      await tabBanner(tab.id, `Please search ${ask(details)}. I'm watching this tab's address and will remember the results page.`);
+    }
+    if (seenAt && !explained && Date.now() - seenAt > 8000 && new URL(lastUrl).pathname.length > 1) {
+      explained = true;
+      const where = new URL(lastUrl); const shown = where.host + where.pathname;
+      await tabBanner(tab.id, `${entry.name}: this page's address (${shown}) doesn't show the airport (${details.destination}) and the date (${details.day}), so I can't learn it from here. ` +
+        `If this is the results page, this site hides the search from the address and can't be learned; otherwise carry on with the search for ${place(details.destinationName, details.destination)} on ${niceDay(details.day)}.`, true);
+      await progress("L?", `${entry.name}: the address of the page you reached (${shown}) doesn't show the search, so it can't be learned yet`);
+    }
+    await sleep(1000);
+  }
+  await reportError(`gave up learning ${entry.name}: no results page for ${details.destination} on ${details.day} in 10 minutes`);
+}
+
+async function handle({ airline, destination, day, returnDay, flightNumber, departTime, originName, destinationName, destCodes }, senderTabId) {
   reportTabId = senderTabId ?? null;
-  const driver = DRIVERS[airline];
-  if (!driver) return reportError(`No driver yet for airline ${airline}`);
+  const entry = await lookup(airline);
+  if (!entry) return reportError(`${airline} isn't in Skyhop Assist's airline list (browser-extension/airlines.json)`);
   await progress(0, "request received, opening the airline tab");
-  const details = { airline, destination, day, returnDay, flightNumber };
+  const destCity = (destCodes || []).find((c) => c !== destination);
+  const details = { airline, airlineName: entry.name, origin: "TLV", originName, destination, destinationName, destCodes, destCity, day, returnDay, flightNumber, departTime };
 
   try {
+    let driver = null;
+    if (entry.mode === "bespoke") driver = BESPOKE[entry.key];
+    else {
+      const t = entry.url ? entry : (await getLearned())[entry.key];   // registry template, else one learned from the user
+      if (t) driver = { file: AGENT, waitComplete: true, resultsMatch: t.match, directUrl: (d) => fill(t.url, d) };
+    }
+    if (!driver) return await discover(entry, details);
+
     const tab = await chrome.tabs.create({ url: driver.directUrl ? driver.directUrl(details) : driver.startUrl });
     await progress(0, `airline tab ${tab.id} opened, waiting for it to load`);
     await waitForLoad(tab.id);
