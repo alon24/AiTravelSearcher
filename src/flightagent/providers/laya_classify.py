@@ -57,7 +57,8 @@ def classify_page(text: str) -> str | None:
     try:
         import httpx
 
-        resp = httpx.post(url, json={"state": text[:4000], "questions": _QUESTIONS}, timeout=10.0)
+        resp = httpx.post(url, json={"state": text[:4000], "questions": _QUESTIONS}, timeout=10.0,
+                          headers={"X-Laya-Caller": "flightagent"})  # shown on the service dashboard
         resp.raise_for_status()
         return resp.json()["answers"]["page_type"]["choice"]
     except Exception:
