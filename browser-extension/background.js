@@ -99,16 +99,22 @@ async function inject(tabId, driver, details) {
 // also what keep this service worker alive while El Al thinks.
 async function injectWhenResultsLoad(tabId, driver, details, timeoutMs = 120000) {
   const start = Date.now();
+  let matchedAt = 0;
   while (Date.now() - start < timeoutMs) {
     let tab;
     try { tab = await chrome.tabs.get(tabId); } catch { return false; } // tab was closed
-    if (tab.url && tab.url.includes(driver.resultsMatch) && tab.status === "complete") {
-      await inject(tabId, driver, details);
-      return true;
+    if (tab.url && tab.url.includes(driver.resultsMatch)) {
+      if (!matchedAt) { matchedAt = Date.now(); await progress(2, "results page reached, waiting for it to settle"); }
+      // Normally wait for "complete", but some sites (TAROM) keep a request open so the tab never
+      // reports it -- after 4 s on the results URL inject anyway; the driver waits for its own elements.
+      if (tab.status === "complete" || Date.now() - matchedAt > 4000) {
+        await inject(tabId, driver, details);
+        return true;
+      }
     }
     await new Promise((r) => setTimeout(r, 500));
   }
-  await reportError("the airline's results page never loaded (waited 2 min)");
+  await reportError(`the airline's results page (${driver.resultsMatch}) never showed up (waited 2 min)`);
   return false;
 }
 
@@ -126,7 +132,7 @@ async function handle({ airline, destination, day, returnDay, flightNumber }, se
     await progress(1, "airline tab loaded");
     if (!driver.directUrl) {
       await inject(tab.id, driver, details);          // phase 1: search form
-      await progress(2, "search form driven, waiting for the results page");
+      await progress(1, "search form driven, waiting for the results page");
     }
     if (await injectWhenResultsLoad(tab.id, driver, details)) // phase 2: pick the flight
       await progress(3, "results page reached, flight selection injected");
