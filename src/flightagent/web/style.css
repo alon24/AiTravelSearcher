@@ -479,3 +479,12 @@ td.price { font-weight: 800; text-align: right; } th.r { text-align: right; }
   .pick .v { font-size: 38px; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* Airline filter pinned to the top of the results pane: always reachable while scrolling. */
+.air-sticky { position: sticky; top: 0; z-index: 30; margin: 0 0 12px; padding: 8px 0; background: var(--bg); }
+.air-sticky .ab { flex-wrap: nowrap; }
+.air-sticky .ab-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; flex: 1 1 auto; min-width: 0; }
+.air-sticky .ab-chip, .air-sticky .af-label, .air-sticky .btn, .air-sticky .hint { flex: 0 0 auto; white-space: nowrap; }
+.air-sticky .hint { display: none; }
+@media (min-width: 1200px) { .air-sticky .hint { display: inline; } }
+td.air-names { white-space: normal; min-width: 110px; }

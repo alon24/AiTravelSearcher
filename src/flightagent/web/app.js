@@ -20,6 +20,8 @@ function build(el, props, kids) {
 const h = (tag, props, ...kids) => build(document.createElement(tag), props, kids);
 const s = (tag, props, ...kids) => build(document.createElementNS(SVGNS, tag), props, kids);
 
+// Airline codes -> readable names ("W4" -> "Wizz Air"); unknown codes stay as the code.
+const airlineNames = codes => (codes || []).map(c => (config.airlines || {})[c] || c).join(", ");
 const pad = n => String(n).padStart(2, "0");
 const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const day = str => new Date(str.length === 10 ? str + "T00:00:00" : str);
@@ -428,7 +430,11 @@ function renderStepAirlines(res, q, cur, row) {
   host.replaceChildren();
   const bar = airlineBar(res, q, row);
   const panel = airlinePanel(res, q, cur, row);
-  if (bar) host.append(bar);
+  // The quick include/exclude chips live in a sticky strip at the top of the results pane (always
+  // reachable while scrolling); the detailed per-airline list stays in rail step 2.
+  const sticky = $("#air-sticky");
+  sticky.replaceChildren(...(bar ? [bar] : []));
+  sticky.hidden = !bar;
   if (panel) host.append(panel);
   const include = q.airlines_include || [], exclude = q.airlines_exclude || [];
   const nameOf2 = c => (config.airlines || {})[c] || c;
@@ -705,7 +711,7 @@ function showTip(x, color, cur, ev, target) {
     h("div", { class: "t-date" }, `${fmtDay(day(t.depart_date))} → ${fmtDay(day(t.return_date))}`),
     h("div", { class: "t-val" }, money(t.price, cur)),
     h("div", { class: "t-row" }, h("span", { class: "key", style: `background:${color}` }), h("b", {}, t.destination), `· ${tripLen(t.nights)}`),
-    h("div", { class: "t-row" }, `${t.airlines.join(", ")} · ${t.stops === 0 ? "direct" : plural(t.stops, "stop")} · ${hm(t.total_travel_min)}`),
+    h("div", { class: "t-row" }, `${airlineNames(t.airlines)} · ${t.stops === 0 ? "direct" : plural(t.stops, "stop")} · ${hm(t.total_travel_min)}`),
     h("div", { class: "t-row" }, h("b", {}, "Out"), tmShort(t.legs[0])), h("div", { class: "t-row" }, h("b", {}, "Back"), tmShort(t.legs[t.legs.length - 1])));
   tip.hidden = false;
   const r = target.getBoundingClientRect(), px = ev && ev.clientX ? ev.clientX : r.left + r.width / 2, py = ev && ev.clientY ? ev.clientY : r.top;
@@ -720,7 +726,7 @@ function drawTable(host, rows, sel, cur, onSelect) {
       onkeydown: e => { if (e.key === "Enter") onSelect(date); } },
       h("td", {}, fmtDay(day(t.depart_date))), h("td", {}, fmtDay(day(t.return_date))), h("td", {}, t.nights), h("td", {}, t.destination),
       h("td", {}, tmShort(t.legs[0])), h("td", {}, tmShort(t.legs[t.legs.length - 1])),
-      h("td", {}, t.airlines.join(", ")), h("td", {}, t.stops === 0 ? "Direct" : plural(t.stops, "stop")), h("td", {}, hm(t.total_travel_min)),
+      h("td", { class: "air-names", title: t.airlines.join(", ") }, airlineNames(t.airlines)), h("td", {}, t.stops === 0 ? "Direct" : plural(t.stops, "stop")), h("td", {}, hm(t.total_travel_min)),
       h("td", { class: "price" }, money(t.price, cur)))))));
 }
 
@@ -1094,7 +1100,7 @@ async function init() {
     $("#results").replaceChildren(h("div", { class: "card empty-state" }, "Fill in your trip above and hit \"Find flights\" to see results here."));
     writeForm({ ...defaults(), from: readForm().from });
     showStep(1); $("#step-1-summary").textContent = "";
-    $("#step-2-summary").textContent = ""; $("#step2-airlines").replaceChildren();
+    $("#step-2-summary").textContent = ""; $("#step2-airlines").replaceChildren(); $("#air-sticky").replaceChildren(); $("#air-sticky").hidden = true;
     $("#step-3").classList.remove("ready"); $("#step-3-summary").textContent = "Run a search to compare";
     onFormChange(); closeSidebar(); window.scrollTo({ top: 0, behavior: "smooth" }); $("#to-in").focus(); refreshHistory();
   });
