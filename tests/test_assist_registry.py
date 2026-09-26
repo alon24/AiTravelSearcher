@@ -75,6 +75,21 @@ def test_learns_a_template_and_replays_it(url, expect_template):
         b.close()
     assert r["l"]["url"] == expect_template
     assert r["back"] == url
+    assert r["l"]["bound"] is False
+
+
+def test_a_template_with_an_internal_id_is_bound_to_its_destination():
+    pw, code = _js()
+    israir = ('https://www.israir.co.il/reservation/search/flights-abroad/results?origin={"type":"ltravelid","cityCode":"TLV","ltravelid":2135}'
+              '&destination={"type":"ltravelid","cityCode":"ROM","ltravelid":2196}&date=2026-10-02&adults=1')
+    with pw.sync_playwright() as p:
+        b = p.chromium.launch()
+        pg = b.new_page()
+        pg.goto("about:blank")
+        r = pg.evaluate(LEARN, [code, israir, {**D, "day": "2026-10-02"}])
+        b.close()
+    assert r["l"]["bound"] is True
+    assert "{destcity}" in r["l"]["url"] and "{origin}" in r["l"]["url"]
 
 
 @pytest.mark.parametrize("url,rejected", [
@@ -92,3 +107,72 @@ def test_does_not_learn_from_the_wrong_page(url, rejected):
         b.close()
     assert (r["l"] is not None and "rejected" in r["l"]) == rejected
     assert not (r["l"] and r["l"].get("url"))
+
+
+# ---- drivers/parse.js: prices, digits, times and "select" words in the languages Skyhop meets ----
+
+def _parse_page(pw):
+    p = pw.sync_playwright().start()
+    b = p.chromium.launch()
+    pg = b.new_page()
+    pg.goto("about:blank")
+    pg.add_script_tag(content=(EXT / "drivers" / "parse.js").read_text())
+    return p, b, pg
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("€ 113.24", 113.24), ("$90 לנוסע", 90.0), ("113,24 €", 113.24), ("1.234,56 €", 1234.56), ("RON 1,299.00", 1299.0),
+    ("7 500 ₽", 7500.0), ("45,99 lei", 45.99), ("٩٠ $", 90.0), ("EUR 55.99", 55.99), ("Price per person", None),
+    ("Prix par personne", None), ("03:55 | Non stop", None), ("1,299 €", 1299.0),
+])
+def test_parse_prices(text, expected):
+    pw = pytest.importorskip("playwright.sync_api")
+    p, b, pg = _parse_page(pw)
+    try:
+        assert pg.evaluate("t => window.__skyhopParse.priceIn(t)", text) == expected
+    finally:
+        b.close()
+        p.stop()
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("2:30 PM", ["14:30"]), ("2:30pm", ["14:30"]), ("11:45 p.m.", ["23:45"]), ("12:05 AM", ["00:05"]), ("12:30 PM", ["12:30"]),
+    ("7:05AM", ["07:05"]), ("Dep 7:05 AM  Arr 1:20 PM", ["07:05", "13:20"]), ("16:40 -> 19:25", ["16:40", "19:25"]),
+    ("3:55 | Non stop", []), ("13:00 PM", []), ("0:30 AM", []), ("12:30:45", []), ("9:15 a.m. to 11:50 a.m.", ["09:15", "11:50"]),
+])
+def test_parse_12_and_24_hour_times(text, expected):
+    pw = pytest.importorskip("playwright.sync_api")
+    p, b, pg = _parse_page(pw)
+    try:
+        assert pg.evaluate("t => window.__skyhopParse.timesIn(t)", text) == expected
+    finally:
+        b.close()
+        p.stop()
+
+
+def test_parse_times_including_arabic_digits():
+    pw = pytest.importorskip("playwright.sync_api")
+    p, b, pg = _parse_page(pw)
+    try:
+        assert pg.evaluate("t => window.__skyhopParse.timesIn(t)", "16:40 تل أبيب ... ١٩:٢٥ روما") == ["16:40", "19:25"]
+    finally:
+        b.close()
+        p.stop()
+
+
+@pytest.mark.parametrize("label,is_select", [
+    ("Select", True), ("SELECT", True), ("Choose", True), ("Sélectionner", True), ("Choisir", True), ("Réserver", True),
+    ("Auswählen", True), ("Wählen", True), ("Buchen", True), ("Alege", True), ("Selectează", True), ("Rezervă", True),
+    ("Выбрать", True), ("Выбор", True), ("Забронировать", True), ("اختيار", True), ("اختر", True), ("احجز", True),
+    ("בחירה", True), ("Seleccionar", True), ("Seç", True),
+    ("Price per person", False), ("Prix par personne", False), ("Preis pro Person", False), ("Preț pe persoană", False),
+    ("Цена за человека", False), ("السعر للشخص", False), ("פרטי טיסה", False), ("?", False), ("Details", False),
+])
+def test_select_words(label, is_select):
+    pw = pytest.importorskip("playwright.sync_api")
+    p, b, pg = _parse_page(pw)
+    try:
+        assert pg.evaluate("t => window.__skyhopParse.SELECT_WORD.test(t)", label) == is_select
+    finally:
+        b.close()
+        p.stop()

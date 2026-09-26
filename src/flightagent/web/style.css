@@ -488,3 +488,5 @@ td.price { font-weight: 800; text-align: right; } th.r { text-align: right; }
 .air-sticky .hint { display: none; }
 @media (min-width: 1200px) { .air-sticky .hint { display: inline; } }
 td.air-names { white-space: normal; min-width: 110px; }
+.dec-badge { cursor: pointer; font: inherit; font-size: 12px; font-weight: 800; }
+.dec-badge[hidden] { display: none; }

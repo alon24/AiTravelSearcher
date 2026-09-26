@@ -13,7 +13,7 @@
 // injected script. Phase 1 is injected on the search page; this file then watches the tab and
 // injects the same driver again (same details) when the results page has loaded -- see
 // injectWhenResultsLoad(). Outbound legs from TLV only, for now (all the Skyhop buttons offer).
-const AGENT = ["drivers/laya-agent.js", "drivers/results.js"];
+const AGENT = ["drivers/laya-agent.js", "drivers/parse.js", "drivers/results.js"];
 const BESPOKE = {
   LY: { startUrl: "https://www.elal.com/heb/israel", file: "drivers/elal.js", resultsMatch: "booking.elal.com/booking/flights" },
   RO: {
@@ -63,14 +63,50 @@ function learnFrom(url, d) {
     }
   } catch { /* not a parseable URL: keep going */ }
   const match = tpl.replace(/^https?:\/\//, "").split(/[?{]/)[0];
-  return { url: tpl, match };
+  return { url: tpl, match, bound: hasOpaqueId(tpl) };
+}
+
+// A run of 4+ digits left in the address after the placeholders are taken out is an internal id (Israir's
+// "ltravelid":2135 for Rome). Such a template is only right for the destination it was learned with, so it is
+// remembered per destination instead of being replayed for every route (which would silently search the wrong city).
+const PLACEHOLDER = /\{(?:origin|dest|destcity)(?::l)?\}|\{date(?::[A-Za-z\-\/.]+)?\}/g;
+function hasOpaqueId(tpl) {
+  let rest = tpl.replace(/^https?:\/\/[^/]+/, "").replace(PLACEHOLDER, "");
+  try { rest = decodeURIComponent(rest); } catch { /* keep as is */ }
+  return /\d{4,}/.test(rest);
+}
+// What was learned for this airline, if it applies to this destination: a generic template, else one learned for
+// exactly this destination. (Entries saved by v0.6.0-0.6.3 are {url, match}: generic unless they carry an id.)
+function pickLearned(l, destination) {
+  if (!l) return null;
+  if (l.generic) return l.generic;
+  if (l.byDest?.[destination]) return l.byDest[destination];
+  if (l.url && !hasOpaqueId(l.url)) return l;
+  return null;
 }
 
 // Laya service calls, made here because an extension service worker may fetch http://127.0.0.1:8799
 // (host_permissions) while the airline's page may not. Diagnostic/locating aid only: any failure comes
 // back as {ok:false, error} and the driver decides what to do.
 const LAYA_URL = "http://127.0.0.1:8799";
+// Which decision backend answers: "laya" (the local service, called directly) or "jev" (TypeSafe's hosted model via
+// the Skyhop server's /api/decide, which holds the OpenRouter key -- it must never be in the extension). The choice is
+// made in the Skyhop page header and kept in chrome.storage.local.
+const SKYHOP_URL = "http://127.0.0.1:8765";
+const getDecider = async () => ((await chrome.storage.local.get("decider")).decider === "jev" ? "jev" : "laya");
+
 async function layaClassify(state, questions) {
+  if (await getDecider() === "jev") {
+    const r = await fetch(SKYHOP_URL + "/api/decide", {
+      method: "POST",
+      // the custom header is what the Skyhop server requires (a plain web page can't send it cross-origin)
+      headers: { "Content-Type": "application/json", "X-Skyhop": "1" },
+      body: JSON.stringify({ state, questions }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error("Jev via the Skyhop server: " + (body.detail || "HTTP " + r.status));
+    return body.answers;
+  }
   const r = await fetch(LAYA_URL + "/classify", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Laya-Caller": "skyhop-extension" },
@@ -78,6 +114,18 @@ async function layaClassify(state, questions) {
   });
   if (!r.ok) throw new Error("Laya HTTP " + r.status);
   return (await r.json()).answers;
+}
+
+// Is the chosen backend reachable? (Jev: also that the server has the OpenRouter key.)
+async function deciderPing() {
+  if (await getDecider() === "jev") {
+    const r = await fetch(SKYHOP_URL + "/api/decide/health", { headers: { "X-Skyhop": "1" }, signal: AbortSignal.timeout(5000) });
+    if (!r.ok) throw new Error("the Skyhop server answered HTTP " + r.status);
+    if (!(await r.json()).jev_configured) throw new Error("Jev is selected but the Skyhop server has no OpenRouter key (add OPENROUTER_API_KEY to .env, then docker compose up -d)");
+    return;
+  }
+  const r = await fetch(LAYA_URL + "/health", { signal: AbortSignal.timeout(4000) });   // refused at once when it isn't running
+  if (!r.ok) throw new Error("HTTP " + r.status);
 }
 const PAGE_TYPES = {
   results: "Flight search results: flight times, prices, airline names, select buttons.",
@@ -91,22 +139,31 @@ const PAGE_TYPES = {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg?.type?.startsWith("laya-")) return false;
   (async () => {
-    if (msg.type === "laya-ping") { await fetch(LAYA_URL + "/health").then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); }); return {}; }
+    if (msg.type === "laya-ping") { await deciderPing(); return {}; }
     if (msg.type === "laya-page") {
       const a = await layaClassify(msg.text, { page_type: { type: "choice", instructions: "Classify what kind of airline web page this text is from.", criteria: PAGE_TYPES } });
       return { choice: a.page_type.choice };
     }
-    if (msg.type === "laya-rank") {   // one binary question per candidate element; the service serialises them
-      const scores = [];
-      for (const state of msg.states) {
-        const a = await layaClassify(state, { q: { type: "noul", instructions: "Is this page element " + msg.role + "?" } });
-        scores.push(a.q.noul);
-      }
+    if (msg.type === "laya-rank") {   // one binary question per candidate element
+      const ask = async (state) => (await layaClassify(state, { q: { type: "noul", instructions: "Is this page element " + msg.role + "?" } })).q.noul;
+      // Laya's service answers one at a time (a lock), so it is asked one at a time; Jev is a network call, so ask 5 at once.
+      const scores = [], width = (await getDecider()) === "jev" ? 5 : 1;
+      for (let i = 0; i < msg.states.length; i += width) scores.push(...(await Promise.all(msg.states.slice(i, i + width).map(ask))));
       return { scores };
     }
     throw new Error("unknown laya message " + msg.type);
   })().then((r) => sendResponse({ ok: true, ...r }), (e) => sendResponse({ ok: false, error: String(e?.message || e) }));
   return true;   // async response
+});
+
+// The Skyhop page header switches the decision backend (laya | jev); content-bridge.js relays it here.
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type !== "set-decider" && msg?.type !== "get-decider") return false;
+  (async () => {
+    if (msg.type === "set-decider") await chrome.storage.local.set({ decider: msg.value === "jev" ? "jev" : "laya" });
+    return { decider: await getDecider() };
+  })().then((r) => sendResponse({ ok: true, ...r }), (e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+  return true;
 });
 
 // The Skyhop page asks which airlines Assist covers (content-bridge.js publishes the answer on the page).
@@ -261,7 +318,7 @@ const ask = (d) => `${place(d.originName, d.origin)} → ${place(d.destinationNa
 async function discover(entry, details) {
   const tab = await chrome.tabs.create({ url: `https://www.${entry.hosts[0]}/` });
   await waitForLoad(tab.id);
-  await tabBanner(tab.id, `Skyhop doesn't know ${entry.name}'s results page yet. Please search ${ask(details)} here once, any way you like; ` +
+  await tabBanner(tab.id, `Skyhop doesn't know ${entry.name}'s results page yet. Please search ${ask(details)} here once, any way you like (switch the site to English first if it offers it); ` +
     `Skyhop remembers it and next time the button does the search for you.`);
   await progress("L", `learning ${entry.name}: do one search on its site -- ${ask(details)}`);
   const start = Date.now();
@@ -273,9 +330,14 @@ async function discover(entry, details) {
     if (got?.rejected) { await tabBanner(tab.id, `couldn't learn ${entry.name}: ${got.rejected}`, true); return reportError(`couldn't learn ${entry.name}: ${got.rejected}`); }
     if (got) {
       const learned = await getLearned();
-      learned[entry.key] = { url: got.url, match: got.match, learnedAt: Date.now() };
+      const rec = { url: got.url, match: got.match, learnedAt: Date.now() };
+      const cur = learned[entry.key]?.generic || learned[entry.key]?.byDest ? learned[entry.key] : {};   // drop pre-0.6.4 {url,match}
+      if (got.bound) (cur.byDest ||= {})[details.destination] = rec; else cur.generic = rec;
+      learned[entry.key] = cur;
       await chrome.storage.local.set({ learned });
-      await tabBanner(tab.id, `learned ${entry.name}'s results page -- from now on the button opens it directly. Looking for your flight…`);
+      await tabBanner(tab.id, got.bound
+        ? `learned ${entry.name} for ${place(details.destinationName, details.destination)} only (its address holds an id that differs per destination) -- other destinations ask you once each. Looking for your flight…`
+        : `learned ${entry.name}'s results page -- from now on the button opens it directly. Looking for your flight…`);
       await progress("L+", `learned ${entry.name}`);
       if (await injectWhenResultsLoad(tab.id, { file: AGENT, waitComplete: true, resultsMatch: got.match }, details))
         await progress(3, "results page reached, flight selection injected");
@@ -311,7 +373,7 @@ async function handle({ airline, destination, day, returnDay, flightNumber, depa
     let driver = null;
     if (entry.mode === "bespoke") driver = BESPOKE[entry.key];
     else {
-      const t = entry.url ? entry : (await getLearned())[entry.key];   // registry template, else one learned from the user
+      const t = entry.url ? entry : pickLearned((await getLearned())[entry.key], destination);   // registry template, else one learned from the user
       if (t) driver = { file: AGENT, waitComplete: true, resultsMatch: t.match, directUrl: (d) => fill(t.url, d) };
     }
     if (!driver) return await discover(entry, details);

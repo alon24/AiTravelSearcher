@@ -113,3 +113,16 @@ TLV -> destination search on that date, by hand; the extension remembers the res
 the button does it for you from then on. After editing `airlines.json` run `python3 tools/sync_assist_manifest.py`.
 **New in 0.6.0: the `storage` permission and ~68 host permissions -- Chrome may disable the extension on reload;
 re-enable it, and keep "Automatically allow access on the following sites" on.**
+
+## Jev instead of Laya -- v0.7.0
+
+The header of the Skyhop page has a **🧠 Laya / 🧠 Jev** badge next to "Assist on"; click it to switch which decision model
+finds elements on airline pages. Jev (hosted, via OpenRouter) needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`) in the
+project's `.env` and `docker compose up -d`; the key never leaves the server (the extension calls `/api/decide` there, which
+needs the new host permission `http://127.0.0.1:8765/*` -- re-enable the extension if Chrome switches it off). Laya stays free
+and offline. Details and measurements: `docs/DESIGN.md`, "Jev as an alternative decision model".
+
+**Health check (v0.7.1):** on every load/refresh of the Skyhop page (and after a switch, and when the tab regains focus)
+the page asks the extension to ping the chosen backend. If it's down the badge turns amber and reads "✕ not running",
+with a message -- for Laya: "start it with ~/laya-service/start.sh, or switch to Jev"; for Jev: the reason (no key on the
+server, server unreachable). It turns green again on its own once the backend answers.

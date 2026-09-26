@@ -1061,6 +1061,9 @@ async function init() {
     // airline's homepage and never searches -- easy to mistake for the extension).
     const ext = h("span", { class: "mode-badge ext-badge" });
     b.after(ext);
+    // Which decision model finds elements on airline pages: the local Laya service (free) or Jev (hosted, via OpenRouter,
+    // the key stays on this server). Kept by the extension; only shown when the extension is attached.
+    ext.after(h("button", { type: "button", class: "mode-badge dec-badge", onclick: switchDecider }));
   });
   const syncExtBadge = () => {
     const on = extensionAvailable();
@@ -1071,7 +1074,47 @@ async function init() {
         : "Extension not detected on this page. Open chrome://extensions, make sure Skyhop Airline Assist is enabled, reload it, then reload this page. Until then only the plain airline homepage link works.";
     });
   };
+  const decider = () => document.documentElement.dataset.skyhopDecider === "jev" ? "jev" : "laya";
+  let deciderUp = null;   // null = not checked yet, true / false = the chosen backend answered / didn't
+  const syncDecider = () => $$(".dec-badge").forEach(e => {
+    const name = decider() === "jev" ? "Jev" : "Laya";
+    e.hidden = !extensionAvailable();
+    e.classList.toggle("live", deciderUp === true); e.classList.toggle("demo", deciderUp === false);
+    e.textContent = `🧠 ${name}${deciderUp === false ? " ✕ not running" : ""}`;
+    e.title = deciderUp === false ? `${name} isn't reachable, so Assist can't find elements on airline pages. ` + (decider() === "laya" ? "Start it with ~/laya-service/start.sh, or click to switch to Jev." : "Check the OpenRouter key on the server, or click to switch to Laya.")
+      : decider() === "jev" ? "Assist uses Jev (hosted, via OpenRouter, billed per call) to find elements on airline pages. Click to switch to the local Laya service."
+      : "Assist uses the local Laya service to find elements on airline pages. Click to switch to Jev (hosted, via OpenRouter).";
+  });
+  // Is the chosen backend up? Asked on load, after a switch, and when the tab regains focus (so the badge recovers
+  // once you start Laya). The answer comes from the extension, which does the real ping the drivers do first.
+  let announceDecider = false, lastCheck = 0;
+  const checkDecider = (announce) => { announceDecider = announce; lastCheck = Date.now(); window.dispatchEvent(new CustomEvent("skyhop-check-decider")); };
+  window.addEventListener("skyhop-decider-status", (e) => {
+    const r = e.detail || {}, was = deciderUp;
+    deciderUp = !!r.ok; syncDecider();
+    if (!r.ok && announceDecider) toast(decider() === "laya"
+      ? `Laya isn't running (${r.error}). Start it with ~/laya-service/start.sh, or click the 🧠 badge to switch to Jev.`
+      : `Jev isn't usable: ${r.error}`);
+    if (r.ok && was === false && !announceDecider) toast(`${decider() === "jev" ? "Jev" : "Laya"} is running again`);
+    announceDecider = false;
+  });
+  window.addEventListener("focus", () => { if (extensionAvailable() && Date.now() - lastCheck > 10000) checkDecider(false); });
+  async function switchDecider() {
+    const next = decider() === "jev" ? "laya" : "jev";
+    if (next === "jev") {
+      try {
+        const r = await (await fetch("/api/decide/health", { headers: { "X-Skyhop": "1" } })).json();
+        if (!r.jev_configured) { toast("Jev needs an OpenRouter key on this server: put OPENROUTER_API_KEY in .env, then run docker compose up -d"); return; }
+      } catch { toast("Couldn't reach this server to check the Jev key"); return; }
+    }
+    window.dispatchEvent(new CustomEvent("skyhop-set-decider", { detail: { value: next } }));
+    deciderUp = null; setTimeout(syncDecider, 300);
+    toast(next === "jev" ? "Assist now uses Jev (billed per call via OpenRouter)" : "Assist now uses the local Laya service");
+    setTimeout(() => checkDecider(true), 500);   // and say at once if the one just chosen isn't up
+  }
   syncExtBadge(); setTimeout(syncExtBadge, 1500); // the content script can attach just after load
+  syncDecider(); setTimeout(syncDecider, 500); setTimeout(syncDecider, 1500);
+  setTimeout(() => { if (extensionAvailable()) checkDecider(true); }, 1200);   // on load / refresh: is the chosen one running?
   try { ratesInfo = await api("/api/rates"); rates = ratesInfo.rates; } catch { /* keep the approximate defaults */ }
   showOriginal = !!store.get("skyhop.showOriginal");
   $("#orig-toggle").checked = showOriginal;

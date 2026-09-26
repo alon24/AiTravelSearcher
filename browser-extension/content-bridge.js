@@ -43,3 +43,24 @@ function publishAirlines(retries = 2) {
 }
 publishAirlines();
 window.addEventListener("focus", () => publishAirlines(0));
+
+// Decision backend (laya | jev): shown/switched from the Skyhop page header. The value lives in the extension;
+// the page only sees it as an attribute and asks for changes with an event.
+function publishDecider(msg = { type: "get-decider" }) {
+  try {
+    chrome.runtime.sendMessage(msg, (r) => {
+      if (!chrome.runtime.lastError && r?.ok) document.documentElement.setAttribute("data-skyhop-decider", r.decider);
+    });
+  } catch (err) { /* orphaned after an extension reload */ }
+}
+publishDecider();
+window.addEventListener("skyhop-set-decider", (e) => publishDecider({ type: "set-decider", value: e.detail?.value }));
+
+// "Is the chosen decision backend up?" -- asked by the Skyhop page on load, after a switch and on focus. The answer is
+// {ok, error} (the same ping the drivers do first); the page turns it into a badge state and a message.
+window.addEventListener("skyhop-check-decider", () => {
+  const answer = (detail) => window.dispatchEvent(new CustomEvent("skyhop-decider-status", { detail }));
+  try {
+    chrome.runtime.sendMessage({ type: "laya-ping" }, (r) => answer(chrome.runtime.lastError ? { ok: false, error: chrome.runtime.lastError.message } : (r || { ok: false, error: "no answer" })));
+  } catch (err) { answer({ ok: false, error: "the extension was reloaded -- refresh this page" }); }
+});

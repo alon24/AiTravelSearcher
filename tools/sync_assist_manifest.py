@@ -13,12 +13,13 @@ import sys
 from pathlib import Path
 
 EXT = Path(__file__).resolve().parent.parent / "browser-extension"
-LAYA = "http://127.0.0.1:8799/*"
+LAYA = "http://127.0.0.1:8799/*"      # the local decision service
+SKYHOP = "http://127.0.0.1:8765/*"    # this app's server: /api/decide (holds the OpenRouter key for Jev)
 
 
 def expected_hosts(registry: dict) -> list[str]:
     hosts = sorted({f"https://*.{d}/*" for a in registry["airlines"].values() for d in a["hosts"]})
-    return hosts + [LAYA]
+    return hosts + [LAYA, SKYHOP]
 
 
 def main(argv: list[str]) -> int:

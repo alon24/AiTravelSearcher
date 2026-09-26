@@ -9,8 +9,7 @@
 // Times and prices are read with regexes -- Laya can't read numbers. The flight is matched by its departure time
 // (many airlines' cards show no flight number), else by flight number if the card prints it. Like the TAROM driver
 // it only OUTLINES the cheapest fare; it never presses a fare's SELECT button and never touches passenger/payment
-// fields. Known limits: 24-hour clock times only (12-hour "2:30 PM" sites, e.g. US airlines, need the TIME regex
-// widened), and a card layout that isn't "times + price + button in one block" reports what it found instead.
+// fields. Known limit: a card layout that isn't "times + price + button in one block" reports what it found instead.
 (async () => {
   const details = window.__skyhopFlightDetails;
   const laya = window.__skyhopLaya;
@@ -45,9 +44,7 @@
     return null;
   }
 
-  const TIME = /\b([01]\d|2[0-3]):[0-5]\d\b/g;
-  const PRICE = /(?:[€£$₪]\s?|\b(?:EUR|GBP|USD|ILS|HUF)\s?)(\d[\d,]*(?:\.\d+)?)/;
-  const priceIn = (s) => { const m = PRICE.exec(s || ""); return m ? parseFloat(m[1].replace(/,/g, "")) : null; };
+  const { norm, priceIn, timesIn, SELECT_WORD } = window.__skyhopParse;   // drivers/parse.js
 
   // "Controls": anything a person would click as a button. Real buttons/links/role=button, but also plain spans/divs
   // that only LOOK like buttons (Tus Air's "Select" is a <span> in a <div> in an <a>): recognised by a pointer
@@ -70,7 +67,7 @@
       let el = b.parentElement;
       for (let i = 0; el && i < 8; i++, el = el.parentElement) {
         const t = el.innerText || "";
-        if ((t.match(TIME) || []).length >= 2 && PRICE.test(t)) {
+        if (timesIn(t).length >= 2 && priceIn(t) !== null) {
           if (!cards.includes(el)) cards.push(el);
           break;
         }
@@ -127,10 +124,10 @@
     cards = findCards();
 
     // 3. Match by departure time.
-    const timesOf = (c) => (c.innerText.match(TIME) || []);
+    const timesOf = (c) => timesIn(c.innerText);
     const listed = cards.map((c) => timesOf(c)[0]).join(", ");
     const card = cards.find((c) => timesOf(c)[0] === departTime)
-      || (flightNumber && cards.find((c) => c.innerText.replace(/\s/g, "").toUpperCase().includes(flightNumber.replace(/\s/g, "").toUpperCase())));
+      || (flightNumber && cards.find((c) => norm(c.innerText).replace(/\s/g, "").toUpperCase().includes(flightNumber.replace(/\s/g, "").toUpperCase())));
     if (!card) throw new Error(departTime
       ? `the ${departTime} departure isn't listed on ${airlineName} (it lists: ${listed})`
       : `Skyhop didn't pass a departure time and the flight number isn't shown on the cards (it lists: ${listed}) -- refresh the Skyhop page and try again`);
@@ -143,7 +140,7 @@
     // <div>Select</div> 0.31), so the code narrows to controls whose label has a select-type word and Laya only
     // confirms among them; with no such word it must be very sure (0.85). Every control is described to Laya as a
     // "button" -- what it functions as -- since it scores a bare <div>/<span> label far too low.
-    const VERB = /select|choose|book|continue|reserve|pick|בחר|הזמן/i;
+    const VERB = SELECT_WORD;
     const named = fares.filter((f) => VERB.test(laya.labelOf(f.button)));
     const pool = named.length ? named : fares;
     const ranked = await laya.rank("the button that selects this flight and its price (Select, Choose, Book)",

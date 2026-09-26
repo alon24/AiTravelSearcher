@@ -53,6 +53,12 @@ def classify_page(text: str) -> str | None:
     context window (512 tokens for the English backbone)."""
     if os.environ.get("FLIGHTAGENT_LAYA", "0") != "1":
         return None
+    if os.environ.get("FLIGHTAGENT_DECIDER", "laya").strip().lower() == "jev":   # hosted Jev instead of the local service
+        try:
+            from ..decide import decide_jev
+            return decide_jev(text[:4000], _QUESTIONS)["answers"]["page_type"]["choice"]
+        except Exception:
+            return None
     url = os.environ.get("FLIGHTAGENT_LAYA_URL", "http://127.0.0.1:8799") + "/classify"
     try:
         import httpx

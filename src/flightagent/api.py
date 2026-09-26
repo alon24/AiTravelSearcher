@@ -11,11 +11,12 @@ from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
 from .cache import OfferCache
+from .decide import configured_decider, decide_jev, jev_configured, spent_usd
 from .engine import BudgetExceeded, FlightSearchEngine, leg_view
 from .explore import ExploreResult, explore
 from .geo import airports_by_country, country_airports
@@ -201,6 +202,37 @@ async def _run_job(sid: str, req: SearchRequest) -> None:
 @app.get("/api/config")
 async def config() -> dict:
     return {"provider": os.getenv("FLIGHTAGENT_PROVIDER", "mock"), "airline_sites": AIRLINE_SITES, "airlines": KNOWN_AIRLINES, "bag_notes": BAG_NOTES, "bag_short": BAG_SHORT}
+
+
+# Typed decisions for the browser extension when it uses Jev: the OpenRouter key lives on this server, never in the
+# extension. The custom header makes a browser send a CORS preflight (which this app doesn't answer), so an arbitrary
+# web page can't make the user's browser spend the key; size and question limits bound each call.
+class DecideBody(BaseModel):
+    state: object
+    questions: dict
+
+
+def _require_skyhop_header(x_skyhop: str | None) -> None:
+    if x_skyhop != "1":
+        raise HTTPException(403, "missing X-Skyhop header")
+
+
+@app.get("/api/decide/health")
+def decide_health(x_skyhop: str | None = Header(default=None)) -> dict:
+    _require_skyhop_header(x_skyhop)
+    return {"jev_configured": jev_configured(), "decider": configured_decider(), "spent": spent_usd()}
+
+
+@app.post("/api/decide")
+async def decide(b: DecideBody, x_skyhop: str | None = Header(default=None)) -> dict:
+    _require_skyhop_header(x_skyhop)
+    try:
+        out = await asyncio.to_thread(decide_jev, b.state, b.questions)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    except Exception as e:
+        raise HTTPException(502, str(e)) from e
+    return {**out, "backend": "jev"}
 
 
 @app.post("/api/estimate")

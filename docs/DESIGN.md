@@ -293,9 +293,39 @@ El Al and TAROM are bespoke drivers. Per airline `mode` says how to open a searc
   per person"` 0.93 and `<div>Select</div>` 0.31 (0.88 once described as `button "Select"`), so the code first narrows to
   controls whose label has a select-type word (Select/Choose/Book/...) and Laya only confirms among them (>= 0.5; >= 0.85
   when no control has such a word). Laya is reliable for the cookie decline button and the page type, less so here.
+- Learned on Israir (6H) via the **city code** (`"cityCode":"ROM"` for FCO). Its address also carries internal ids
+  (`"ltravelid":2135`), so a template with a run of 4+ digits left after the placeholders is remembered **per destination**
+  only (`learned[airline].byDest`), never replayed for other routes (it would silently search the wrong city); a
+  destination-independent one is `generic`. Israir's fare box is Hebrew ("בחירה" = choose), so the select-word list
+  includes Hebrew and a few European languages.
 - Tried and inconclusive: Ryanair's results URL opens the right search but its flights never loaded in a tool-driven tab.
-- Known gaps: 24-hour clock times only in `results.js` (US airlines show 12-hour), and a card layout that isn't
+- Languages: `drivers/parse.js` (shared, unit-tested) reads Arabic-Indic/Persian digits, prices with the symbol before or after
+  and comma/point decimals ("113,24 €", "1.234,56 €", "7 500 ₽", "45,99 lei"), and knows the word for "select" in English,
+  French, German, Romanian, Russian, Arabic, Hebrew, Spanish, Italian and Turkish. The learn-once banner also asks to switch
+  the site to English first, so what the page shows is usually English. Not done: rewriting a learned URL's language
+  segment to `en` (a guess that could 404 on sites without that locale).
+- Times: 24-hour and 12-hour ("2:30 PM", "2:30pm", "2:30 p.m.") both come back as 24-hour "HH:MM" so they match Skyhop's departure
+  time; a one-digit hour with no AM/PM ("3:55", a duration) is ignored. Arabic AM/PM markers (ص/م) are not handled.
+- Known gaps: a card layout that isn't
   "times + price + button in one block".
+
+### Jev as an alternative decision model (Sept 2026, measured 2026-09-26)
+
+Jev (`typesafe/jev-1.13`, alias `~typesafe/jev-latest`) is TypeSafe's hosted "System One" model on OpenRouter: the same
+typed questions as Laya (choice / noul / score, `state` + `questions` -> probabilities), $0.042 per million input tokens,
+output free, 32k context, `POST https://openrouter.ai/api/alpha/decisions`. `src/flightagent/decide.py` adapts our
+Laya-style requests (wraps a string state, spells out noul true/false criteria) so **callers don't care which answers**.
+- **Key stays on the server** (Jev's docs: never in browser code): the extension calls this app's `POST /api/decide`, which
+  needs an `X-Skyhop: 1` header (a plain web page can't send it cross-origin, so it can't make the browser spend the key),
+  bounds each call (12k chars of state, 8 questions) and sums `usage.cost` (`GET /api/decide/health`). Key: `OPENROUTER_API_KEY`
+  or `OPENROUTER_KEY` in `.env`; model: `FLIGHTAGENT_JEV_MODEL`.
+- **Switch:** the "🧠 Laya / 🧠 Jev" badge in the Skyhop header (shown when the extension is attached) -> stored in
+  `chrome.storage.local`; `FLIGHTAGENT_DECIDER=jev` does the same for the Python-side diagnostics (`laya_classify.py`).
+- **Measured on the cases Laya struggled with** (per-candidate noul, same wording): fare button -- Laya scored `Price per person`
+  0.93 vs Jev 0.12, `Sign in` for "submit the search" 0.90 vs Jev 0.03; cookie decline -- Deny all 0.94 vs Accept all 0.03
+  (Laya 0.83 / 0.01). Jev picks "Select" 0.78 and `€ 113.24` 0.65 (a price box). ~0.36 s per call (network) and about
+  $0.000014 per call, i.e. ~$0.00029 for the 21 calls of that test. Laya remains free and offline; Jev needs internet + a key.
+- The select-word narrowing in `results.js` stays for both: cheap, and it makes a wrong pick need two independent mistakes.
 
 ### Rail/pane redesign (Sept 2026)
 
