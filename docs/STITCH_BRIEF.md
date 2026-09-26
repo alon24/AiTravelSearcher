@@ -35,7 +35,7 @@ to Figma or to front-end code (HTML/CSS, Tailwind and others).
 > - Status: warning amber (`#fff3d6` bg / `#8a4b00` text), success green, error red. Always paired with an icon and text.
 > - Radius 14px inputs, 20px cards, pill chips. Inputs 48px tall. Buttons 44px minimum touch target.
 >
-> Provide **light and dark** themes. Desktop first (1440px, left sidebar plus centred 1180px content), plus a
+> Provide **light and dark** themes. FULL-SCREEN desktop (the layout fills the whole browser window: fixed left sidebar plus a main area that stretches to the right edge, no centred max-width column; 1440-2560px first, 1280px laptops must still work). Mobile (390px) comes later, plus a
 > mobile layout (390px) where the sidebar becomes a slide-in drawer. Accessible: WCAG AA contrast, visible
 > focus rings, labels on all fields, chart also available as a table.
 
@@ -156,3 +156,53 @@ The current UI is plain HTML, CSS and vanilla JavaScript served by the API, with
 - [ ] Chart also reachable as a table; colour is never the only signal.
 - [ ] Works at 390px and 1440px; no horizontal page scroll.
 - [ ] Reduced-motion users see no floating or sliding animation.
+
+
+---
+
+## 8. Added since this brief was written (paste as extra screens or edits, 26 Sept 2026)
+
+These features exist in the app now and have no design yet.
+
+### H. Trip length: simple and expert mode
+> Design the **Trip length** field of the search form (a 300px-wide column next to the two date fields "Earliest departure" and
+> "Latest return"). Label "TRIP LENGTH" with a small Nights / Days segmented control on the right.
+> **Simple state (default):** an "Expert mode" switch (off) and one calm sentence: "Any length that fits your dates: 1-20 nights
+> (2-21 days)." Nothing else, so the default stays effortless.
+> **Expert state:** the switch is on. A two-option segmented control "Exactly | Between". Below it, for *Between* two steppers
+> "5 - to - 7" (minus, number, plus each) and for *Exactly* one full-width stepper "4". Three preset pills: Weekend, Week, Two weeks.
+> A hint line: "Between 4-6 nights (5-7 days). Your dates allow up to 20 nights."
+> **Validation state:** the second number can never be lower than the first. Show an amber note under the steppers, "The second
+> number can't be lower than the first, so it was raised to match", and a second variant "Your dates allow at most 5 nights, so the
+> length was set to fit". Light and dark.
+
+### I. Header badges
+> The page header shows, right of the title, three small pills: **LIVE** (green), **ASSIST ON** (green, with a plane icon) and a
+> decision-model pill "Laya" or "Jev" with a brain icon. The model pill is a button: amber with "x not running" when the chosen model
+> can't be reached, with a tooltip. Also design ASSIST OFF (amber). Keep them compact and calm.
+
+### J. Airline filter bar
+> A sticky bar at the top of the results: label "AIRLINES", one chip per airline found ("Wizz Air | ONLY", "Israir | ONLY",
+> "ITA | ONLY"). Excluded airlines are struck through and dimmed. At the right: "Show all" and "Filter on: 1 of 5 airlines used".
+> Design normal, excluded and hover states, and how the bar collapses on mobile.
+
+### K. Mix and match flights
+> Under the price-by-day chart: "Mix & match flights". A warning strip when an airline filter hides flights ("Airline filter on
+> (only Wizz Air) ... 14 flights from other airlines are hidden here", with an "Ignore my airline filter" switch). Two columns,
+> Outbound and Return, each a list of selectable flight rows (times, airline name and code, duration, price, a "bags usually
+> extra" chip) with a highlighted selected row, and a total with the time between the two flights. Each row has a small purple
+> "Select on site" button that opens the airline's own site.
+
+### L. Airline-site helper (browser extension banner)
+> A slim full-width banner pinned to the top of an airline's website, injected by our extension. Dark navy, white text, one line,
+> with states: working ("looking for the flight list..."), success (the cheapest fare on that page is outlined in magenta),
+> teaching ("Please search Tel Aviv (TLV) to Rome (FCO) on 2 Oct 2026 here once"), and error (red). It must not clash with any
+> airline's header.
+
+
+### M. Results rules added 26 Sept 2026 (apply to screens C, D and K)
+- The **airline filter bar is sticky** at the top of the results, always visible.
+- **Airline names are bold** (weight 800, at least 15px) on every flight; flight code lighter and smaller.
+- **"Check on airline site" is a readable 44px button** (2px accent border, dark bold text, external-link icon, full label).
+- **No single "cheapest"**: with several destinations and trip lengths show a destination-by-length matrix (best total per cell, heatmap, clickable) plus a sortable, filterable, groupable table of all trips, and the price-by-day chart coloured by destination.
+See `docs/stitch/DESIGN.md`, "Results screen rules".

@@ -5,6 +5,7 @@ mixed airlines out/back and self-transfer connections. Composes trips from **one
 so any provider that can price a one-way flight works.
 
 **Web UI:** run `docker compose up -d --build`, then open http://localhost:8765/ (search form, live progress, past searches).
+**Installing on another computer (server + Chrome extension): [`docs/INSTALL.md`](docs/INSTALL.md)** (`tools/install.sh` on Linux/macOS).
 
 Docs: [`docs/DESIGN.md`](docs/DESIGN.md) architecture, provider contract and a price-verification proposal; [`docs/STITCH_BRIEF.md`](docs/STITCH_BRIEF.md) UI design brief for Google Stitch.
 
