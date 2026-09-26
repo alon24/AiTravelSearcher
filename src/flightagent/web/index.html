@@ -75,17 +75,26 @@
                   <label><input type="radio" name="unit" value="nights" checked>Nights</label>
                   <label><input type="radio" name="unit" value="days">Days</label>
                 </div></div>
-              <div class="nights">
-                <div class="stepper"><button type="button" data-step="-1" data-for="nmin" aria-label="Fewer minimum nights">−</button><input id="nmin" type="number" min="1" max="60" aria-label="Minimum nights"><button type="button" data-step="1" data-for="nmin" aria-label="More minimum nights">+</button></div>
-                <span class="to">to</span>
-                <div class="stepper"><button type="button" data-step="-1" data-for="nmax" aria-label="Fewer maximum nights">−</button><input id="nmax" type="number" min="1" max="60" aria-label="Maximum nights"><button type="button" data-step="1" data-for="nmax" aria-label="More maximum nights">+</button></div>
+              <!-- Simple: any length that fits the dates (the whole timeframe). Expert mode: exactly N, or between N and M. -->
+              <label class="switch" title="Off: search every trip length that fits your dates. On: choose the length yourself."><input type="checkbox" id="expert"> Expert mode</label>
+              <div class="len-any hint" id="len-any"></div>
+              <div id="len-expert" hidden>
+                <div class="seg mini" role="radiogroup" aria-label="Trip length mode">
+                  <label><input type="radio" name="lenmode" value="exact">Exactly</label>
+                  <label><input type="radio" name="lenmode" value="range" checked>Between</label>
+                </div>
+                <div class="nights" id="nights-row">
+                  <div class="stepper"><button type="button" data-step="-1" data-for="nmin" aria-label="Fewer minimum nights">−</button><input id="nmin" type="number" min="1" max="60" aria-label="Minimum nights"><button type="button" data-step="1" data-for="nmin" aria-label="More minimum nights">+</button></div>
+                  <span class="to" id="len-to">to</span>
+                  <div class="stepper" id="nmax-wrap"><button type="button" data-step="-1" data-for="nmax" aria-label="Fewer maximum nights">−</button><input id="nmax" type="number" min="1" max="60" aria-label="Maximum nights"><button type="button" data-step="1" data-for="nmax" aria-label="More maximum nights">+</button></div>
+                </div>
+                <div class="presets">
+                  <button type="button" class="pill" data-nights="2-3">Weekend</button>
+                  <button type="button" class="pill" data-nights="4-7">Week</button>
+                  <button type="button" class="pill" data-nights="10-14">Two weeks</button>
+                </div>
               </div>
-              <span class="hint" id="nights-hint"></span>
-              <div class="presets">
-                <button type="button" class="pill" data-nights="2-3">Weekend</button>
-                <button type="button" class="pill" data-nights="4-7">Week</button>
-                <button type="button" class="pill" data-nights="10-14">Two weeks</button>
-              </div>
+              <span class="hint" id="nights-hint" role="status"></span>
             </div>
           </div>
 

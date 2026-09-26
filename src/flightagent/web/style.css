@@ -490,3 +490,11 @@ td.price { font-weight: 800; text-align: right; } th.r { text-align: right; }
 td.air-names { white-space: normal; min-width: 110px; }
 .dec-badge { cursor: pointer; font: inherit; font-size: 12px; font-weight: 800; }
 .dec-badge[hidden] { display: none; }
+
+/* Trip length: simple (any length that fits the dates) / expert mode (exactly N, or between N and M) */
+.len-any { font-weight: 700; color: var(--ink); }
+#len-expert { display: grid; gap: 8px; }
+#len-expert[hidden] { display: none; }
+.nights.one { grid-template-columns: 1fr; }
+.stepper[hidden], .nights .to[hidden] { display: none; }   /* author display rules beat the hidden attribute */
+#nights-hint.warn { color: var(--warn-ink); font-weight: 700; }

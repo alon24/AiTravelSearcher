@@ -154,7 +154,7 @@ const VOT = { ILS: 35, USD: 10, EUR: 10, GBP: 8 }, PENALTY = { ILS: 150, USD: 40
 let lastCurrency = "ILS";
 const defaults = () => {
   const t = new Date(), plus = n => { const d = new Date(t); d.setDate(d.getDate() + n); return iso(d); };
-  return { from: ["TLV"], to: [], back: [], start: plus(21), end: plus(60), nmin: 4, nmax: 7, stops: 1, currency: "ILS", adults: 1,
+  return { from: ["TLV"], to: [], back: [], start: plus(21), end: plus(60), nmin: 4, nmax: 7, lenMode: "any", stops: 1, currency: "ILS", adults: 1,
     airmode: "exclude", airlines: [], kids: [], connect: false, same: false, st: false, hubs: [], buffer: 4, maxtravel: "", laymin: 1.5, laymax: 72, vot: VOT.ILS, top: 5, maxcalls: 400 };
 };
 let ac = {};
@@ -165,7 +165,7 @@ function readForm() {
   unit = $$("input[name=unit]").find(r => r.checked)?.value || "nights";
   return {
     from: ac.from.get(), to: ac.to.get(), back: ac.back.get(), hubs: ac.hubs.get(),
-    start: $("#start").value, end: $("#end").value, nmin: num("nmin", 0) - unitOff(), nmax: num("nmax", 0) - unitOff(), unit,
+    start: $("#start").value, end: $("#end").value, ...effectiveLength(), lenMode, unit,
     stops: +($$("input[name=stops]").find(r => r.checked)?.value ?? 1), currency: $$("input[name=currency]").find(r => r.checked)?.value || "ILS", adults: num("adults", 1),
     airmode: $$("input[name=airmode]").find(r => r.checked)?.value || "exclude", airlines: ac.air.get(),
     bags: $$("input[name=bags]").find(r => r.checked)?.value || "none",
@@ -177,7 +177,9 @@ function writeForm(f) {
   ac.from.set(f.from); ac.to.set(f.to); ac.back.set(f.back); ac.hubs.set(f.hubs);
   unit = f.unit || unit;
   ($$("input[name=unit]").find(r => r.value === unit) || {}).checked = true;
-  $("#start").value = f.start; $("#end").value = f.end; showLength(f.nmin, f.nmax);
+  $("#start").value = f.start; $("#end").value = f.end;
+  showLength(f.nmin, f.nmax);
+  setLenMode(f.lenMode || inferLenMode(f));
   const r = $$("input[name=stops]").find(x => +x.value === f.stops) || $$("input[name=stops]")[1]; r.checked = true;
   ($$("input[name=currency]").find(r => r.value === f.currency) || $$("input[name=currency]")[0]).checked = true; $("#adults").value = f.adults;
   kids = [...(f.kids || [])]; renderKids();
@@ -199,7 +201,8 @@ function toRequest(f) {
   const infants = f.kids.filter(a => a < 2).length, adultsEff = f.adults + f.kids.filter(a => a >= 12).length;
   if (f.adults + f.kids.length > 9) return err("At most 9 travellers per search.");
   if (infants > adultsEff) return err("Each child under 2 needs their own adult (one lap infant per adult).");
-  if (f.nmin < 1 || f.nmax < f.nmin) return err("Nights: the minimum must be at least 1 and no more than the maximum.");
+  if (f.nmin < 1) return err("Trip length: at least 1 night.");
+  if (f.nmax < f.nmin) return err("Trip length: the second number can't be lower than the first (it is between the lower and the higher one).");
   if (days < f.nmin) return err(`Your dates allow at most ${plural(days, "night")} (${plural(days + 1, "day")}), but the trip is ${tripLen(f.nmin)}. Shorten the trip or move the latest return later.`);
   return { req: {
     origin: f.from[0], destinations: f.to, return_airports: f.back, connect_destinations: f.connect,
@@ -277,15 +280,16 @@ function rerenderCurrency() {
   if (window.Finder) Finder.refresh();
 }
 
-// Put a night range into the two inputs in the unit being shown, and explain what it means in calendar days.
-function showLength(nmin, nmax) {
-  const off = unitOff();
-  for (const [id, n] of [["nmin", nmin], ["nmax", nmax]]) $(`#${id}`).value = n + off;
-  constrainLength();
-  updateLengthHint(num("nmin", 0) - off, num("nmax", 0) - off);
-}
-
-// The dates cap the trip length: leaving on the earliest date and coming back on the latest is the longest trip possible.
+// ---- Trip length ------------------------------------------------------------------------------------------------
+// Simple ("any"): every length that fits the dates, i.e. the whole timeframe. Expert mode: "exact" (N) or "range" (N to M).
+// The dates cap the length (leave on the earliest date, return on the latest = the longest trip), and in a range the second
+// number can never be lower than the first. The API always works in nights; the form shows nights or days.
+let lenMode = "any";
+// The unit the two number inputs are currently written in. It is NOT always `unit`: the radio's "input" event reaches
+// readForm (which sets `unit`) before the "change" handler has re-written the numbers, so reading them needs their own unit.
+let inputsUnit = "nights";
+const inOff = () => (inputsUnit === "days" ? 1 : 0);
+let lastExpert = { nmin: 4, nmax: 7, mode: "range" };   // what expert mode returns to after being switched off and on
 const addDays = (str, n) => { const d = day(str); d.setDate(d.getDate() + n); return iso(d); };
 const windowNights = () => {
   const a = $("#start").value, b = $("#end").value;
@@ -293,27 +297,67 @@ const windowNights = () => {
   const n = Math.round((day(b) - day(a)) / 864e5);
   return n >= 1 ? n : null;
 };
-let lengthAdjusted = false;
+const lengthCap = () => Math.min(60, windowNights() ?? 60);   // nights
+
+// The length (in nights) the search will use, whatever mode the form is in.
+function effectiveLength() {
+  if (lenMode === "any") return { nmin: 1, nmax: lengthCap() };
+  const nmin = num("nmin", 0) - inOff(), nmax = lenMode === "exact" ? nmin : num("nmax", 0) - inOff();
+  return { nmin, nmax };
+}
+// Which mode a saved search / older draft was in: the whole window is "any", one number is "exact", else "range".
+function inferLenMode(f) {
+  const n = f.start && f.end ? Math.min(60, Math.max(1, Math.round((day(f.end) - day(f.start)) / 864e5))) : 60;
+  return f.nmin <= 1 && f.nmax >= n ? "any" : f.nmin === f.nmax ? "exact" : "range";
+}
+function setLenMode(mode) {
+  lenMode = mode;
+  $("#expert").checked = mode !== "any";
+  $("#len-any").hidden = mode !== "any"; $("#len-expert").hidden = mode === "any";
+  ($$("input[name=lenmode]").find(r => r.value === mode) || {}).checked = mode !== "any";
+  $("#nmax-wrap").hidden = $("#len-to").hidden = mode === "exact";
+  $("#nights-row").classList.toggle("one", mode === "exact");
+  if (mode === "exact") $("#nmax").value = $("#nmin").value;
+  if (mode !== "any") lastExpert = { nmin: num("nmin", 4) - inOff(), nmax: num("nmax", 7) - inOff(), mode };
+  constrainLength(); updateLengthHint();
+}
+
+// Put a night range into the two inputs in the unit being shown.
+function showLength(nmin, nmax) {
+  const off = unitOff();
+  for (const [id, n] of [["nmin", nmin], ["nmax", nmax]]) $(`#${id}`).value = n + off;
+  inputsUnit = unit;
+  constrainLength();
+}
+
+let lengthNote = "";   // why a number was changed for the person ("Adjusted to fit your dates ...")
 function constrainLength() {
-  const off = unitOff(), cap = Math.min(60, windowNights() ?? 60);
+  const off = inOff(), cap = lengthCap(), before = { min: $("#nmin").value, max: $("#nmax").value }, notes = [];
   if ($("#start").value) $("#end").min = addDays($("#start").value, 1);          // the calendar will not offer a return before the start
   if ($("#end").value) $("#start").max = addDays($("#end").value, -1);
-  let changed = false;
-  for (const id of ["nmin", "nmax"]) {
-    const el = $(`#${id}`), v = parseFloat(el.value);
-    el.min = 1 + off; el.max = cap + off;
-    if (Number.isFinite(v)) { const c = Math.min(cap + off, Math.max(1 + off, v)); if (c !== v) { el.value = c; changed = true; } }
+  const clamp = (id, lo, hi) => { const el = $(`#${id}`), v = parseFloat(el.value); el.min = lo; el.max = hi;
+    if (Number.isFinite(v)) { const c = Math.min(hi, Math.max(lo, v)); if (c !== v) { el.value = c; return true; } } return false; };
+  const fromMoved = clamp("nmin", 1 + off, cap + off);
+  // "To" can never be lower than "From": it is between the lower and the higher number.
+  const toMoved = clamp("nmax", Math.max(1 + off, num("nmin", 1 + off)), cap + off);
+  if (fromMoved || toMoved) {
+    const tooLong = +before.min > cap + off || +before.max > cap + off;
+    notes.push(tooLong ? `Your dates allow at most ${tripLen(cap)}, so the length was set to fit.`
+      : "The second number can't be lower than the first, so it was raised to match.");
   }
-  if (+$("#nmin").value > +$("#nmax").value) { $("#nmin").value = $("#nmax").value; changed = true; }
-  lengthAdjusted = changed;
-  return changed;
+  if (lenMode === "exact") $("#nmax").value = $("#nmin").value;
+  if (notes.length) lengthNote = notes.join(" ");   // stays until the person touches the length again
+  return notes.length > 0;
 }
-function updateLengthHint(nmin, nmax) {
-  const wn = windowNights();
-  const what = nmin >= 1 && nmax >= nmin ? `${lenRange(nmin, nmax)}. The day you leave and the day you return both count as days.` : "";
-  const cap = wn ? Math.min(60, wn) : null;
-  const limit = cap ? ` Your dates allow up to ${tripLen(cap)}.${nmax >= cap ? " Move the latest return later for longer trips." : ""}` : "";
-  $("#nights-hint").textContent = (lengthAdjusted ? "Adjusted to fit your dates. " : "") + what + limit;
+function updateLengthHint() {
+  const wn = windowNights(), cap = lengthCap(), { nmin, nmax } = effectiveLength();
+  const ok = nmin >= 1 && nmax >= nmin;
+  $("#len-any").textContent = wn ? `Any length that fits your dates: ${lenRange(1, cap)}.` : "Pick your dates: any length that fits them.";
+  const what = lenMode === "any" ? "" : ok ? `${lenMode === "exact" ? "Exactly" : "Between"} ${lenMode === "exact" ? tripLen(nmin) : lenRange(nmin, nmax)}. The day you leave and the day you return both count as days.` : "";
+  const limit = lenMode !== "any" && wn ? ` Your dates allow up to ${tripLen(cap)}.${nmax >= cap ? " Move the latest return later for longer trips." : ""}` : "";
+  const hint = $("#nights-hint");
+  hint.textContent = `${lengthNote ? lengthNote + " " : ""}${what}${limit}`.trim();
+  hint.classList.toggle("warn", !!lengthNote);
 }
 
 // ------------------------------------------------------------------ estimate + submit
@@ -346,7 +390,8 @@ function onFormChange() {
   }
   if (f.currency !== displayCurrency) { displayCurrency = f.currency; rerenderCurrency(); }
   store.set("skyhop.form", f);
-  updateLengthHint(f.nmin, f.nmax);
+  if (lenMode !== "any") lastExpert = { nmin: f.nmin, nmax: f.nmax, mode: lenMode };
+  updateLengthHint();
   renderActiveFilters(f);
   $("#vot-out").textContent = money(f.vot, f.currency) + "/h";
   clearTimeout(estTimer); estTimer = setTimeout(runEstimate, 300);
@@ -1133,24 +1178,33 @@ async function init() {
   writeForm({ ...defaults(), ...draft });
   lastCurrency = displayCurrency = readForm().currency;
   if (day($("#end").value) < new Date()) writeForm({ ...readForm(), start: defaults().start, end: defaults().end });
+  const lengthField = e => ["nmin", "nmax"].includes(e.target.id);
   $("#form").addEventListener("input", e => { if (e.target.id === "start" || e.target.id === "end") constrainLength(); onFormChange(); });
-  $("#form").addEventListener("change", () => { constrainLength(); onFormChange(); });
+  $("#form").addEventListener("change", e => { if (lengthField(e)) lengthNote = ""; constrainLength(); onFormChange(); });
   $$("[data-step]").forEach(b => b.addEventListener("click", () => {
+    lengthNote = "";
     const el = $(`#${b.dataset.for}`), v = (parseFloat(el.value) || 0) + +b.dataset.step;
     el.value = Math.min(+el.max || 99, Math.max(+el.min || 0, v));
-    if (el.id === "nmin" && +$("#nmax").value < +el.value) $("#nmax").value = el.value;
-    if (el.id === "nmax" && +$("#nmin").value > +el.value) $("#nmin").value = el.value;
-    constrainLength(); onFormChange();
+    if (el.id === "nmin" && +$("#nmax").value < +el.value) $("#nmax").value = el.value;   // raising "from" pushes "to" up; "to" never goes below "from"
+    constrainLength(); updateLengthHint(); onFormChange();
   }));
   $$("[data-nights]").forEach(b => b.addEventListener("click", () => {
-    const [a, z] = b.dataset.nights.split("-"); showLength(+a, +z); onFormChange();
+    const [a, z] = b.dataset.nights.split("-"); lengthNote = ""; showLength(+a, +z); setLenMode("range"); onFormChange();
   }));
   $$("input[name=unit]").forEach(r => r.addEventListener("change", () => {
-    const min = num("nmin", 1) - unitOff(), max = num("nmax", 1) - unitOff();       // still in the previous unit here
-    unit = r.value; showLength(min, max); onFormChange();
+    const min = num("nmin", 1) - inOff(), max = num("nmax", 1) - inOff();       // the numbers are still in the previous unit here
+    unit = r.value; lengthNote = ""; showLength(min, max); updateLengthHint(); onFormChange();
     if (currentRow && currentRow.id === current && currentRow.status === "done") renderResult(currentRow, { keepScroll: true });
     refreshHistory();
   }));
+  // Expert mode: off = every length that fits the dates; on = the person's own length (back to what they had last time).
+  $("#expert").addEventListener("change", () => {
+    lengthNote = "";
+    if ($("#expert").checked) { showLength(Math.min(lastExpert.nmin, lengthCap()), Math.min(lastExpert.nmax, lengthCap())); setLenMode(lastExpert.mode); }
+    else setLenMode("any");
+    onFormChange();
+  });
+  $$("input[name=lenmode]").forEach(r => r.addEventListener("change", () => { lengthNote = ""; setLenMode(r.value); onFormChange(); }));
   $("#add-kid").addEventListener("click", () => { if (kids.length < 8) { kids.push(5); renderKids(); onFormChange(); } });
   $("#new-search").addEventListener("click", () => {
     clearTimeout(pollTimer); current = null;

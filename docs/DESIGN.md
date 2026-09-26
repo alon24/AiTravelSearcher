@@ -327,6 +327,18 @@ Laya-style requests (wraps a string state, spells out noul true/false criteria) 
   $0.000014 per call, i.e. ~$0.00029 for the 21 calls of that test. Laya remains free and offline; Jev needs internet + a key.
 - The select-word narrowing in `results.js` stays for both: cheap, and it makes a wrong pick need two independent mistakes.
 
+### Trip length: simple and expert mode (Sept 2026)
+
+The form's trip length has three modes, kept in `lenMode` (saved with the form draft; searches restored from history are mapped
+by `inferLenMode`): **any** (default, the whole timeframe: every length from 1 night up to what the dates allow, capped at 60),
+and, under the **Expert mode** switch, **exactly N** or **between N and M** (in nights or days; the API always gets nights).
+Validation runs on every date or length change (`constrainLength`): both numbers stay within what the dates allow (with a visible
+note, "Your dates allow at most ..."), the second number can never be lower than the first (it is raised to match; raising the
+first above the second pushes the second up), and expert mode remembers its last numbers when switched off and on.
+`tests/test_trip_length_ui.py` drives the real page for all of this. Fixed on the way: switching Nights/Days did not re-write
+the numbers (the radio's `input` event set `unit` before the `change` handler converted them), so the inputs now track their own
+unit (`inputsUnit`).
+
 ### Rail/pane redesign (Sept 2026)
 
 The UI was restructured from one long single-column page (full search form on top, every result
