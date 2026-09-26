@@ -76,7 +76,7 @@ const MixMatch = (() => {
   }
 
   // "Check on <airline> site": the airline's own site, to confirm the fare and bags (readable 44px button, docs/stitch/DESIGN.md).
-  const siteLinks = f => [...new Map(f.segments.map(sg => [sg.airline_code, sg.airline || (config.airlines || {})[sg.airline_code] || sg.airline_code])).entries()].slice(0, 2)
+  const siteLinks = f => [...new Map(f.segments.map(sg => [sg.airline_code, airlineName(sg.airline_code, sg.airline)])).entries()].slice(0, 2)
     .filter(([code]) => (config.airline_sites || {})[code]).map(([code, name]) => {
       const search = assistFor(code, f.segments);                       // the extension searches this flight on the airline's site
       return h("a", { class: "site-btn", href: config.airline_sites[code], target: "_blank", rel: "noopener noreferrer", "data-assist": search ? "1" : null,
@@ -85,7 +85,7 @@ const MixMatch = (() => {
         `Check on ${name} site`, h("span", { class: "ext", "aria-hidden": "true" }, "↗"));
     });
   function row(f, cur, picked, onPick, fees) {
-    const e = legEnds(f), sh = dayShift(e.dep, e.arr), names = [...new Set(f.segments.map(s => s.airline || s.airline_code))];
+    const e = legEnds(f), sh = dayShift(e.dep, e.arr), names = [...new Set(f.segments.map(s => airlineName(s.airline_code, s.airline)))];
     // Auto-select on the airline's own site (browser-extension/): TLV-origin only for now. The row
     // itself needs to stay clickable for "pick this flight", so this is a real nested <button> --
     // that means the row can no longer be a <button> itself (invalid HTML), hence role="button" below.
@@ -133,7 +133,7 @@ const MixMatch = (() => {
       post("/api/itinerary/check", { legs: pair, currency: cur }).then(r => { if (S.key === start && S.out === pair[0] && S.ret === pair[1]) S.check = r; }).catch(() => { S.check = { error: true }; }).finally(() => { if (S.key === start) draw(host); });
     }
     const g = S.check && S.check.gaps ? S.check.gaps[0] : null;
-    const label = f => `${[...new Set(f.segments.map(s => s.airline || s.airline_code))].join("+")} ${tmShort(f)}`;
+    const label = f => `${[...new Set(f.segments.map(s => airlineName(s.airline_code, s.airline)))].join("+")} ${tmShort(f)}`;
     return h("div", { class: "mm-sum" },
       h("div", { class: "mm-total" }, h("div", { class: "k" }, "Your combination"), h("div", { class: "v" }, fmtMoney(total, shownCur(cur)), isConverted(cur) ? h("small", { class: "orig block" }, `originally ${fmtMoney(orig, cur)}`) : null),
         priced.length < 2 ? h("div", { class: "pax" }, "One flight has no price shown: check the airline's site") : null),

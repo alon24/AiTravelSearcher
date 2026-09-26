@@ -355,7 +355,12 @@ Design: `docs/stitch/DESIGN.md` ("Results screen rules"). What changed in the ap
   button (also in Mix & match rows next to "Select on site").
 - **Full screen:** the `max-width: 1480px` column on `main` is gone.
 - Tests: `tests/test_results_compare_ui.py` (drives the real page), `tests/test_engine.py` (cells), shared fixtures in `tests/conftest.py`.
-- Not done yet: the search form's redesign (the design's cramped Trip length column is already handled by the expert-mode work), and mobile.
+- **Search form** (same design): From/To, then ONE row of five aligned fields (earliest departure, latest return, trip length with its
+  Nights/Days switch, stops, currency), then adults and children, "More options", the estimate and "Find flights". Labels never wrap, and the row
+  drops to 3 then 2 columns on narrower windows. A fresh page in simple mode no longer shows the false "length was set to fit" note.
+- **Airline names**: one rule everywhere (`airlineName()` in app.js): the provider's label, unless our own list spells the same name out in full
+  ("ITA" becomes "ITA Airways"; "Israir Airlines" stays).
+- Not done yet: mobile.
 
 ### Rail/pane redesign (Sept 2026)
 

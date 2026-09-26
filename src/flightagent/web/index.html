@@ -96,9 +96,6 @@
               </div>
               <span class="hint" id="nights-hint" role="status"></span>
             </div>
-          </div>
-
-          <div class="row opts">
             <div class="field">
               <span class="lbl">Stops (each way)</span>
               <div class="seg" role="radiogroup" aria-label="Stops">
@@ -117,14 +114,16 @@
               </div>
               <label class="switch mini-sw" title="Show each price in the currency it was searched in, without converting"><input type="checkbox" id="orig-toggle"> Show original currency</label>
             </div>
-            <div class="field"><label for="adults">Adults</label>
-              <div class="stepper"><button type="button" data-step="-1" data-for="adults" aria-label="Fewer travellers">−</button><input id="adults" type="number" min="1" max="9"><button type="button" data-step="1" data-for="adults" aria-label="More travellers">+</button></div></div>
           </div>
 
-          <div class="field kids-field">
+          <div class="row pax">
+            <div class="field"><label for="adults">Adults</label>
+              <div class="stepper"><button type="button" data-step="-1" data-for="adults" aria-label="Fewer travellers">−</button><input id="adults" type="number" min="1" max="9"><button type="button" data-step="1" data-for="adults" aria-label="More travellers">+</button></div></div>
+            <div class="field kids-field">
             <label>Children <span class="hint">· add each child's age on the travel date</span></label>
             <div class="kids-list" id="kids-list"></div>
             <div class="kids-row"><button type="button" class="pill" id="add-kid">＋ Add a child</button><span class="hint" id="kids-note"></span></div>
+            </div>
           </div>
 
           <details class="more" id="more">

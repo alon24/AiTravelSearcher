@@ -21,6 +21,12 @@ const h = (tag, props, ...kids) => build(document.createElement(tag), props, kid
 const s = (tag, props, ...kids) => build(document.createElementNS(SVGNS, tag), props, kids);
 
 // Airline codes -> readable names ("W4" -> "Wizz Air"); unknown codes stay as the code.
+// The name to show for an airline: the provider's label, unless our own list spells the same name out in full ("ITA" -> "ITA Airways").
+const airlineName = (code, label) => {
+  const known = (config.airlines || {})[code];
+  if (!label) return known || code;
+  return known && known.length > label.length && known.toLowerCase().startsWith(label.toLowerCase()) ? known : label;
+};
 const airlineNames = codes => (codes || []).map(c => (config.airlines || {})[c] || c).join(", ");
 const pad = n => String(n).padStart(2, "0");
 const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -340,7 +346,7 @@ function constrainLength() {
   const fromMoved = clamp("nmin", 1 + off, cap + off);
   // "To" can never be lower than "From": it is between the lower and the higher number.
   const toMoved = clamp("nmax", Math.max(1 + off, num("nmin", 1 + off)), cap + off);
-  if (fromMoved || toMoved) {
+  if ((fromMoved || toMoved) && lenMode !== "any") {   // in simple mode the two numbers are only what expert mode will start from: nothing to tell
     const tooLong = +before.min > cap + off || +before.max > cap + off;
     notes.push(tooLong ? `Your dates allow at most ${tripLen(cap)}, so the length was set to fit.`
       : "The second number can't be lower than the first, so it was raised to match.");
@@ -903,9 +909,9 @@ function airlineBar(res, q, row) {
       active ? h("button", { type: "button", class: "btn small ghost", onclick: () => applyAirlineFilter(row, [], []) }, "Show all") : null),
     h("div", { class: "ab-row" }, h("span", { class: "af-label" }, "Airlines"),
       h("div", { class: "ab-chips" }, list.map(a => h("span", { class: "ab-chip" + (a.included ? "" : " off") },
-        h("button", { type: "button", class: "ab-name", "aria-pressed": String(a.included), title: a.included ? `Exclude ${a.name}` : `Include ${a.name}`,
-          onclick: () => applyAirlineFilter(row, [], excludeAfterToggle(list, a.code)) }, a.name),
-        h("button", { type: "button", class: "ab-solo", title: `Only ${a.name}`, onclick: () => applyAirlineFilter(row, [a.code], []) }, "only")))))) ;
+        h("button", { type: "button", class: "ab-name", "aria-pressed": String(a.included), title: a.included ? `Exclude ${airlineName(a.code, a.name)}` : `Include ${airlineName(a.code, a.name)}`,
+          onclick: () => applyAirlineFilter(row, [], excludeAfterToggle(list, a.code)) }, airlineName(a.code, a.name)),
+        h("button", { type: "button", class: "ab-solo", title: `Only ${airlineName(a.code, a.name)}`, onclick: () => applyAirlineFilter(row, [a.code], []) }, "only")))))) ;
 }
 
 // The detailed airline list (prices and directions). It shares the same filter, and remembers whether you opened it.
@@ -917,10 +923,10 @@ function airlinePanel(res, q, cur, row) {
   const routeChip = (a, r) => h("span", { class: "rt" + (a.nonstop.includes(r) ? " ns" : "") }, `${r.replace(">", " → ")} · ${a.nonstop.includes(r) ? "nonstop" : "with a stop"}${(a.no_price_routes || []).includes(r) ? " · no price" : ""}`);
   function draw() {
     const term = search.value.trim().toLowerCase();
-    const shown = list.filter(a => !term || a.name.toLowerCase().includes(term) || a.code.toLowerCase().includes(term));
+    const shown = list.filter(a => !term || airlineName(a.code, a.name).toLowerCase().includes(term) || a.code.toLowerCase().includes(term));
     host.replaceChildren(...(shown.length ? shown.map(a => h("div", { class: "air-row" + (a.included ? "" : " off") },
-      h("label", { class: "air-name" }, h("input", { type: "checkbox", checked: a.included, "aria-label": `Include ${a.name}`, onchange: () => applyAirlineFilter(row, [], excludeAfterToggle(list, a.code)) }),
-        h("span", { class: "an" }, a.name), h("span", { class: "ac2" }, a.code), !a.included ? h("span", { class: "badge fail" }, "excluded") : null),
+      h("label", { class: "air-name" }, h("input", { type: "checkbox", checked: a.included, "aria-label": `Include ${airlineName(a.code, a.name)}`, onchange: () => applyAirlineFilter(row, [], excludeAfterToggle(list, a.code)) }),
+        h("span", { class: "an" }, airlineName(a.code, a.name)), h("span", { class: "ac2" }, a.code), !a.included ? h("span", { class: "badge fail" }, "excluded") : null),
       h("span", { class: "ap2" + (a.cheapest == null ? " np" : "") }, a.cheapest == null ? "no price shown" : `from ${money(a.cheapest, cur)}`),
       h("span", { class: "routes" }, a.routes.map(r => routeChip(a, r))),
       h("button", { type: "button", class: "btn small ghost", onclick: () => applyAirlineFilter(row, [a.code], []) }, "Only")))
@@ -1065,7 +1071,7 @@ function legTimes(leg) {
 
 function legCard(leg, title, cur) {
   const first = leg.segments[0], seen = new Map();
-  leg.segments.forEach(s2 => { if (!seen.has(s2.airline_code)) seen.set(s2.airline_code, s2.airline || s2.airline_code); });
+  leg.segments.forEach(s2 => { if (!seen.has(s2.airline_code)) seen.set(s2.airline_code, airlineName(s2.airline_code, s2.airline)); });
   const rows = leg.segments.flatMap((sg, i) => {
     const dep = day(sg.departs), arr = day(sg.arrives), lay = leg.layovers_min[i];
     const out = [h("div", { class: "seg-row" }, h("span", { class: "al" }, `${sg.airline_code}${sg.flight_number}`),

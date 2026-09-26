@@ -9,7 +9,7 @@ const Compare = (() => {
   const MAX_LENGTH_ROWS = 12;                        // a wide length range would make a 30-row matrix: keep the 12 cheapest lengths
   const CELL = (dest, n) => `${dest}|${n}`;
 
-  const nameOfCode = (code, s) => s.airline || (config.airlines || {})[code] || code;
+  const nameOfCode = (code, s) => airlineName(code, s.airline);
   // Airlines of a trip, in flight order: [[code, name], ...]
   const airlinesOf = t => [...new Map(t.legs.flatMap(l => l.segments).map(s => [s.airline_code, nameOfCode(s.airline_code, s)])).entries()];
   const legNames = leg => [...new Map(leg.segments.map(s => [s.airline_code, nameOfCode(s.airline_code, s)])).values()];

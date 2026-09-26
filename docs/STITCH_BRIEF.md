@@ -206,3 +206,10 @@ These features exist in the app now and have no design yet.
 - **"Check on airline site" is a readable 44px button** (2px accent border, dark bold text, external-link icon, full label).
 - **No single "cheapest"**: with several destinations and trip lengths show a trip-length-by-destination matrix (best total per cell, heatmap, clickable, nothing pre-selected) plus a sortable, filterable table of all trips **grouped by trip length** (a band per length with every destination under it), and the price-by-day chart coloured by destination.
 See `docs/stitch/DESIGN.md`, "Results screen rules".
+
+
+### N. The finished design (26-27 Sept 2026)
+Stitch project **"Skyhop"** (project id `11409652542807754071`). Final screens: search ("Skyhop - Flexible Date Flight Search Workspace", with the
+trip-length expert-mode states), results ("Skyhop - Flight Search Results Workspace (Grouped by Length)") and its dark version
+("... (Dark Theme)"). Stitch keeps renaming the design system ("Vibrant Pulse") and re-adding a 1280px max width; the screens themselves are
+full width, and the source of truth is `docs/stitch/DESIGN.md`. Implemented in the app: results screen, search form, dark mode. Mobile is not designed yet.

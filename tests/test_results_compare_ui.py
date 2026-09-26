@@ -201,3 +201,9 @@ def test_check_on_site_searches_the_flight_when_the_extension_is_there(results):
 def test_tarom_link_is_the_english_site():
     from flightagent.links import AIRLINE_SITES
     assert AIRLINE_SITES["RO"] == "https://www.tarom.ro/en"
+
+
+def test_airline_names_use_the_full_name_when_the_provider_abbreviates(page):
+    got = page.evaluate("""() => [airlineName('AZ', 'ITA'), airlineName('AZ', 'ITA Airways'), airlineName('6H', 'Israir Airlines'), airlineName('6H', 'Israir'),
+                                  airlineName('U8', ''), airlineName('ZZ', 'Zed Air'), airlineName('ZZ', ''), airlineName('LY', 'EL AL')]""")
+    assert got == ["ITA Airways", "ITA Airways", "Israir Airlines", "Israir", "Tus Air", "Zed Air", "ZZ", "EL AL"]

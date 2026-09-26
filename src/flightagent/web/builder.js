@@ -85,7 +85,7 @@ const Builder = (() => {
 
   // ---------------------------------------------------------------- rendering
   function flightSummary(f, cur) {
-    const e = legEnds(f), sh = dayShift(e.dep, e.arr), names = [...new Set(f.segments.map(s => s.airline || s.airline_code))];
+    const e = legEnds(f), sh = dayShift(e.dep, e.arr), names = [...new Set(f.segments.map(s => airlineName(s.airline_code, s.airline)))];
     return h("div", { class: "fs" },
       h("div", { class: "fs-times" },
         h("div", {}, h("div", { class: "big" }, fmtTime(e.dep)), h("div", { class: "ap" }, e.from), h("div", { class: "dt" }, fmtDay(e.dep))),
@@ -128,7 +128,7 @@ const Builder = (() => {
     if (o.loading) return h("div", { class: "tb-loading" }, h("span", { class: "plane", "aria-hidden": "true" }, "✈️"), "Looking for flights…");
     if (o.error) return h("div", { class: "note bad" }, o.error);
     const f = filt(leg.id), airlines = new Map();
-    o.flights.forEach(x => x.segments.forEach(s => airlines.set(s.airline_code, s.airline || s.airline_code)));
+    o.flights.forEach(x => x.segments.forEach(s => airlines.set(s.airline_code, airlineName(s.airline_code, s.airline))));
     const list = visibleOptions(leg);
     return h("div", { class: "tb-opts" },
       h("div", { class: "tb-opt-tools" },
@@ -161,7 +161,7 @@ const Builder = (() => {
     const lines = [`Skyhop trip${pax.length ? ` · ${pax.join(" / ")}` : ""} · total ${fmtMoney(totalOf(fl), displayCurrency)}${originalTotals(fl) ? ` (originally ${originalTotals(fl)})` : ""}${fl.some(l => l.flight.priced === false) ? " + unpriced flight(s)" : ""}`];
     fl.forEach((l, i) => {
       const f = l.flight, e = legEnds(f);
-      lines.push(`${i + 1}) ${fmtDay(e.dep)}  ${e.from} ${fmtTime(e.dep)} → ${e.to} ${fmtTime(e.arr)}  ${[...new Set(f.segments.map(s => s.airline || s.airline_code))].join(" + ")} ${f.segments.map(s => s.airline_code + s.flight_number).join("+")}  ${f.priced === false ? "price not shown" : money(f.price, l.currency)}`);
+      lines.push(`${i + 1}) ${fmtDay(e.dep)}  ${e.from} ${fmtTime(e.dep)} → ${e.to} ${fmtTime(e.arr)}  ${[...new Set(f.segments.map(s => airlineName(s.airline_code, s.airline)))].join(" + ")} ${f.segments.map(s => s.airline_code + s.flight_number).join("+")}  ${f.priced === false ? "price not shown" : money(f.price, l.currency)}`);
       const g = fl[i + 1] ? gapBetween(l, fl[i + 1]) : null;
       if (g) lines.push(`   ↳ ${g.headline}${g.detail ? " " + g.detail : ""}`);
     });
