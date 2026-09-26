@@ -19,7 +19,7 @@ AIRLINE_SITES = {
     "BA": "https://www.britishairways.com",
     "LO": "https://www.lot.com",
     "PC": "https://www.flypgs.com",
-    "RO": "https://www.tarom.ro",
+    "RO": "https://www.tarom.ro/en",   # the English site (www.tarom.ro alone is Romanian)
     "LX": "https://www.swiss.com",
     "SN": "https://www.brusselsairlines.com",
     "KL": "https://www.klm.com",

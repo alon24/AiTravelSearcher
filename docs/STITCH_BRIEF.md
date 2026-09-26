@@ -204,5 +204,5 @@ These features exist in the app now and have no design yet.
 - The **airline filter bar is sticky** at the top of the results, always visible.
 - **Airline names are bold** (weight 800, at least 15px) on every flight; flight code lighter and smaller.
 - **"Check on airline site" is a readable 44px button** (2px accent border, dark bold text, external-link icon, full label).
-- **No single "cheapest"**: with several destinations and trip lengths show a destination-by-length matrix (best total per cell, heatmap, clickable) plus a sortable, filterable, groupable table of all trips, and the price-by-day chart coloured by destination.
+- **No single "cheapest"**: with several destinations and trip lengths show a trip-length-by-destination matrix (best total per cell, heatmap, clickable, nothing pre-selected) plus a sortable, filterable table of all trips **grouped by trip length** (a band per length with every destination under it), and the price-by-day chart coloured by destination.
 See `docs/stitch/DESIGN.md`, "Results screen rules".

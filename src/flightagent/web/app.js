@@ -621,9 +621,18 @@ function renderResult(row, opts = {}) {
     h("span", { class: "tm" }, h("b", {}, "Back"), `${fmtDay(day(p.t.legs[p.t.legs.length - 1].segments[0].departs))} · ${tmLine(p.t.legs[p.t.legs.length - 1])}`),
     h("span", { class: "s" }, `${tripLen(p.t.nights)} · ${p.t.stops === 0 ? "direct" : plural(p.t.stops, "stop")} · ${hm(p.t.total_travel_min)} in transit`),
     h("span", { class: "more" }, h("span", { class: "chev", "aria-hidden": "true" }, "▾"), h("span", { class: "more-t" }, "Flight details"))));
-  box.append(h("div", { class: "picks" }, pickBtns, direct ? null : h("div", { class: "pick static" }, h("span", { class: "k" }, "Direct flights"), h("span", { class: "v" }, "None"), h("span", { class: "s" }, "No nonstop trips in this window."))), pickDetail);
-  const routePicksEl = routePicks(res, cur, paxCount(q), q.destinations.length);
-  if (routePicksEl) box.append(routePicksEl);
+  // With several destinations and/or trip lengths there is no single "cheapest trip": show the trip-length x destination matrix
+  // and the grouped trips table (compare.js). One combination only (or a search saved before `cells` existed) keeps the three picks.
+  const useCompare = (res.cells || []).length > 1;
+  if (useCompare) {
+    const cmpHost = h("div", { class: "cmp" });
+    box.append(cmpHost);
+    Compare.render(cmpHost, { res, q, cur, pax: paxCount(q), state: (view.cmp ||= {}) });
+  } else {
+    box.append(h("div", { class: "picks" }, pickBtns, direct ? null : h("div", { class: "pick static" }, h("span", { class: "k" }, "Direct flights"), h("span", { class: "v" }, "None"), h("span", { class: "s" }, "No nonstop trips in this window."))), pickDetail);
+    const routePicksEl = routePicks(res, cur, paxCount(q), q.destinations.length);
+    if (routePicksEl) box.append(routePicksEl);
+  }
   function syncPicks() {
     pickBtns.forEach(b => {
       const open = view.pickOpen === b.dataset.pick;
@@ -884,13 +893,19 @@ function airlineBar(res, q, row) {
   if (list.length < 1) return null;
   const active = (q.airlines_include || []).length || (q.airlines_exclude || []).length;
   const used = list.filter(a => a.included).length;
-  return h("div", { class: "ab" }, h("span", { class: "af-label" }, "Airlines"),
-    h("div", { class: "ab-chips" }, list.map(a => h("span", { class: "ab-chip" + (a.included ? "" : " off") },
-      h("button", { type: "button", class: "ab-name", "aria-pressed": String(a.included), title: a.included ? `Exclude ${a.name}` : `Include ${a.name}`,
-        onclick: () => applyAirlineFilter(row, [], excludeAfterToggle(list, a.code)) }, a.name),
-      h("button", { type: "button", class: "ab-solo", title: `Only ${a.name}`, onclick: () => applyAirlineFilter(row, [a.code], []) }, "only")))),
-    active ? h("button", { type: "button", class: "btn small ghost", onclick: () => applyAirlineFilter(row, [], []) }, "Show all") : null,
-    h("span", { class: "hint" }, active ? `Filter on: ${used} of ${list.length} airlines used` : `${list.length} airlines found`));
+  // Row 1: what was searched + Edit search, and the filter state on the right. Row 2: every airline as a chip (they wrap, never clip).
+  return h("div", { class: "ab" },
+    h("div", { class: "ab-top" },
+      h("span", { class: "ab-sum", title: "The search these results are for" }, `✈ ${q.origin} → ${q.destinations.join(", ")} · ${fmtShort(day(q.window_start))} – ${fmtShort(day(q.window_end))} · ${lenRange(q.min_nights, q.max_nights)}`),
+      h("button", { type: "button", class: "btn small", onclick: () => { writeForm(requestToForm(q)); onFormChange(); showStep(1); } }, "Edit search"),
+      h("span", { class: "ab-fill" }),
+      h("span", { class: "hint" }, active ? `Filter on: ${used} of ${list.length} airlines used` : `${list.length} airlines found`),
+      active ? h("button", { type: "button", class: "btn small ghost", onclick: () => applyAirlineFilter(row, [], []) }, "Show all") : null),
+    h("div", { class: "ab-row" }, h("span", { class: "af-label" }, "Airlines"),
+      h("div", { class: "ab-chips" }, list.map(a => h("span", { class: "ab-chip" + (a.included ? "" : " off") },
+        h("button", { type: "button", class: "ab-name", "aria-pressed": String(a.included), title: a.included ? `Exclude ${a.name}` : `Include ${a.name}`,
+          onclick: () => applyAirlineFilter(row, [], excludeAfterToggle(list, a.code)) }, a.name),
+        h("button", { type: "button", class: "ab-solo", title: `Only ${a.name}`, onclick: () => applyAirlineFilter(row, [a.code], []) }, "only")))))) ;
 }
 
 // The detailed airline list (prices and directions). It shares the same filter, and remembers whether you opened it.
@@ -962,6 +977,13 @@ function placeInfo(code) {
   const city = a.city.split(/[- ]/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   const cityCodes = AIRPORTS.filter(x => x.rank === 2 && x.city === a.city && x.country === a.country).map(x => x.code);
   return { name: city, codes: [code, ...cityCodes] };
+}
+// "Check on <airline> site": with the extension, search THIS flight on the airline's own site (TLV-origin flights of airlines it
+// covers); otherwise null and the caller keeps a plain link to the airline's site.
+function assistFor(code, segments) {
+  if (!extensionAvailable() || !EXTENSION_DRIVERS.has(code)) return null;
+  const sg = segments.find(x => x.origin === "TLV" && x.airline_code === code);
+  return sg ? () => selectOnAirlineSite(code, sg.destination, sg.departs.slice(0, 10), `${code}${sg.flight_number}`, sg.departs.slice(11, 16)) : null;
 }
 function selectOnAirlineSite(airline_code, destination, dateISO, flightNumber, departTime) {
   const from = placeInfo("TLV"), to = placeInfo(destination);
@@ -1059,10 +1081,10 @@ function legCard(leg, title, cur) {
   const direct = [...seen].filter(([code]) => config.airline_sites[code]).map(([code, name]) => {
     const sg = extensionAvailable() && EXTENSION_DRIVERS.has(code)
       ? leg.segments.find(x => x.origin === "TLV" && x.airline_code === code) : null;
-    return h("a", { class: "btn small", href: config.airline_sites[code], target: "_blank", rel: "noopener noreferrer",
-      title: sg ? "Opens the airline's site with this flight selected" : null,
+    return h("a", { class: "site-btn", href: config.airline_sites[code], target: "_blank", rel: "noopener noreferrer",
+      title: sg ? "Opens the airline's site with this flight selected" : `Open ${name}'s own site to confirm the fare and bags`,
       onclick: sg ? (e) => { e.preventDefault(); selectOnAirlineSite(code, sg.destination, sg.departs.slice(0, 10), `${code}${sg.flight_number}`, sg.departs.slice(11, 16)); } : null },
-      `${name} ↗`);
+      `Check on ${name} site`, h("span", { class: "ext", "aria-hidden": "true" }, "↗"));
   });
   // Auto-select on the airline's own site (browser-extension/): per matching segment, since
   // flight number/destination are segment-specific. TLV-origin only for now (elal_verify.py scope).

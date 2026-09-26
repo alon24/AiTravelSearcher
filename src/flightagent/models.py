@@ -214,6 +214,15 @@ class DailyBest(BaseModel):
     best_value: Trip
 
 
+class BestCell(BaseModel):
+    """The cheapest trip for one destination and one trip length (nights): one cell of the compare matrix."""
+
+    destination: str
+    nights: int
+    cheapest: Trip
+    trips: int                 # how many trips (dates, airline mixes) were compared for this cell
+
+
 class AirlineInfo(BaseModel):
     """An airline seen in the provider's results for this search, before any airline filter."""
 
@@ -249,6 +258,7 @@ class SearchResult(BaseModel):
     request: SearchRequest
     daily: list[DailyBest]
     top: list[Trip]
+    cells: list[BestCell] = Field(default_factory=list)   # best trip per destination x nights (the compare matrix)
     api_calls: int
     cache_hits: int
     airlines: list[AirlineInfo] = Field(default_factory=list)

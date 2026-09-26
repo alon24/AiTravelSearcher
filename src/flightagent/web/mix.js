@@ -75,6 +75,15 @@ const MixMatch = (() => {
     return chips;
   }
 
+  // "Check on <airline> site": the airline's own site, to confirm the fare and bags (readable 44px button, docs/stitch/DESIGN.md).
+  const siteLinks = f => [...new Map(f.segments.map(sg => [sg.airline_code, sg.airline || (config.airlines || {})[sg.airline_code] || sg.airline_code])).entries()].slice(0, 2)
+    .filter(([code]) => (config.airline_sites || {})[code]).map(([code, name]) => {
+      const search = assistFor(code, f.segments);                       // the extension searches this flight on the airline's site
+      return h("a", { class: "site-btn", href: config.airline_sites[code], target: "_blank", rel: "noopener noreferrer", "data-assist": search ? "1" : null,
+        onclick: ev => { ev.stopPropagation(); if (search) { ev.preventDefault(); search(); } },
+        title: search ? `Searches this flight on ${name}'s own site (opens a new tab)` : `Open ${name}'s own site to confirm the fare and bags` },
+        `Check on ${name} site`, h("span", { class: "ext", "aria-hidden": "true" }, "↗"));
+    });
   function row(f, cur, picked, onPick, fees) {
     const e = legEnds(f), sh = dayShift(e.dep, e.arr), names = [...new Set(f.segments.map(s => s.airline || s.airline_code))];
     // Auto-select on the airline's own site (browser-extension/): TLV-origin only for now. The row
@@ -89,9 +98,9 @@ const MixMatch = (() => {
         f.layovers_min.length ? h("span", { class: "badge ok" }, f.layovers_min.map((m, i) => `${hm(m)} in ${f.segments[i].destination}`).join(", ")) : null),
       h("div", { class: "mm-bags" }, bagChips(f, fees)),
       h("div", { class: "mm-price" }, f.priced === false ? h("span", { class: "np" }, "No price shown") : [money(f.price, cur), origNote(f.price, cur, "orig block")]),
-      autoSeg ? h("button", { type: "button", class: "btn small accent mm-auto", title: "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
+      siteLinks(f).length || autoSeg ? h("div", { class: "mm-actions" }, siteLinks(f), autoSeg ? h("button", { type: "button", class: "btn small accent", title: "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
         onclick: ev => { ev.stopPropagation(); selectOnAirlineSite(autoSeg.airline_code, autoSeg.destination, autoSeg.departs.slice(0, 10), `${autoSeg.airline_code}${autoSeg.flight_number}`, autoSeg.departs.slice(11, 16)); } },
-        `✈ Select ${autoSeg.airline_code}${autoSeg.flight_number} on site ↗`) : null);
+        `✈ Select ${autoSeg.airline_code}${autoSeg.flight_number} on site ↗`) : null) : null);
   }
 
   function column(host, title, o, d, date, kind) {

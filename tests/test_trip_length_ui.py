@@ -1,45 +1,8 @@
 """The trip-length control in the web app: simple mode (any length that fits the dates), expert mode (exactly N / between
 N and M) and its validation. Drives the real page in Chromium against the real app (mock provider)."""
-import socket
-import threading
-import time
-
 import pytest
 
 pw = pytest.importorskip("playwright.sync_api")
-uvicorn = pytest.importorskip("uvicorn")
-
-
-@pytest.fixture(scope="module")
-def base_url(tmp_path_factory):
-    import os
-    os.environ["FLIGHTAGENT_PROVIDER"] = "mock"
-    os.environ["FLIGHTAGENT_CACHE_DB"] = str(tmp_path_factory.mktemp("db") / "offers.sqlite")
-    os.environ["FLIGHTAGENT_RECHECK"] = "0"
-    from flightagent.api import app
-    s = socket.socket(); s.bind(("127.0.0.1", 0)); port = s.getsockname()[1]; s.close()
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
-    t = threading.Thread(target=server.run, daemon=True); t.start()
-    for _ in range(100):
-        if server.started:
-            break
-        time.sleep(0.05)
-    yield f"http://127.0.0.1:{port}"
-    server.should_exit = True
-    t.join(timeout=5)
-
-
-@pytest.fixture
-def page(base_url):
-    with pw.sync_playwright() as p:
-        b = p.chromium.launch()
-        pg = b.new_page()
-        pg.goto(base_url + "/")
-        pg.evaluate("localStorage.clear()")
-        pg.reload()
-        pg.wait_for_function("typeof readForm === 'function' && !!ac.from")
-        yield pg
-        b.close()
 
 
 def set_dates(pg, start, end):

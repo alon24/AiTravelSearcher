@@ -339,6 +339,24 @@ first above the second pushes the second up), and expert mode remembers its last
 the numbers (the radio's `input` event set `unit` before the `change` handler converted them), so the inputs now track their own
 unit (`inputsUnit`).
 
+### Results screen ported from the Stitch design (Sept 2026)
+
+Design: `docs/stitch/DESIGN.md` ("Results screen rules"). What changed in the app:
+- **Server:** `SearchResult.cells` (`BestCell`: cheapest trip per destination x nights, at most 300, sent ordered by nights) so the page can
+  show every trip length and destination, not one "cheapest".
+- **`web/compare.js`:** the trip-length x destination matrix (heat-tinted cells, multi-select to filter, nothing pre-selected, one "lowest"
+  badge) and the trips table **grouped by trip length** (a band per length, every destination under it, cheapest of each band emphasised)
+  with multi-select destination/length filters, group-by, "Best per destination and length" vs "Cheapest each day", sort, nonstop
+  switch and a row that opens the full trip. Open-jaw / multi-city combinations are hidden by default behind a switch (they would add up
+  to six extra columns), but the matrix's "best" column always considers them. More than 12 trip lengths: the 12 cheapest are shown.
+  A search with a single destination and length keeps the old three picks. Searches saved before `cells` existed also do.
+- **Sticky airline bar:** two rows (search summary + Edit search, then every airline chip; chips wrap, never clip), solid, pinned.
+- **Airline names** are weight 800 (15px) in the table, Mix & match and trip cards; **"Check on <airline> site"** is a 44px bordered
+  button (also in Mix & match rows next to "Select on site").
+- **Full screen:** the `max-width: 1480px` column on `main` is gone.
+- Tests: `tests/test_results_compare_ui.py` (drives the real page), `tests/test_engine.py` (cells), shared fixtures in `tests/conftest.py`.
+- Not done yet: the search form's redesign (the design's cramped Trip length column is already handled by the expert-mode work), and mobile.
+
 ### Rail/pane redesign (Sept 2026)
 
 The UI was restructured from one long single-column page (full search form on top, every result

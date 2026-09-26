@@ -62,7 +62,7 @@ button { cursor: pointer; }
   background: color-mix(in srgb, var(--card) 72%, transparent); backdrop-filter: blur(14px);
   border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 14px;
 }
-main { padding: 28px clamp(16px, 3vw, 44px) 80px; max-width: 1480px; width: 100%; margin: 0 auto; }
+main { padding: 28px clamp(16px, 2.4vw, 40px) 80px; width: 100%; min-width: 0; }   /* the whole window: this is a work tool (docs/stitch/DESIGN.md) */
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 20px; letter-spacing: -.02em; }
 .logo {
   width: 36px; height: 36px; border-radius: 12px; background: var(--brand); color: #fff; display: grid;
@@ -481,12 +481,6 @@ td.price { font-weight: 800; text-align: right; } th.r { text-align: right; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
 /* Airline filter pinned to the top of the results pane: always reachable while scrolling. */
-.air-sticky { position: sticky; top: 0; z-index: 30; margin: 0 0 12px; padding: 8px 0; background: var(--bg); }
-.air-sticky .ab { flex-wrap: nowrap; }
-.air-sticky .ab-chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; padding-bottom: 2px; flex: 1 1 auto; min-width: 0; }
-.air-sticky .ab-chip, .air-sticky .af-label, .air-sticky .btn, .air-sticky .hint { flex: 0 0 auto; white-space: nowrap; }
-.air-sticky .hint { display: none; }
-@media (min-width: 1200px) { .air-sticky .hint { display: inline; } }
 td.air-names { white-space: normal; min-width: 110px; }
 .dec-badge { cursor: pointer; font: inherit; font-size: 12px; font-weight: 800; }
 .dec-badge[hidden] { display: none; }
@@ -498,3 +492,93 @@ td.air-names { white-space: normal; min-width: 110px; }
 .nights.one { grid-template-columns: 1fr; }
 .stepper[hidden], .nights .to[hidden] { display: none; }   /* author display rules beat the hidden attribute */
 #nights-hint.warn { color: var(--warn-ink); font-weight: 700; }
+
+/* ===================== Results, per the Stitch design (docs/stitch/DESIGN.md, "Results screen rules") ===================== */
+
+/* 1. Sticky airline bar: solid, always visible, two rows (search + Edit, then every airline chip, wrapping, never clipped). */
+.air-sticky { position: sticky; top: 0; z-index: 30; margin: 0 calc(-1 * clamp(16px, 2.4vw, 40px)) 14px; padding: 10px clamp(16px, 2.4vw, 40px) 12px;
+  background: var(--card); border-bottom: 1px solid var(--line); box-shadow: 0 8px 24px -14px rgba(60, 30, 160, .35); }
+.air-sticky[hidden] { display: none; }
+.air-sticky .ab { display: grid; gap: 10px; background: transparent; border: 0; box-shadow: none; padding: 0; border-radius: 0; }
+.ab-top, .ab-row { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.ab-sum { display: inline-flex; align-items: center; padding: 7px 14px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-ink); font-weight: 800; font-size: 14px; }
+.ab-fill { flex: 1 1 auto; }
+.air-sticky .ab-chips { gap: 8px; }
+.air-sticky .ab-name, .air-sticky .ab-solo { padding: 5px 12px; font-size: 14px; }
+.air-sticky .ab-name { font-weight: 800; }
+.air-sticky .ab-solo { font-size: 12px; }
+.air-sticky .af-label { font-size: 12px; }
+
+/* 2. Airline names are BOLD wherever a flight is listed; the flight code stays light and smaller. */
+.fs-air { font-weight: 800; font-size: 15px; color: var(--ink); white-space: nowrap; }
+.fs-codes { font-weight: 600; font-size: 12.5px; }
+.leg-title small { color: var(--ink); font-weight: 800; font-size: 14.5px; }
+
+/* 3. "Check on <airline> site" / "Select on site": real buttons, at least 44px tall, high contrast, never small grey links. */
+.site-btn, .leg .actions .btn.accent, .mm-row .btn.accent {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 8px 16px; border-radius: 14px;
+  font: inherit; font-weight: 800; font-size: 14.5px; line-height: 1.2; text-align: center; text-decoration: none; cursor: pointer;
+  background: var(--card); color: var(--ink); border: 2px solid var(--accent); box-shadow: none;
+}
+.site-btn:hover, .site-btn:focus-visible { background: var(--accent-soft); }
+.site-btn .ext { font-size: 16px; color: var(--accent-ink); }
+.leg .actions .btn.accent, .mm-row .btn.accent { background: var(--accent); color: #fff; }
+.leg .actions .btn.accent:hover, .mm-row .btn.accent:hover { filter: brightness(1.08); }
+.leg .actions { gap: 10px; }
+
+/* 4. Compare: trip length x destination matrix and the grouped trips table (compare.js). */
+.cmp { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; margin-bottom: 18px; }   /* minmax(0,..): wide tables scroll inside their card, never widen the page */
+.cmp-card { min-width: 0; }
+.cmp-combos { margin: 0 0 10px; }
+.cmp-card { padding: 22px 24px; }
+.cmp-legend { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
+.cmp-legend i { width: 18px; height: 18px; border-radius: 6px; border: 1px solid var(--line-2); }
+.cmp-legend .h0 { background: color-mix(in srgb, var(--accent) 38%, var(--card)); } .cmp-legend .h1 { background: color-mix(in srgb, var(--accent) 24%, var(--card)); }
+.cmp-legend .h2 { background: color-mix(in srgb, var(--accent) 12%, var(--card)); } .cmp-legend .h3 { background: var(--card); }
+.cmp-matrix-wrap { display: grid; gap: 0; overflow-x: auto; }
+.cmp-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(150px, 1.3fr) repeat(var(--cols), minmax(150px, 1.5fr)); gap: 10px; align-items: stretch; padding: 10px 0; border-top: 1px solid var(--line); }
+.cmp-head { border-top: 0; padding-bottom: 6px; color: var(--muted); font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; align-items: end; }
+.cmp-ch { display: flex; align-items: center; gap: 8px; } .cmp-ch i, .cmp-tr .c-dest i, .cmp-grp i { width: 12px; height: 12px; border-radius: 50%; flex: none; display: inline-block; }
+.cmp-rh, .cmp-best { display: grid; align-content: center; gap: 2px; } .cmp-rh b { font-size: 17px; letter-spacing: -.02em; } .cmp-rh span, .cmp-best span { font-size: 13px; color: var(--ink-2); }
+.cmp-best b { font-size: 18px; }
+.cmp-cell { --tint: calc(4% + 36% * (1 - var(--heat, 0))); text-align: left; display: grid; gap: 3px; align-content: center; padding: 12px 14px; border-radius: 14px; font: inherit; color: var(--ink); cursor: pointer;
+  background: color-mix(in srgb, var(--accent) var(--tint), var(--card)); border: 1.5px solid color-mix(in srgb, var(--accent) 22%, var(--line)); }
+.cmp-cell:hover { border-color: var(--accent); } .cmp-cell:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 2px; }
+.cmp-cell.sel { border: 3px solid var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 18%, transparent); }
+.cmp-cell.empty { background: var(--card-2); border-style: dashed; color: var(--muted); cursor: default; font-size: 13px; }
+.cmp-cell .p { font-weight: 800; font-size: 20px; letter-spacing: -.02em; display: flex; align-items: center; gap: 8px; }
+.cmp-cell .p em { font-style: normal; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #fff; background: var(--brand); padding: 2px 8px; border-radius: 999px; }
+.cmp-cell .a { font-weight: 700; font-size: 13.5px; } .cmp-cell .d { font-size: 13px; color: var(--ink-2); }
+
+.cmp-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 0 0 12px; }
+.cmp-lbl { font-size: 13px; color: var(--muted); font-weight: 700; }
+.cmp-chips, .cmp-seg { display: inline-flex; flex-wrap: wrap; gap: 4px; padding: 4px; border-radius: 14px; background: var(--card-2); border: 1px solid var(--line); }
+.cmp-chip, .cmp-seg button { border: 0; background: transparent; padding: 7px 14px; border-radius: 10px; font: inherit; font-weight: 700; font-size: 14px; color: var(--ink); cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+.cmp-chip i { width: 10px; height: 10px; border-radius: 50%; }
+.cmp-chip.on, .cmp-seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.cmp-check { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 14px; cursor: pointer; } .cmp-check input { width: 18px; height: 18px; accent-color: var(--accent); }
+.cmp-sort { font-size: 14px; font-weight: 700; } .cmp-sort select { font: inherit; padding: 8px 10px; border-radius: 12px; border: 1.5px solid var(--line-2); background: var(--card); color: var(--ink); }
+
+.cmp-scroll { overflow-x: auto; }
+.cmp-table { width: 100%; min-width: 1080px; table-layout: fixed; border-collapse: collapse; font-size: 14px; }
+.cmp-table th { text-align: left; padding: 10px 10px; font-size: 12px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); }
+.cmp-table th.r, .cmp-table td.c-price { text-align: right; }
+.cmp-table td { padding: 12px 10px; vertical-align: middle; border-bottom: 1px solid var(--line); }
+.cmp-tr { cursor: pointer; } .cmp-tr:hover { background: var(--card-2); } .cmp-tr.open { background: var(--accent-soft); } .cmp-tr:focus-visible { outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: -3px; }
+.cmp-tr .c-dest { white-space: nowrap; } .cmp-tr .c-dest i { margin-right: 8px; } .cmp-tr .c-dest b { font-size: 15px; }
+.cmp-tr .sub { font-size: 12.5px; color: var(--ink-2); font-weight: 600; }
+.c-price { font-weight: 800; font-size: 17px; letter-spacing: -.02em; white-space: nowrap; } .c-price.low { color: var(--accent-ink); }
+.cmp-times { font-weight: 700; font-size: 14.5px; white-space: nowrap; } .cmp-times sup { color: var(--warn-ink); font-weight: 800; margin-left: 2px; }
+.cmp-air { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; margin-top: 2px; } .cmp-air b { font-weight: 800; font-size: 15px; color: var(--ink); } .cmp-air .code { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+.c-info .ok { color: var(--ok-ink); font-weight: 800; } .c-info .warn { color: var(--warn-ink); font-weight: 800; }
+.c-act { padding-left: 6px; padding-right: 6px; } .cmp-actions { display: grid; gap: 6px; min-width: 0; } .cmp-actions .site-btn { width: 100%; min-width: 0; padding: 6px 10px; font-size: 13.5px; white-space: normal; overflow-wrap: anywhere; }
+.cmp-grp td { background: var(--accent-soft); padding: 10px 12px; border-bottom: 1px solid var(--line-2); font-size: 15px; }
+.cmp-grp td > * { vertical-align: middle; } .cmp-grp i { margin-right: 8px; } .cmp-grp b { font-size: 16px; margin-left: 2px; } .cmp-grp .n { margin-left: 10px; font-size: 13px; color: var(--ink-2); font-weight: 600; }
+.cmp-detail td { padding: 12px 0 18px; background: var(--card-2); } .cmp-detail .trip { margin: 0; }
+@media (max-width: 900px) { .cmp-card { padding: 16px; } }
+.stepper[hidden], .cmp-check[hidden] { display: none; }
+
+/* Mix & match rows: airline name bold, and a readable action row (Check on <airline> site + Select on site). */
+.mm-air { font-size: 15px; white-space: nowrap; } .mm-code { font-size: 12.5px; font-weight: 600; }
+.mm-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.mm-actions .site-btn, .mm-actions .btn.accent { flex: 0 0 auto; }

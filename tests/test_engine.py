@@ -532,3 +532,33 @@ def test_last_seen_fare_is_remembered_when_google_drops_it():
     assert later.unpriced and all(u.last_price == 505 and u.last_seen for u in later.unpriced)
     from flightagent.report import render
     assert "last seen at 505" in render(later)
+
+
+def test_cells_give_the_cheapest_trip_per_destination_and_length():
+    """4, 5 or 6 nights to Rome or Paris: one cell per combination, each the cheapest trip of that length."""
+    def fn(o, d, day):
+        base = {"FCO": 100, "ROM": 100, "CDG": 150, "PAR": 150}.get(d if o == "TLV" else o, 100)
+        return [offer(o, d, at(day), base + day.day)]     # later days cost a little more, so earliest dates win
+    r = req(destinations=["ROM", "PAR"], open_jaw=False, min_nights=4, max_nights=6, window_start=date(2026, 10, 1), window_end=date(2026, 10, 12))
+    res = run(FlightSearchEngine(Fake(fn)), r)
+    got = {(c.destination, c.nights): c for c in res.cells}
+    assert {n for _, n in got} == {4, 5, 6} and {d for d, _ in got} == {"ROM", "PAR"}
+    assert len(res.cells) == 6                                               # 2 destinations x 3 lengths, no more
+    for c in res.cells:
+        assert c.cheapest.destination == c.destination and c.cheapest.nights == c.nights
+        assert c.cheapest.depart_date == date(2026, 10, 1)                   # earliest departure is the cheapest here
+        assert c.trips >= 1
+    assert got[("ROM", 4)].cheapest.price < got[("PAR", 4)].cheapest.price  # Rome is cheaper than Paris at every length
+    assert [c.nights for c in res.cells] == sorted(c.nights for c in res.cells)   # sent ordered by nights
+
+
+def test_cells_are_capped():
+    from flightagent.engine import FlightSearchEngine as E
+    old = E.MAX_CELLS
+    E.MAX_CELLS = 2
+    try:
+        p = Fake(lambda o, d, day: [offer(o, d, at(day), 100 + day.day)])
+        res = run(E(p), req(destinations=["ROM", "PAR"], open_jaw=False, min_nights=4, max_nights=6))
+        assert len(res.cells) == 2
+    finally:
+        E.MAX_CELLS = old

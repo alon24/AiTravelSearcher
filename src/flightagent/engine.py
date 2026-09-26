@@ -10,7 +10,7 @@ from .cache import OfferCache
 from .links import AIRLINE_SITES
 from .itinerary import analyse, gap_warning
 from .polling import fare_ttl, unpriced_interval
-from .models import AirlineInfo, DailyBest, LegView, Offer, SearchRequest, SearchResult, Segment, Trip, UnpricedFlight
+from .models import AirlineInfo, BestCell, DailyBest, LegView, Offer, SearchRequest, SearchResult, Segment, Trip, UnpricedFlight
 from .providers.base import FlightProvider
 
 Key = tuple[str, str, date]  # (origin, destination, day)
@@ -76,6 +76,7 @@ class FlightSearchEngine:
 
         daily = self._daily(trips)
         top = self._top(trips, req.top_n)
+        cells = self._cells(trips)
         if not trips:
             warnings.append("No itinerary satisfied the constraints.")
         if req.carry_on_bags or req.checked_bags:
@@ -88,7 +89,7 @@ class FlightSearchEngine:
             warnings.append("Travelling with an infant under 2 (on a lap): infant fees and rules differ by airline, may not be in "
                             "these prices, and Google may hide airlines that do not carry infants. Confirm on the airline's site.")
         return SearchResult(
-            request=req, daily=daily, top=top,
+            request=req, daily=daily, top=top, cells=cells,
             api_calls=self.api_calls, cache_hits=self.cache_hits, warnings=warnings,
             airlines=airlines, unpriced=unpriced, data_from=self.oldest_ts, sources=dict(self.sources), elapsed_s=round(time.perf_counter() - started, 1),
         )
@@ -376,6 +377,22 @@ class FlightSearchEngine:
             )
             for day, ts in sorted(by_day.items())
         ]
+
+    # Most cells sent to the browser (each carries a full trip). 300 = 10 destinations x 30 trip lengths.
+    MAX_CELLS = 300
+
+    @staticmethod
+    def _cells(trips: list[Trip]) -> list[BestCell]:
+        """Cheapest trip for every (destination, nights): what "4, 5 or 6 nights to Rome, Paris or London" needs.
+        A single "cheapest trip" hides those choices. If there are more than MAX_CELLS, the cheapest are kept."""
+        groups: dict[tuple[str, int], list[Trip]] = defaultdict(list)
+        for t in trips:
+            groups[(t.destination, t.nights)].append(t)
+        cells = [BestCell(destination=dest, nights=n, cheapest=min(ts, key=lambda t: (t.price, t.effective_cost)), trips=len(ts))
+                 for (dest, n), ts in groups.items()]
+        cells.sort(key=lambda c: c.cheapest.price)
+        cells = cells[:FlightSearchEngine.MAX_CELLS]
+        return sorted(cells, key=lambda c: (c.nights, c.cheapest.price))
 
     @staticmethod
     def _top(trips: list[Trip], n: int) -> list[Trip]:
