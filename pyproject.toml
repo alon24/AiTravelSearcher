@@ -13,6 +13,7 @@ verify = ["playwright"]
 
 [project.scripts]
 flightagent = "flightagent.cli:main"
+flightagent-chat = "flightagent.cli:chat_main"
 
 [build-system]
 requires = ["setuptools>=68"]

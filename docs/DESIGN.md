@@ -17,7 +17,8 @@ Non-goals: booking, payment, fare rules, baggage pricing, seat selection.
 ```mermaid
 flowchart LR
     Browser["Browser UI"] --> API["FastAPI (api.py)"]
-    N8n["n8n agent"] --> API
+    Chat["Chat (chat.py)\nCLI or POST /api/chat"] --> Simple["simple.py\n/search/simple"]
+    Simple --> API
     CLI["CLI"] --> API
     API --> Engine["Engine"]
     API --> History[("History\nSQLite, past searches + results")]
@@ -27,10 +28,14 @@ flowchart LR
     Engine --> Mock["mock\n(deterministic fake data)"]
 ```
 
-- **One Python service** (`src/flightagent/`), one Docker container, on the `n8n_default` network.
-  The web UI is static files served by the same service (`web/`, no build step).
-- **n8n** is only a chat front-end: Chat Trigger → AI Agent → HTTP tool → `POST /search/simple`.
-  The LLM turns words into parameters; all search logic is deterministic Python.
+- **One Python service** (`src/flightagent/`), one Docker container. The web UI is static files served by
+  the same service (`web/`, no build step).
+- **The natural-language chat is built in, not a separate app** (`chat.py`, `POST /api/chat` or the
+  `flightagent-chat` CLI): one call to a chat model turns a sentence into search parameters (the same flat
+  shape `simple.py`'s `SimpleSearch` already defined for `/search/simple`), then the same deterministic
+  Python does the actual search. There used to be an n8n workflow doing this externally
+  (`n8n/flight-agent-chat.json`, Chat Trigger → AI Agent → HTTP tool → `POST /search/simple`); it has been
+  removed in favour of this, and the service no longer depends on an external `n8n_default` Docker network.
 - **Everything is composed from one-way lookups**: `(origin, destination, day) -> offers`. Round trips,
   open-jaw, mixed airlines and self-transfer are built by combining one-way offers. That is why any
   provider that can price a one-way flight can be plugged in.
@@ -505,10 +510,9 @@ Manually comparing `gflights` and `serpapi` on TLV→FCO (2026-10-05) matched on
 ## 11. Layout
 
 ```
-src/flightagent/  api.py engine.py models.py history.py cache.py report.py cli.py links.py
+src/flightagent/  api.py engine.py models.py history.py cache.py report.py cli.py links.py chat.py simple.py
                   providers/{base,gflights,serpapi,mock,airports}.py   web/{index.html,style.css,app.js,airports.json}
 tests/            test_engine.py  fixtures/gflights_tlv_fco_2026-10-05.json
-n8n/              build_workflow.py -> flight-agent-chat.json
 docs/DESIGN.md    this file
 ```
 Airport data: OpenFlights (ODbL), `web/airports.json`.

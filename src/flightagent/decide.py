@@ -30,8 +30,11 @@ _spent = 0.0
 _calls = 0
 
 
-def jev_key() -> str | None:
+def openrouter_key() -> str | None:
     return os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENROUTER_KEY") or None
+
+
+jev_key = openrouter_key   # kept as a name: this account-wide key is used for Jev here and for the built-in chat (chat.py)
 
 
 def jev_configured() -> bool:

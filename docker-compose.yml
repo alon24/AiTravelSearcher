@@ -1,4 +1,3 @@
-# Joins the existing n8n network so n8n reaches this service at http://flightagent:8765
 services:
   flightagent:
     build: .
@@ -13,12 +12,7 @@ services:
     volumes:
       - flightagent-cache:/data
     ports:
-      - "127.0.0.1:8765:8765"   # host access for debugging only; 8000 is taken by Portainer
-    networks: [n8n_default]
+      - "127.0.0.1:8765:8765"   # host access only; 8000 is taken by Portainer
 
 volumes:
   flightagent-cache:
-
-networks:
-  n8n_default:
-    external: true

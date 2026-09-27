@@ -195,16 +195,23 @@ implemented. Add a provider by implementing `FlightProvider.one_way` (`providers
   and Skyhop itself never books or takes payment.
 - Providers return only what Google Flights shows; some low-cost carriers may be missing.
 
-## n8n chat front-end
-`n8n/flight-agent-chat.json` is a chat workflow: Chat Trigger → AI Agent (OpenRouter model + memory)
-→ `search_flights` HTTP tool → `POST http://flightagent:8765/search/simple`. The agent asks for
-missing dates/nights, calls the API, and summarises the report. Regenerate with `python n8n/build_workflow.py`.
+## Natural-language chat (built in, no n8n)
+
+Skyhop used to have this as an n8n workflow calling `POST /search/simple`; that external chat app has been
+removed and the same job is now done by the service itself (`src/flightagent/chat.py`), one call to a chat
+model to turn your sentence into search parameters, then the same deterministic search everything else uses.
 
 ```bash
-docker compose up -d --build     # API container on the existing `n8n_default` network (port 8765; 8000 is Portainer)
+flightagent-chat                              # a REPL on the command line
+curl -X POST localhost:8765/api/chat -H 'content-type: application/json' \
+     -d '{"message": "cheapest 5 nights in Rome, Paris or London, October"}'
 ```
-Then in n8n (http://localhost:5678): **Workflows → Import from file** → `n8n/flight-agent-chat.json`,
-open the *OpenRouter Model* node and create an OpenRouter credential (paste the key there, not in `.env`; n8n stores it encrypted), then click **Open chat**.
+
+Needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`) in `.env` — the same account used for the Jev model (see
+`docs/DESIGN.md`). Model: `FLIGHTAGENT_CHAT_MODEL` (default `openai/gpt-4o-mini`). Pass back the response's
+`session_id` to continue the same conversation; it asks one short question if a required detail (dates,
+destinations, trip length) is missing, otherwise runs the search and summarises the report. Conversations
+live in memory only (lost on a restart) and are capped so a long-running server can't grow unbounded.
 
 Set `FLIGHTAGENT_PROVIDER=gflights,serpapi` in `.env` (then `docker compose up -d --build`) for real prices;
 with `mock` every report is labelled DEMO DATA. `GET /health` shows the active provider.

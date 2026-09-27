@@ -5,8 +5,8 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
 from functools import lru_cache
+from datetime import date, timedelta
 from pathlib import Path
 
 import httpx
@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
 from .airline_sites import resolve as resolve_airline_site
-from .cache import OfferCache
+from .chat import ChatError, chat as run_chat
 from .decide import configured_decider, decide_jev, jev_configured, spent_usd
 from .engine import BudgetExceeded, FlightSearchEngine, leg_view
 from .explore import ExploreResult, explore
@@ -26,8 +26,8 @@ from .itinerary import ItineraryCheck, analyse
 from .links import AIRLINE_SITES, BAG_NOTES, BAG_SHORT, KNOWN_AIRLINES
 from .models import LegView, SearchRequest, SearchResult
 from .polling import next_check_time
-from .providers import get_provider
 from .report import render
+from .simple import SimpleSearch, build_engine, run_simple_search, to_request
 
 load_dotenv()
 
@@ -63,21 +63,6 @@ app = FastAPI(title="Flight Agent", lifespan=lifespan)
 
 
 @lru_cache
-def _shared(provider: str, cache_db: str, ttl: str):
-    """One provider + cache for the process, so rate limits and the cache are global."""
-    return get_provider(provider), OfferCache(cache_db, float(ttl))
-
-
-def build_engine() -> FlightSearchEngine:
-    provider, cache = _shared(
-        os.getenv("FLIGHTAGENT_PROVIDER", "mock"),
-        os.getenv("FLIGHTAGENT_CACHE_DB", ".cache/offers.sqlite"),
-        os.getenv("FLIGHTAGENT_CACHE_TTL_HOURS", "6"),
-    )
-    return FlightSearchEngine(provider, cache)
-
-
-@lru_cache
 def _history(path: str) -> History:
     return History(path)
 
@@ -106,77 +91,23 @@ async def search_report(req: SearchRequest) -> dict[str, str]:
     return {"report": render(await run(req))}
 
 
-class SimpleSearch(BaseModel):
-    """Flat, all-string form of SearchRequest for LLM tool calls (n8n). Blank means default."""
-
-    origin: str = "TLV"
-    destinations: str
-    from_date: str
-    to_date: str
-    nights: str  # "5" or "4-7"
-    return_airports: str = ""
-    direct_only: str = ""
-    max_stops: str = ""
-    max_travel_hours: str = ""
-    same_airline: str = ""
-    self_transfer_hubs: str = ""
-    connect_destinations: str = ""
-    currency: str = ""
-    top: str = ""
-    adults: str = ""
-    children_ages: str = ""  # comma-separated ages, e.g. "5,8"
-    exclude_airlines: str = ""  # comma-separated IATA codes, e.g. "FR,W4"
-    only_airlines: str = ""
-
-
-def _csv(s: str) -> list[str]:
-    return [x.strip().upper() for x in s.split(",") if x.strip()]
-
-
-def _flag(s: str) -> bool:
-    return s.strip().lower() in ("1", "true", "yes", "y")
-
-
-def to_request(s: SimpleSearch) -> SearchRequest:
-    lo, _, hi = s.nights.strip().partition("-")
-    hubs = _csv(s.self_transfer_hubs)
-    kw: dict = {}
-    if s.max_stops.strip():
-        kw["max_stops_per_leg"] = int(s.max_stops)
-    if s.max_travel_hours.strip():
-        kw["max_travel_min_per_direction"] = int(float(s.max_travel_hours) * 60)
-    if s.top.strip():
-        kw["top_n"] = int(s.top)
-    return SearchRequest(
-        origin=s.origin.strip() or "TLV", destinations=_csv(s.destinations),
-        return_airports=_csv(s.return_airports),
-        window_start=date.fromisoformat(s.from_date.strip()),
-        window_end=date.fromisoformat(s.to_date.strip()),
-        min_nights=int(lo), max_nights=int(hi or lo),
-        allow_connections=not _flag(s.direct_only), allow_mixed_airlines=not _flag(s.same_airline),
-        allow_self_transfer=bool(hubs), self_transfer_hubs=hubs,
-        connect_destinations=_flag(s.connect_destinations),
-        adults=int(s.adults) if s.adults.strip() else 1,
-        children_ages=[int(x) for x in s.children_ages.replace(",", " ").split()],
-        airlines_exclude=_csv(s.exclude_airlines), airlines_include=_csv(s.only_airlines),
-        currency=s.currency.strip().upper() or "USD", **kw,
-    )
-
-
 @app.post("/search/simple")
 async def search_simple(s: SimpleSearch) -> dict[str, str]:
-    """Never raises for bad input or budget errors: returns {"error": ...} so an LLM can react."""
+    return await run_simple_search(s)
+
+
+class ChatBody(BaseModel):
+    message: str
+    session_id: str | None = None
+
+
+@app.post("/api/chat")
+async def chat_endpoint(b: ChatBody) -> dict:
+    """Natural-language search, no n8n: see chat.py. Pass back the returned session_id to continue the conversation."""
     try:
-        req = to_request(s)
-        result = await build_engine().search(req)
-    except ValidationError as e:
-        return {"error": "; ".join(err["msg"].removeprefix("Value error, ") for err in e.errors())}
-    except (ValueError, BudgetExceeded, RuntimeError) as e:
-        return {"error": str(e)}
-    text = render(result)
-    if os.getenv("FLIGHTAGENT_PROVIDER", "mock").lower() == "mock":
-        text = "*** DEMO DATA (mock provider) - prices are fake ***\n\n" + text
-    return {"report": text}
+        return await run_chat(b.message, b.session_id)
+    except ChatError as e:
+        raise HTTPException(400, str(e)) from e
 
 
 @app.get("/health")

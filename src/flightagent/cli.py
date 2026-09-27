@@ -8,6 +8,7 @@ from datetime import date
 from dotenv import load_dotenv
 
 from .api import build_engine
+from .chat import ChatError, chat
 from .engine import BudgetExceeded
 from .models import SearchRequest
 from .report import render
@@ -69,6 +70,29 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     print(result.model_dump_json(indent=2) if a.json else render(result))
     return 0
+
+
+def chat_main(argv: list[str] | None = None) -> int:
+    """Interactive natural-language search on the command line -- what n8n's chat workflow used to do, now built in
+    (chat.py). Needs OPENROUTER_API_KEY (or OPENROUTER_KEY) in .env; the flight search itself still runs locally."""
+    load_dotenv()
+    print("Skyhop chat. Tell me where and when you want to fly (empty line or Ctrl-D to quit).")
+    session_id = None
+    while True:
+        try:
+            message = input("> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 0
+        if not message:
+            return 0
+        try:
+            r = asyncio.run(chat(message, session_id))
+        except ChatError as e:
+            print(f"error: {e}", file=sys.stderr)
+            continue
+        session_id = r["session_id"]
+        print(r["reply"])
 
 
 if __name__ == "__main__":

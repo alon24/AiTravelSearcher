@@ -34,12 +34,8 @@ tools/install.sh
 
 ```
 Copy-Item .env.example .env
-docker network create n8n_default
 docker compose up -d --build
 ```
-
-(`docker network create` may say the network already exists; that is fine. It is needed because `docker-compose.yml`
-joins a network called `n8n_default` so an n8n container can reach the app.)
 
 Open **http://localhost:8765/**. The header shows a green **LIVE** badge when real prices are being fetched.
 The default data source is a free Google Flights scraper: no account, no key.
@@ -105,7 +101,6 @@ docker compose logs flightagent
 
 | Problem | Fix |
 |---|---|
-| `network n8n_default declared as external, but could not be found` | `docker network create n8n_default`, then `docker compose up -d --build` |
 | `port is already allocated` (8765) | Something else uses port 8765. Stop it, or change `127.0.0.1:8765:8765` in `docker-compose.yml` (and the same port in the extension's `manifest.json` `content_scripts` matches). |
 | Page says **ASSIST OFF** | Extension disabled or not loaded: `chrome://extensions`, enable it, reload it, refresh the page. |
 | Assist button opens the airline but nothing is outlined | Turn on Site access (step 3.4). Make sure a decision model is chosen and reachable: the 🧠 badge turns amber "not running" if it isn't. |
