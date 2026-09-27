@@ -173,7 +173,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const learned = await getLearned(), out = {};
     for (const [key, e] of Object.entries(await registry())) {
       const status = e.mode === "discover" ? (learned[key] ? "learned" : "discover") : e.status;
-      for (const c of [key, ...(e.aliases || [])]) out[c] = { name: e.name, status };
+      // Bespoke drivers (El Al, TAROM) only know how to search FROM Tel Aviv (their own home-country widget / a hardcoded originLocationCode);
+      // a "url" template or one learned from the user is parameterised by {origin}, so it works from wherever the flight actually leaves.
+      const anyOrigin = e.mode !== "bespoke";
+      for (const c of [key, ...(e.aliases || [])]) out[c] = { name: e.name, status, anyOrigin };
     }
     return out;
   })().then((airlines) => sendResponse({ ok: true, airlines }), (e) => sendResponse({ ok: false, error: String(e?.message || e) }));
@@ -361,13 +364,16 @@ async function discover(entry, details) {
   await reportError(`gave up learning ${entry.name}: no results page for ${details.destination} on ${details.day} in 10 minutes`);
 }
 
-async function handle({ airline, destination, day, returnDay, flightNumber, departTime, originName, destinationName, destCodes }, senderTabId) {
+async function handle({ airline, origin, destination, day, returnDay, flightNumber, departTime, originName, destinationName, destCodes }, senderTabId) {
   reportTabId = senderTabId ?? null;
   const entry = await lookup(airline);
   if (!entry) return reportError(`${airline} isn't in Skyhop Assist's airline list (browser-extension/airlines.json)`);
+  origin = origin || "TLV";        // callers before this version never sent one; TLV was the only origin Skyhop searched from then
+  if (entry.mode === "bespoke" && origin !== "TLV")
+    return reportError(`${entry.name}'s driver only knows how to search from Tel Aviv (TLV), not ${origin} -- use "Check on ${entry.name} site" instead`);
   await progress(0, "request received, opening the airline tab");
   const destCity = (destCodes || []).find((c) => c !== destination);
-  const details = { airline, airlineName: entry.name, origin: "TLV", originName, destination, destinationName, destCodes, destCity, day, returnDay, flightNumber, departTime };
+  const details = { airline, airlineName: entry.name, origin, originName, destination, destinationName, destCodes, destCity, day, returnDay, flightNumber, departTime };
 
   try {
     let driver = null;

@@ -207,3 +207,175 @@ def test_airline_names_use_the_full_name_when_the_provider_abbreviates(page):
     got = page.evaluate("""() => [airlineName('AZ', 'ITA'), airlineName('AZ', 'ITA Airways'), airlineName('6H', 'Israir Airlines'), airlineName('6H', 'Israir'),
                                   airlineName('U8', ''), airlineName('ZZ', 'Zed Air'), airlineName('ZZ', ''), airlineName('LY', 'EL AL')]""")
     assert got == ["ITA Airways", "ITA Airways", "Israir Airlines", "Israir", "Tus Air", "Zed Air", "ZZ", "EL AL"]
+
+
+def _button_names(loc):
+    """['Lufthansa', ...] from the labels 'Check on X site' / "Looking for X's website…" / "Couldn't find X's website" of the buttons in `loc`."""
+    import re
+    out = []
+    for t in loc.all_inner_texts():
+        t = t.replace("↗", "").strip()
+        m = re.fullmatch(r"Check on (.+) site|Looking for (.+)'s website…|Couldn't find (.+)'s website", t)
+        assert m, t
+        out.append(m.group(1) or m.group(2) or m.group(3))
+    return out
+
+
+def test_every_airline_in_every_row_has_a_button(results):
+    """Not just the airlines we keep a site address for: one button per airline of the trip, in the table, Mix & match and the trip card."""
+    p = results
+    for i in range(p.locator(".cmp-tr").count()):
+        row = p.locator(".cmp-tr").nth(i)
+        shown = set()
+        for name in row.locator(".cmp-air b").all_inner_texts():
+            shown.update(x.strip() for x in name.split(" + "))
+        assert set(_button_names(row.locator(".site-btn"))) == shown, i
+    for i in range(p.locator(".mm-row").count()):
+        row = p.locator(".mm-row").nth(i)
+        assert set(_button_names(row.locator(".site-btn"))) == {x.strip() for x in row.locator(".mm-air").inner_text().split("·")}, i
+
+
+def _search_without_two_known_sites(page, answer):
+    """Runs the 3-destination search after making Lufthansa and Austrian 'unknown' (stand-ins for a brand-new airline like Animawings),
+    with /api/airline-site answering `answer` (a dict) after a short delay."""
+    def handler(route):
+        page.wait_for_timeout(150)
+        route.fulfill(status=200, content_type="application/json", body=answer)
+    page.route("**/api/airline-site**", handler)
+    page.evaluate("() => { delete config.airline_sites.LH; delete config.airline_sites.OS; }")
+    page.evaluate("""() => { const f = readForm(); f.to = ['ROM', 'PAR', 'LON']; f.start = '2026-10-05'; f.end = '2026-10-25';
+                              f.lenMode = 'range'; f.nmin = 4; f.nmax = 6; writeForm(f); onFormChange(); }""")
+    page.wait_for_timeout(500)
+    page.click("#go")
+    page.wait_for_selector(".cmp-table", timeout=60000)
+
+
+def test_an_unknown_airline_is_looked_up_and_then_links_to_its_real_site(page):
+    _search_without_two_known_sites(page, '{"url": "https://www.lufthansa-example.test/", "source": "wikidata"}')
+    page.wait_for_selector(".cmp-tr .site-btn.checking", timeout=5000) if page.locator(".cmp-tr .site-btn.checking").count() else None
+    page.wait_for_function("document.querySelectorAll('.cmp-tr .site-btn.checking').length === 0", timeout=10000)
+    links = page.locator(".cmp-tr a.site-btn[href^='https://www.lufthansa-example.test']")
+    assert links.count() >= 1
+    label = links.first.inner_text().replace("↗", "").strip()
+    assert label.startswith("Check on ") and label.endswith(" site")                     # the same button as every other airline
+    assert links.first.bounding_box()["height"] >= 40
+    assert page.locator(".site-btn", has_text="Google").count() == 0                     # a search engine is never offered
+    assert page.evaluate("config.airline_sites.LH") == "https://www.lufthansa-example.test/"   # remembered: no second lookup
+
+
+def test_an_airline_with_no_website_says_so_plainly_and_is_not_a_link(page):
+    _search_without_two_known_sites(page, '{"url": null, "source": null}')
+    page.wait_for_function("document.querySelectorAll('.cmp-tr .site-btn.missing').length > 0", timeout=10000)
+    miss = page.locator(".cmp-tr .site-btn.missing").first
+    text = miss.inner_text().strip()
+    assert text.startswith("Couldn't find ") and text.endswith("'s website")
+    assert miss.evaluate("e => e.tagName") == "SPAN" and miss.get_attribute("href") is None    # nothing to click through to
+    assert "won't guess" in miss.get_attribute("title")
+    assert page.locator(".cmp-tr .site-btn.checking").count() == 0
+    assert page.locator("a.site-btn[href*='google.com']").count() == 0
+
+
+def test_a_lookup_that_could_not_be_made_is_not_reported_as_no_website_and_can_be_retried(page):
+    state = {"n": 0}
+    def handler(route):
+        state["n"] += 1
+        body = '{"url": null, "source": null, "unavailable": true}' if state["n"] <= 2 else '{"url": "https://www.lufthansa-example.test/", "source": "wikidata"}'
+        route.fulfill(status=200, content_type="application/json", body=body)
+    page.route("**/api/airline-site**", handler)
+    page.evaluate("() => { delete config.airline_sites.LH; }")
+    page.evaluate("""() => { const f = readForm(); f.to = ['ROM', 'PAR', 'LON']; f.start = '2026-10-05'; f.end = '2026-10-25';
+                              f.lenMode = 'range'; f.nmin = 4; f.nmax = 6; writeForm(f); onFormChange(); }""")
+    page.wait_for_timeout(500)
+    page.click("#go")
+    page.wait_for_selector(".cmp-table", timeout=60000)
+    page.wait_for_function("document.querySelector('.cmp-tr .site-btn.retry')", timeout=10000)
+    retry = page.locator(".cmp-tr .site-btn.retry").first
+    text = retry.inner_text().strip()
+    assert "right now" in text and text.endswith("Try again")
+    assert "Couldn't find" not in text                                               # it does NOT claim the airline has no website
+    assert page.locator(".cmp-tr .site-btn.missing").count() == 0
+    retry.click()
+    page.wait_for_function("document.querySelector('.cmp-tr a.site-btn[href^=\"https://www.lufthansa-example.test\"]')", timeout=10000)
+    assert page.evaluate("config.airline_sites.LH") == "https://www.lufthansa-example.test/"
+
+
+def test_clicking_a_site_button_opens_the_site_and_copies_the_flight(results):
+    p = results
+    p.evaluate("""() => { window.__copied = null; Object.defineProperty(navigator, 'clipboard', { value: { writeText: t => { window.__copied = t; return Promise.resolve(); } }, configurable: true });
+                          window.addEventListener('click', e => { if (e.target.closest && e.target.closest('a.site-btn')) e.preventDefault(); }, true); }""")
+    btn = p.locator(".cmp-tr a.site-btn").first
+    assert btn.get_attribute("target") == "_blank"
+    btn.click()
+    p.wait_for_function("window.__copied !== null")
+    note = p.evaluate("window.__copied")
+    import re
+    assert re.search(r"[A-Z0-9]{2}\d+ [A-Z]{3} → [A-Z]{3}, \w{3} \d+ \w{3} \d\d:\d\d", note), note        # e.g. "LH5429 TLV → IST, Wed 7 Oct 05:00"
+    assert "Search for it there" in p.inner_text(".toast")
+
+
+def test_the_server_knows_many_more_airline_sites():
+    from flightagent.links import AIRLINE_SITES
+    assert len(AIRLINE_SITES) >= 60
+    for code in ("LY", "6H", "IZ", "W6", "W4", "FR", "U2", "RO", "TP", "UX", "HV", "VY", "EW", "AZ"):
+        assert AIRLINE_SITES[code].startswith("https://")
+
+
+def test_the_trip_builder_and_unpriced_flights_have_the_button_too(results):
+    p = results
+    p.locator(".cmp-tr").first.click()
+    p.click(".cmp-detail button:has-text('Add all flights to Trip builder')")
+    p.click("#tb-launch")
+    p.wait_for_selector(".tb-chosen")
+    assert p.locator(".tb-chosen .site-btn").count() >= 1
+    label = p.locator(".tb-chosen .site-btn").first.inner_text().replace("↗", "").strip()
+    assert label.startswith("Check on ") or label.startswith("Find ")
+    p.click("#tb-close")
+    # a flight Google lists without a price, for an airline nobody has heard of: still a button; with no website found it says so
+    p.route("**/api/airline-site**", lambda r: r.fulfill(status=200, content_type="application/json", body='{"url": null, "source": null}'))
+    html = p.evaluate("""() => {
+        const u = { date: '2026-10-23', origin: 'TLV', destination: 'OTP', airline: 'Animawings', airline_code: 'XX', flights: 'XX123',
+                    departs: '2026-10-23T09:10:00', arrives: '2026-10-23T12:00:00', duration_min: 170, stops: 0, link: '', last_price: null, last_seen: null };
+        window.__unp = unpricedPanel({ unpriced: [u] }, { id: 'x', request: currentRow.request, rechecks: 0 });
+        document.body.append(window.__unp);
+        return window.__unp.querySelectorAll('.site-btn').length;
+    }""")
+    assert html == 1
+    p.wait_for_function("window.__unp.querySelector('.site-btn.missing')", timeout=10000)
+    assert p.evaluate("window.__unp.querySelector('.site-btn.missing').textContent.trim()") == "Couldn't find Animawings's website"
+
+
+def test_the_return_leg_also_gets_the_search_button_when_the_driver_supports_any_origin(results):
+    """The bug this fixes: 'Select on site' only ever appeared on the outbound leg (it assumed every search starts at TLV). A driver
+    parameterised by {origin} (Wizz Air-style "url" mode, or one learned from the user) works from wherever the flight actually leaves."""
+    p = results
+    codes = p.locator(".cmp-air .code").evaluate_all("els => [...new Set(els.flatMap(e => e.textContent.split(' + ').map(x => x.trim().slice(0, 2))))]")
+    p.evaluate("""codes => {
+        document.documentElement.dataset.skyhopExtension = '1';
+        document.documentElement.dataset.skyhopAirlines = JSON.stringify(Object.fromEntries(codes.map(c => [c, {name: c, status: 'verified', anyOrigin: true}])));
+        window.__events = [];
+        window.addEventListener('skyhop-select-flight', e => window.__events.push(e.detail));
+    }""", codes)
+    p.click(".cmp-tr")                                                                 # open one trip: outbound + return legs, in one card
+    p.wait_for_selector(".cmp-detail .leg")
+    buttons = p.locator(".cmp-detail .leg .actions button.accent")
+    assert buttons.count() >= 2                                                         # both legs offer it, not just the outbound one
+    buttons.nth(0).click()
+    buttons.nth(1).click()
+    origins = [e["origin"] for e in p.evaluate("window.__events")]
+    assert len(set(origins)) == 2 and "TLV" in origins                                  # different origins: one leg IS the return leg
+
+
+def test_a_bespoke_driver_stays_limited_to_its_own_origin(results):
+    """El Al / TAROM: origin-locked by their OWN site (El Al's widget defaults to Tel Aviv; TAROM's link hardcodes it), not by a Skyhop
+    assumption -- so a return leg from Rome must NOT offer a fake "Select on site" for these two."""
+    p = results
+    p.evaluate("""() => {
+        document.documentElement.dataset.skyhopExtension = '1';
+        document.documentElement.dataset.skyhopAirlines = JSON.stringify({ RO: { name: 'TAROM', status: 'bespoke', anyOrigin: false } });
+    }""")
+    got = p.evaluate("""() => {
+        const tlv = { airline_code: 'RO', flight_number: '156', origin: 'TLV', destination: 'OTP', departs: '2026-10-23T10:00:00', arrives: '2026-10-23T13:00:00' };
+        const fco = { airline_code: 'RO', flight_number: '157', origin: 'OTP', destination: 'TLV', departs: '2026-10-28T10:00:00', arrives: '2026-10-28T13:00:00' };
+        return [!!assistFor('RO', [tlv]), !!assistFor('RO', [fco])];
+    }""")
+    assert got == [True, False]

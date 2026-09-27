@@ -38,19 +38,10 @@ const Compare = (() => {
       h("div", { class: "cmp-air" }, h("b", {}, legNames(leg).join(" + ")), h("span", { class: "code" }, leg.segments.map(s => `${s.airline_code}${s.flight_number}`).join(" + "))));
   }
 
-  // "Check on <airline> site": one readable button per airline in the trip. With the extension it SEARCHES this flight on the airline's own
-  // site (in English where the driver can choose); without it, it opens the airline's site to look for the fare yourself.
+  // "Check on <airline> site": one readable button per airline in the trip (siteButton in app.js: the extension's search, the airline's site,
+  // or a Google search for an airline we have no address for).
   function siteButtons(t) {
-    const list = airlinesOf(t).slice(0, 2);
-    return h("div", { class: "cmp-actions" }, list.map(([code, name]) => {
-      const site = (config.airline_sites || {})[code];
-      const search = assistFor(code, t.legs[0].segments);
-      const href = site || `https://www.google.com/search?q=${encodeURIComponent(`${name} ${t.legs[0].segments[0].origin} ${t.legs[0].segments[0].destination} ${t.depart_date} book`)}`;
-      return h("a", { class: "site-btn", href, target: "_blank", rel: "noopener noreferrer", "data-assist": search ? "1" : null,
-        onclick: e => { e.stopPropagation(); if (search) { e.preventDefault(); search(); } },
-        title: search ? `Searches this flight on ${name}'s own site (opens a new tab)` : site ? `Open ${name}'s own site to confirm this fare` : `We have no link for ${name}: search for it` },
-        site || search ? `Check on ${name} site` : `Find ${name} on Google`, h("span", { "aria-hidden": "true", class: "ext" }, "↗"));
-    }));
+    return h("div", { class: "cmp-actions" }, airlinesOfSegments(t.legs.flatMap(l => l.segments)).map(([code, name, segs]) => siteButton(code, name, segs)));
   }
 
   function render(host, { res, q, cur, pax, state }) {

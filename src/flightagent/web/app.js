@@ -988,13 +988,74 @@ function placeInfo(code) {
 // covers); otherwise null and the caller keeps a plain link to the airline's site.
 function assistFor(code, segments) {
   if (!extensionAvailable() || !EXTENSION_DRIVERS.has(code)) return null;
-  const sg = segments.find(x => x.origin === "TLV" && x.airline_code === code);
-  return sg ? () => selectOnAirlineSite(code, sg.destination, sg.departs.slice(0, 10), `${code}${sg.flight_number}`, sg.departs.slice(11, 16)) : null;
+  const sg = segments.find(x => x.airline_code === code);
+  if (!sg) return null;
+  // Not tied to any one origin: a "url" template or one learned from the user is parameterised by {origin}, so it searches from wherever the
+  // flight actually leaves. Only the two bespoke drivers (El Al, TAROM) are origin-locked, and that is THEIR real limit (El Al's own search
+  // widget defaults to Tel Aviv; TAROM's direct link hardcodes it) -- not an assumption Skyhop makes about where you fly from.
+  if (!assistAirlines()[code]?.anyOrigin && sg.origin !== "TLV") return null;
+  return () => selectOnAirlineSite(code, sg.origin, sg.destination, sg.departs.slice(0, 10), `${code}${sg.flight_number}`, sg.departs.slice(11, 16));
 }
-function selectOnAirlineSite(airline_code, destination, dateISO, flightNumber, departTime) {
-  const from = placeInfo("TLV"), to = placeInfo(destination);
+// "Check on <airline> site": a button for EVERY airline, known or brand new, that takes you to the airline's own website and never to a search engine.
+//   - the extension can search this flight on the airline's own site -> it does (opens a new tab, English where the driver can choose);
+//   - otherwise the airline's real website opens, and the flight's details (number, route, date, time) are copied so you can paste them into
+//     the airline's own search (the site's search can't be driven for airlines outside the extension's list);
+//   - an airline we have no address for is looked up (our list, then Wikidata: /api/airline-site); while that runs the button says so, and if no
+//     official website exists it says plainly "Couldn't find <airline>'s website" -- it never guesses.
+// `segments` = that airline's flights of the trip, first to last.
+const siteLookups = new Map();     // "code|name" -> Promise<{url, unavailable}>; a definite answer is kept, "couldn't check" is not (so it can be retried)
+function lookupSite(code, name) {
+  const key = `${code}|${name}`;
+  if (!siteLookups.has(key)) {
+    const p = fetch(`/api/airline-site?code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}`, { headers: { "X-Skyhop": "1" } })
+      .then(r => (r.ok ? r.json() : { unavailable: true }))
+      .then(j => ({ url: typeof j.url === "string" && /^https:\/\//.test(j.url) ? j.url : null, unavailable: !!j.unavailable }))
+      .catch(() => ({ url: null, unavailable: true }));
+    siteLookups.set(key, p);
+    p.then(r => { if (r.unavailable) siteLookups.delete(key); });
+  }
+  return siteLookups.get(key);
+}
+function flightNote(segments) {
+  return segments.map(s => `${s.airline_code}${s.flight_number} ${s.origin} → ${s.destination}, ${fmtDay(day(s.departs))} ${fmtTime(day(s.departs))}`).join(" · ");
+}
+function copyFlightNote(name, segments) {
+  const note = flightNote(segments);
+  const told = ok => toast(`Opening ${name}'s site. ${ok ? "Flight copied" : "Flight"}: ${note}. Search for it there.`);
+  try { navigator.clipboard.writeText(`${name}: ${note}`).then(() => told(true), () => told(false)); } catch { told(false); }
+}
+function siteButton(code, name, segments) {
+  const known = (config.airline_sites || {})[code];
+  const search = assistFor(code, segments);
+  const link = url => h("a", { class: "site-btn", href: url, target: "_blank", rel: "noopener noreferrer", "data-assist": search ? "1" : null,
+    onclick: e => { e.stopPropagation(); if (search) { e.preventDefault(); search(); } else copyFlightNote(name, segments); },
+    title: search ? `Searches this flight on ${name}'s own site (opens a new tab)` : `Opens ${name}'s own site and copies this flight's details (${flightNote(segments)}) to paste into their search` },
+    `Check on ${name} site`, h("span", { class: "ext", "aria-hidden": "true" }, "↗"));
+  if (known || search) return link(known || "#");
+  const el = h("span", { class: "site-btn checking", role: "status", title: `Looking for ${name}'s official website` }, `Looking for ${name}'s website…`);
+  const settle = (node) => {
+    lookupSite(code, name).then(({ url, unavailable }) => {
+      if (url) { (config.airline_sites ||= {})[code] = url; node.replaceWith(link(url)); }
+      else if (unavailable) {
+        // Not the same as "no website": the lookup service could not be asked right now. Offer to ask again.
+        const retry = h("button", { type: "button", class: "site-btn retry", title: `The website lookup is busy or offline right now, so Skyhop can't say whether ${name} has one. Click to try again.`,
+          onclick: e => { e.stopPropagation(); const again = h("span", { class: "site-btn checking", role: "status" }, `Looking for ${name}'s website…`); retry.replaceWith(again); settle(again); } },
+          `Couldn't check ${name}'s website right now. Try again`);
+        node.replaceWith(retry);
+      } else node.replaceWith(h("span", { class: "site-btn missing", role: "note",
+        title: `Skyhop could not find an official website for ${name}, so it won't guess. Flight: ${flightNote(segments)}` }, `Couldn't find ${name}'s website`));
+    });
+  };
+  settle(el);
+  return el;
+}
+// The airlines of a list of segments in flight order: [[code, name, [their segments]], ...]
+const airlinesOfSegments = segs => [...segs.reduce((m, sg) => (m.has(sg.airline_code) ? m : m.set(sg.airline_code, [airlineName(sg.airline_code, sg.airline), []])), new Map()).entries()]
+  .map(([code, [name]]) => [code, name, segs.filter(x => x.airline_code === code)]);
+function selectOnAirlineSite(airline_code, origin, destination, dateISO, flightNumber, departTime) {
+  const from = placeInfo(origin), to = placeInfo(destination);
   window.dispatchEvent(new CustomEvent("skyhop-select-flight", {
-    detail: { airline: airline_code, destination, day: dateISO, flightNumber, departTime,
+    detail: { airline: airline_code, origin, destination, day: dateISO, flightNumber, departTime,
       originName: from.name, destinationName: to.name, destCodes: to.codes },
   }));
   toast(`Opening ${airline_code} — searching for ${flightNumber || "that flight"}…`);
@@ -1036,11 +1097,8 @@ function unpricedPanel(res, row) {
       h("span", { class: "unp-air" }, h("b", {}, u.flights), ` ${u.airline}`, u.stops ? ` · ${plural(u.stops, "stop")}` : " · nonstop",
         u.last_price != null ? h("span", { class: "badge warn", title: "Google showed this fare earlier and has since dropped it, so it may be out of date" }, `last seen ${money(u.last_price, row.request.currency)}, ${ago(u.last_seen)}`) : null),
       h("span", { class: "actions" },
-        (extensionAvailable() && EXTENSION_DRIVERS.has(u.airline_code)) ?
-          h("button", { type: "button", class: "btn small accent", title: assistStatus(sg.airline_code) === "discover" ? "First time for this airline: opens its site and learns its results page from ONE search you do by hand; after that this button does the search for you" : "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
-            onclick: () => selectOnAirlineSite(u.airline_code, u.destination, u.date, u.flights, (u.departs || "").slice(11, 16)) }, `✈ Select on ${u.airline} site ↗`) : null,
-        h("a", { class: "btn small", target: "_blank", rel: "noopener noreferrer", title: config.airline_sites[u.airline_code] ? "Open the airline's own site to see the fare" : "We have no link for this airline: search for it",
-          href: config.airline_sites[u.airline_code] || `https://www.google.com/search?q=${encodeURIComponent(`${u.airline} ${u.flights} ${u.origin} ${u.destination} ${u.date} book`)}` }, config.airline_sites[u.airline_code] ? `${u.airline} site ↗` : "Find on Google ↗"),
+        siteButton(u.airline_code, airlineName(u.airline_code, u.airline), [{ airline_code: u.airline_code, airline: u.airline, flight_number: u.flights.startsWith(u.airline_code) ? u.flights.slice(u.airline_code.length) : u.flights,
+          origin: u.origin, destination: u.destination, departs: u.departs, arrives: u.arrives }]),
         h("button", { type: "button", class: "btn small", onclick: () => Builder.browse(u.origin, u.destination, u.date) }, "All flights that day"),
         u.link ? h("a", { class: "btn small", href: u.link, target: "_blank", rel: "noopener noreferrer" }, "Google Flights ↗") : null)))));
 }
@@ -1084,20 +1142,14 @@ function legCard(leg, title, cur) {
     leg.deep_links.length > 1 ? `Google Flights · ticket ${i + 1} ↗` : "Google Flights ↗"));
   // With the extension on, the airline chip does the same as the "Select ... on site" button
   // (people click the obvious airline link first); it stays a plain link where no driver applies.
-  const direct = [...seen].filter(([code]) => config.airline_sites[code]).map(([code, name]) => {
-    const sg = extensionAvailable() && EXTENSION_DRIVERS.has(code)
-      ? leg.segments.find(x => x.origin === "TLV" && x.airline_code === code) : null;
-    return h("a", { class: "site-btn", href: config.airline_sites[code], target: "_blank", rel: "noopener noreferrer",
-      title: sg ? "Opens the airline's site with this flight selected" : `Open ${name}'s own site to confirm the fare and bags`,
-      onclick: sg ? (e) => { e.preventDefault(); selectOnAirlineSite(code, sg.destination, sg.departs.slice(0, 10), `${code}${sg.flight_number}`, sg.departs.slice(11, 16)); } : null },
-      `Check on ${name} site`, h("span", { class: "ext", "aria-hidden": "true" }, "↗"));
-  });
-  // Auto-select on the airline's own site (browser-extension/): per matching segment, since
-  // flight number/destination are segment-specific. TLV-origin only for now (elal_verify.py scope).
-  const autoSelect = extensionAvailable() ? leg.segments.filter(sg => sg.origin === "TLV" && EXTENSION_DRIVERS.has(sg.airline_code)).map(sg =>
-    h("button", { type: "button", class: "btn small accent", title: assistStatus(sg.airline_code) === "discover" ? "First time for this airline: opens its site and learns its results page from ONE search you do by hand; after that this button does the search for you" : "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
-      onclick: () => selectOnAirlineSite(sg.airline_code, sg.destination, sg.departs.slice(0, 10), `${sg.airline_code}${sg.flight_number}`, sg.departs.slice(11, 16)) },
-      `✈ Select ${sg.airline_code}${sg.flight_number} on site ↗`)) : [];
+  const direct = airlinesOfSegments(leg.segments).map(([code, name, segs]) => siteButton(code, name, segs));   // one button per airline, always
+  // Auto-select on the airline's own site (browser-extension/): one button per airline in this leg, whichever direction it flies --
+  // assistFor already knows which origins each airline's driver can actually search from (see its comment).
+  const autoSelect = extensionAvailable() ? airlinesOfSegments(leg.segments).map(([code, , segs]) => {
+    const search = assistFor(code, segs);
+    return search ? h("button", { type: "button", class: "btn small accent", title: assistStatus(code) === "discover" ? "First time for this airline: opens its site and learns its results page from ONE search you do by hand; after that this button does the search for you" : "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
+      onclick: search }, `✈ Select ${code}${segs[0].flight_number} on site ↗`) : null;
+  }).filter(Boolean) : [];
   return h("div", { class: "leg" },
     h("div", { class: "leg-top" },
       h("div", { class: "leg-title" }, title, h("small", {}, [...seen.values()].join(" · "))),

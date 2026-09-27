@@ -76,20 +76,15 @@ const MixMatch = (() => {
   }
 
   // "Check on <airline> site": the airline's own site, to confirm the fare and bags (readable 44px button, docs/stitch/DESIGN.md).
-  const siteLinks = f => [...new Map(f.segments.map(sg => [sg.airline_code, airlineName(sg.airline_code, sg.airline)])).entries()].slice(0, 2)
-    .filter(([code]) => (config.airline_sites || {})[code]).map(([code, name]) => {
-      const search = assistFor(code, f.segments);                       // the extension searches this flight on the airline's site
-      return h("a", { class: "site-btn", href: config.airline_sites[code], target: "_blank", rel: "noopener noreferrer", "data-assist": search ? "1" : null,
-        onclick: ev => { ev.stopPropagation(); if (search) { ev.preventDefault(); search(); } },
-        title: search ? `Searches this flight on ${name}'s own site (opens a new tab)` : `Open ${name}'s own site to confirm the fare and bags` },
-        `Check on ${name} site`, h("span", { class: "ext", "aria-hidden": "true" }, "↗"));
-    });
+  const siteLinks = f => airlinesOfSegments(f.segments).map(([code, name, segs]) => siteButton(code, name, segs));   // every airline, known or new
   function row(f, cur, picked, onPick, fees) {
     const e = legEnds(f), sh = dayShift(e.dep, e.arr), names = [...new Set(f.segments.map(s => airlineName(s.airline_code, s.airline)))];
-    // Auto-select on the airline's own site (browser-extension/): TLV-origin only for now. The row
-    // itself needs to stay clickable for "pick this flight", so this is a real nested <button> --
+    // Auto-select on the airline's own site (browser-extension/), whichever direction this leg flies (assistFor knows which origins each
+    // airline's driver actually supports). The row itself needs to stay clickable for "pick this flight", so this is a real nested <button> --
     // that means the row can no longer be a <button> itself (invalid HTML), hence role="button" below.
-    const autoSeg = extensionAvailable() ? f.segments.find(sg => sg.origin === "TLV" && EXTENSION_DRIVERS.has(sg.airline_code)) : null;
+    const autoCode = extensionAvailable() ? [...new Set(f.segments.map(sg => sg.airline_code))].find(code => assistFor(code, f.segments)) : null;
+    const autoSearch = autoCode ? assistFor(autoCode, f.segments) : null;
+    const autoSeg = autoCode ? f.segments.find(sg => sg.airline_code === autoCode) : null;
     return h("div", { class: "mm-row" + (picked ? " picked" : ""), role: "button", tabindex: "0", "aria-pressed": String(!!picked),
         onclick: onPick, onkeydown: ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); onPick(); } } },
       h("div", { class: "mm-times" }, h("b", {}, fmtTime(e.dep)), h("span", { class: "ap" }, e.from), h("span", { class: "arrow" }, "→"), h("b", {}, fmtTime(e.arr), sh > 0 ? h("sup", {}, `+${sh}`) : null), h("span", { class: "ap" }, e.to)),
@@ -99,7 +94,7 @@ const MixMatch = (() => {
       h("div", { class: "mm-bags" }, bagChips(f, fees)),
       h("div", { class: "mm-price" }, f.priced === false ? h("span", { class: "np" }, "No price shown") : [money(f.price, cur), origNote(f.price, cur, "orig block")]),
       siteLinks(f).length || autoSeg ? h("div", { class: "mm-actions" }, siteLinks(f), autoSeg ? h("button", { type: "button", class: "btn small accent", title: "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
-        onclick: ev => { ev.stopPropagation(); selectOnAirlineSite(autoSeg.airline_code, autoSeg.destination, autoSeg.departs.slice(0, 10), `${autoSeg.airline_code}${autoSeg.flight_number}`, autoSeg.departs.slice(11, 16)); } },
+        onclick: ev => { ev.stopPropagation(); autoSearch(); } },
         `✈ Select ${autoSeg.airline_code}${autoSeg.flight_number} on site ↗`) : null) : null);
   }
 

@@ -152,7 +152,7 @@ const Builder = (() => {
           h("button", { type: "button", class: "btn small", onclick: () => { editingId = editing ? null : leg.id; delete drafts[leg.id]; render(); } }, editing ? "Close" : leg.flight ? "Change" : "Pick a flight"),
           h("button", { type: "button", class: "btn small ghost", "aria-label": `Remove leg ${i + 1}`, onclick: () => removeLeg(leg.id) }, "✕"))),
       leg.flight && !editing ? h("div", { class: "tb-chosen" }, flightSummary(leg.flight, leg.currency),
-        h("div", { class: "actions" }, (leg.flight.deep_links || []).map((u, k) => h("a", { class: "btn small", href: u, target: "_blank", rel: "noopener noreferrer" }, leg.flight.deep_links.length > 1 ? `Google Flights · ticket ${k + 1} ↗` : "Google Flights ↗")))) : null,
+        h("div", { class: "actions" }, airlinesOfSegments(leg.flight.segments).map(([code, name, segs]) => siteButton(code, name, segs)), (leg.flight.deep_links || []).map((u, k) => h("a", { class: "btn small", href: u, target: "_blank", rel: "noopener noreferrer" }, leg.flight.deep_links.length > 1 ? `Google Flights · ticket ${k + 1} ↗` : "Google Flights ↗")))) : null,
       editing ? editor(leg) : null);
   }
 

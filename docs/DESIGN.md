@@ -362,6 +362,32 @@ Design: `docs/stitch/DESIGN.md` ("Results screen rules"). What changed in the ap
   ("ITA" becomes "ITA Airways"; "Israir Airlines" stays).
 - Not done yet: mobile.
 
+### "Check on <airline> site" for every airline (Sept 2026)
+
+Every airline gets the button, in the trips table, Mix & match, trip cards, the Trip builder and the unpriced-flights list (`siteButton()` in
+`app.js`, one function). It always goes to the airline's own website, never a search engine:
+- the extension can search this flight on the airline's site -> it does (English where the driver can choose, e.g. TAROM);
+- otherwise the airline's real site opens and the flight's details ("LH5429 TLV → IST, Wed 7 Oct 05:00") are copied to the clipboard, with a
+  toast, to paste into the airline's own search (its search can't be driven for airlines outside the extension's list);
+- an airline not in our list (`AIRLINE_SITES`, 68 entries) is looked up by `airline_sites.py` via `GET /api/airline-site` (needs the `X-Skyhop`
+  header): Wikidata by IATA code (active airlines only) and exact name in ONE query; the label must share a word with the airline's name (a code
+  alone is not proof), the address must be https on a public host and must answer; found sites are cached 90 days in `airline_sites.json` next to
+  the price cache, real misses 3 days. While it runs the button says "Looking for X's website…"; if none exists it says "Couldn't find X's
+  website" (not a link); if the lookup could not be made (Wikidata rate-limits: it answered 429 with Retry-After 1000 s after repeated testing) it
+  says "Couldn't check X's website right now. Try again" and is NOT cached as a miss, and the server backs off for the Retry-After time.
+- Measured on 2026-09-26: Animawings resolves to animawings.com by name; TAP by code; a made-up airline to "no website".
+
+### The "Select ... on site" auto-search is origin-agnostic (Sept 2026)
+
+Fixed: it only ever showed on the outbound leg, because every call site assumed a search always starts at TLV. `assistFor(code, segments)`
+now finds the matching segment REGARDLESS of its origin, and decides purely on what the airline's own driver can do (`anyOrigin`, published by
+`background.js`'s `list-airlines` alongside each airline's status): a "url" template or one learned from the user is parameterised by
+`{origin}`, so it works from wherever the flight actually leaves; only the two bespoke drivers (El Al, TAROM) stay origin-locked, because
+that is THEIR real limit (El Al's own search widget defaults to Tel Aviv; TAROM's direct link hardcodes it) -- not an assumption Skyhop makes.
+`selectOnAirlineSite` and `handle()` in background.js now take the real `origin` instead of hardcoding `"TLV"`; a bespoke driver asked for a
+different origin refuses with a clear reason instead of silently doing the wrong thing. Applies everywhere the button appears: trip cards
+(one per airline in the leg), Mix & match, the compare table.
+
 ### Rail/pane redesign (Sept 2026)
 
 The UI was restructured from one long single-column page (full search form on top, every result

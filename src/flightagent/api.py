@@ -15,6 +15,7 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
+from .airline_sites import resolve as resolve_airline_site
 from .cache import OfferCache
 from .decide import configured_decider, decide_jev, jev_configured, spent_usd
 from .engine import BudgetExceeded, FlightSearchEngine, leg_view
@@ -215,6 +216,13 @@ class DecideBody(BaseModel):
 def _require_skyhop_header(x_skyhop: str | None) -> None:
     if x_skyhop != "1":
         raise HTTPException(403, "missing X-Skyhop header")
+
+
+# The official website of an airline we have no address for (see airline_sites.py): a real https address or null, never a search page.
+@app.get("/api/airline-site")
+async def airline_site(code: str = "", name: str = "", x_skyhop: str | None = Header(default=None)) -> dict:
+    _require_skyhop_header(x_skyhop)
+    return await asyncio.to_thread(resolve_airline_site, code, name)
 
 
 @app.get("/api/decide/health")
