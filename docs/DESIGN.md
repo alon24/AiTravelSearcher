@@ -14,12 +14,17 @@ Non-goals: booking, payment, fare rules, baggage pricing, seat selection.
 
 ## 2. Architecture
 
-```
- Browser UI ──┐                                   ┌── gflights   (free scrape of Google Flights)
- n8n agent ───┼─►  FastAPI (api.py)  ─►  Engine ──┼── serpapi    (Google Flights via SerpApi, paid quota)
- CLI ─────────┘        │                  │       └── mock       (deterministic fake data)
-                       │                  └─► OfferCache (SQLite, per one-way lookup)
-                       └─► History (SQLite, past searches + results)
+```mermaid
+flowchart LR
+    Browser["Browser UI"] --> API["FastAPI (api.py)"]
+    N8n["n8n agent"] --> API
+    CLI["CLI"] --> API
+    API --> Engine["Engine"]
+    API --> History[("History\nSQLite, past searches + results")]
+    Engine --> Cache[("OfferCache\nSQLite, per one-way lookup")]
+    Engine --> Gflights["gflights\n(free scrape of Google Flights)"]
+    Engine --> Serpapi["serpapi\n(Google Flights via SerpApi, paid quota)"]
+    Engine --> Mock["mock\n(deterministic fake data)"]
 ```
 
 - **One Python service** (`src/flightagent/`), one Docker container, on the `n8n_default` network.
