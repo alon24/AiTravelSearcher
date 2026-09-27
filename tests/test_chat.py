@@ -179,3 +179,12 @@ def test_endpoint_returns_reply_and_session_id(monkeypatch):
     c = TestClient(app)
     r = c.post("/api/chat", json={"message": "hi"})
     assert r.status_code == 200 and r.json()["reply"] == "hello there" and r.json()["session_id"]
+
+
+def test_system_prompt_forcefully_instructs_combining_multiple_destinations():
+    """Regression test for the bug where the model searched only one of several named destinations: the prompt must
+    be explicit, with a worked example, not just a passing mention (the wording that shipped first wasn't enough)."""
+    p = chatmod.system_prompt()
+    assert "ROM,PAR,LON" in p and "Worked example" in p
+    assert "NOT destinations=\"ROM\" alone" in p
+    assert "NEVER call the tool once per city" in p
