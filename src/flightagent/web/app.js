@@ -31,8 +31,9 @@ const airlineNames = codes => (codes || []).map(c => (config.airlines || {})[c] 
 const pad = n => String(n).padStart(2, "0");
 const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const day = str => new Date(str.length === 10 ? str + "T00:00:00" : str);
-const fmtDay = d => d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 const fmtShort = d => d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+// Built from parts: ICU versions disagree on whether en-GB puts a comma after the weekday ("Tue, 13 Oct" vs "Tue 13 Oct").
+const fmtDay = d => `${d.toLocaleDateString("en-GB", { weekday: "short" })} ${fmtShort(d)}`;
 const fmtTime = d => d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 const hm = m => `${Math.floor(m / 60)}h ${pad(m % 60)}m`;
 // First departure and last arrival of a leg (times are local to each airport).
