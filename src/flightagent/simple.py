@@ -17,18 +17,41 @@ from .report import render
 
 
 @lru_cache
-def _shared(provider: str, cache_db: str, ttl: str):
+def _provider(name: str):
+    return get_provider(name)
+
+
+@lru_cache
+def _cache(cache_db: str, ttl: str) -> OfferCache:
+    return OfferCache(cache_db, float(ttl))
+
+
+def _shared_cache() -> OfferCache:
     """One provider + cache for the process, so rate limits and the cache are global."""
-    return get_provider(provider), OfferCache(cache_db, float(ttl))
+    return _cache(os.getenv("FLIGHTAGENT_CACHE_DB", ".cache/offers.sqlite"), os.getenv("FLIGHTAGENT_CACHE_TTL_HOURS", "6"))
 
 
 def build_engine() -> FlightSearchEngine:
-    provider, cache = _shared(
-        os.getenv("FLIGHTAGENT_PROVIDER", "mock"),
-        os.getenv("FLIGHTAGENT_CACHE_DB", ".cache/offers.sqlite"),
-        os.getenv("FLIGHTAGENT_CACHE_TTL_HOURS", "6"),
-    )
-    return FlightSearchEngine(provider, cache)
+    return FlightSearchEngine(_provider(os.getenv("FLIGHTAGENT_PROVIDER", "mock")), _shared_cache())
+
+
+def verifier_name() -> str | None:
+    """FLIGHTAGENT_VERIFIER: the independent provider that re-checks prices (docs/DESIGN.md section 8). Unset = off."""
+    name = os.getenv("FLIGHTAGENT_VERIFIER", "").strip().lower()
+    if not name:
+        return None
+    if "," in name:
+        raise RuntimeError("FLIGHTAGENT_VERIFIER takes one provider name, not a fallback list")
+    primary = os.getenv("FLIGHTAGENT_PROVIDER", "mock").split(",")[0].strip().lower()
+    if name == primary:
+        raise RuntimeError(f"FLIGHTAGENT_VERIFIER={name} is the search provider itself; a verifier must be independent")
+    return name
+
+
+def build_verifier() -> FlightSearchEngine | None:
+    """An engine on the verifier provider, sharing the offer cache (cache keys carry the provider name)."""
+    name = verifier_name()
+    return FlightSearchEngine(_provider(name), _shared_cache()) if name else None
 
 
 class SimpleSearch(BaseModel):

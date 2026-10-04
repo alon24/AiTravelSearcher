@@ -582,7 +582,9 @@ function renderResult(row, opts = {}) {
         res.data_from && Date.now() / 1000 - res.data_from > 1800 ? h("span", { class: "badge warn", title: "Filtering reuses saved flights. Press Search again to fetch fresh prices." }, `Flight data from ${ago(res.data_from)} · Search again to refresh`) : null)),
     h("div", { class: "actions" },
       h("button", { class: "btn", type: "button", onclick: () => { writeForm(requestToForm(q)); onFormChange(); showStep(1); } }, "Edit"),
-      h("button", { class: "btn", type: "button", onclick: () => submitSearch(q) }, "Search again"))));
+      h("button", { class: "btn", type: "button", onclick: () => submitSearch(q) }, "Search again"),
+      config.verifier && res.top.length ? h("button", { class: "btn", type: "button", title: `Check the top ${Math.min(5, res.top.length)} trips' prices on ${config.verifier} (spends its lookups)`,
+        onclick: e => runVerify(row, null, e.currentTarget) }, `Verify top ${Math.min(5, res.top.length)} on ${config.verifier}`) : null)));
   res.warnings.forEach(w => box.append(h("div", { class: "note" }, w)));
   renderStepAirlines(res, q, cur, row);
   activateStep3(res, q, cur);
@@ -1103,13 +1105,44 @@ function unpricedPanel(res, row) {
         u.link ? h("a", { class: "btn small", href: u.link, target: "_blank", rel: "noopener noreferrer" }, "Google Flights ↗") : null)))));
 }
 
+// ------------------------------------------------------------------ price verification (docs/DESIGN.md section 8)
+// The same string as verify.py's trip_key(): every segment's flight and departure minute, legs joined by "/".
+const tripKey = t => t.legs.map(l => l.segments.map(s => `${s.airline_code}${s.flight_number}@${s.departs.slice(0, 16)}`).join("|")).join("/");
+const VERIFY_WORDS = { confirmed: "confirmed", price_differs: "price differs", not_found: "not found", error: "could not check" };
+async function runVerify(row, params, btn) {
+  const label = btn.textContent;
+  btn.disabled = true; btn.textContent = "Verifying…";
+  try {
+    const r = await post(`/api/searches/${row.id}/verify${params ? `?${new URLSearchParams(params)}` : ""}`, {});
+    const all = Object.values(r.checked), off = all.filter(v => v.status !== "confirmed").length;
+    toast(all.length === 1 ? `${r.verifier}: ${VERIFY_WORDS[all[0].status]}`
+      : off ? `${plural(off, "trip")} of ${all.length} did not verify cleanly on ${r.verifier}` : `${plural(all.length, "trip")} verified by ${r.verifier}`);
+    renderResult(r.search, { keepScroll: true });
+  } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = label; }
+}
+function verifyBadge(v, cur) {
+  if (!v) return null;
+  const tip = v.legs.map((l, i) => `Leg ${i + 1}: ${VERIFY_WORDS[l.status]} · ours ${fmtMoney(l.price, cur)}${l.seen_price != null ? `, ${v.provider} ${fmtMoney(l.seen_price, cur)}` : ""}${l.note ? ` (${l.note})` : ""}`)
+    .join("\n") + `\nChecked ${ago(v.checked_at)}`;
+  const diff = v.legs.filter(l => l.status === "price_differs");
+  const text = {
+    confirmed: `✓ Verified by ${v.provider}`, not_found: `Not found on ${v.provider}`, error: `Couldn't verify on ${v.provider}`,
+    price_differs: `Price differs: ${diff.map(l => `${money(l.price, cur)} vs ${money(l.seen_price, cur)}`).join(", ")}`,
+  }[v.status];
+  return h("span", { class: `badge ${{ confirmed: "ok", price_differs: "fail" }[v.status] || "warn"} verify-badge`, title: tip }, text);
+}
+
 // ------------------------------------------------------------------ trip card
 function tripCard(t, cur, pax = 1) {
   const titles = t.legs.length === 3 ? ["Outbound", "Between cities", "Return"] : ["Outbound", "Return"];
   const kind = { open_jaw: "Open-jaw", multi_stop: "Multi-city" }[t.kind];
+  const row = currentRow, key = tripKey(t), checked = ((row && row.verifications) || {})[key];
+  // Spends the verifier's lookups (about two per trip, reused from the cache while fresh), so it only runs when pressed.
+  const verifyBtn = config.verifier && row ? h("button", { type: "button", class: "btn small", title: `Look these flights up again on ${config.verifier} and compare the price`,
+    onclick: e => runVerify(row, { key }, e.currentTarget) }, `Verify on ${config.verifier}`) : null;
   return h("article", { class: "card trip" },
     h("div", { class: "trip-head" },
-      h("div", {}, h("div", { class: "trip-dest" }, t.destination, kind && h("span", { class: "badge run" }, kind), t.self_transfer && h("span", { class: "badge warn" }, "Self-transfer")),
+      h("div", {}, h("div", { class: "trip-dest" }, t.destination, kind && h("span", { class: "badge run" }, kind), t.self_transfer && h("span", { class: "badge warn" }, "Self-transfer"), verifyBadge(checked, cur)),
         h("div", { class: "trip-dates" }, `${fmtDay(day(t.depart_date))} → ${fmtDay(day(t.return_date))} · ${tripLen(t.nights)}`)),
       h("div", { class: "trip-price" }, h("div", { class: "p" }, money(t.price, cur)), origNote(t.price, cur, "orig block"), h("div", { class: "e" }, pax > 1 ? `total for ${plural(pax, "traveller")}` : `value score ${Math.round(toShown(t.effective_cost, cur))}`))),
     t.legs.map((leg, i) => legCard(leg, titles[i] || "Leg", cur)),
@@ -1117,7 +1150,7 @@ function tripCard(t, cur, pax = 1) {
       const bad = /^(SELF|Long|Tight|Not enough)/.test(w);
       return h("div", { class: "warn" + (bad ? "" : " info") }, h("span", { "aria-hidden": "true" }, bad ? "⚠" : "ℹ"), w);
     })) : null,
-    h("div", { class: "actions" }, h("button", { type: "button", class: "btn small", onclick: () => Builder.addTrip(t, { pax: paxLabel(resultsQuery), currency: cur }) }, "＋ Add all flights to Trip builder")));
+    h("div", { class: "actions" }, h("button", { type: "button", class: "btn small", onclick: () => Builder.addTrip(t, { pax: paxLabel(resultsQuery), currency: cur }) }, "＋ Add all flights to Trip builder"), verifyBtn));
 }
 function legTimes(leg) {
   const e = legEnds(leg), sh = dayShift(e.dep, e.arr);

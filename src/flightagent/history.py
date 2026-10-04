@@ -20,7 +20,7 @@ class History:
                 id TEXT PRIMARY KEY, created REAL, status TEXT, request TEXT, result TEXT,
                 error TEXT, done INT DEFAULT 0, total INT DEFAULT 0, best_price REAL, currency TEXT)"""
         )
-        for col in ("next_check REAL", "rechecks INT DEFAULT 0", "updated REAL"):     # added after the first release
+        for col in ("next_check REAL", "rechecks INT DEFAULT 0", "updated REAL", "verifications TEXT"):     # added after the first release
             try:
                 self.db.execute(f"ALTER TABLE searches ADD COLUMN {col}")
             except sqlite3.OperationalError:
@@ -62,6 +62,14 @@ class History:
         )
         self.db.commit()
 
+    def add_verifications(self, sid: str, by_trip: dict[str, dict]) -> None:
+        """Merge price-verification results (trip key -> TripVerification) into the row. They survive rechecks and
+        filter changes because they are keyed by the trip's flights, not by its position in the result."""
+        row = self.db.execute("SELECT verifications FROM searches WHERE id=?", (sid,)).fetchone()
+        merged = {**(json.loads(row[0]) if row and row[0] else {}), **by_trip}
+        self.db.execute("UPDATE searches SET verifications=? WHERE id=?", (json.dumps(merged), sid))
+        self.db.commit()
+
     def postpone(self, sid: str, next_check: float) -> None:
         self.db.execute("UPDATE searches SET next_check=? WHERE id=?", (next_check, sid))
         self.db.commit()
@@ -89,9 +97,10 @@ class History:
         }
         if with_result:
             d["result"] = json.loads(r[4]) if r[4] else None
+            d["verifications"] = json.loads(r[13]) if r[13] else {}
         return d
 
-    _COLS = "id, created, status, request, result, error, done, total, best_price, currency, next_check, rechecks, updated"
+    _COLS = "id, created, status, request, result, error, done, total, best_price, currency, next_check, rechecks, updated, verifications"
 
     def get(self, sid: str) -> dict | None:
         r = self.db.execute(f"SELECT {self._COLS} FROM searches WHERE id=?", (sid,)).fetchone()

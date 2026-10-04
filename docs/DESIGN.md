@@ -1,6 +1,6 @@
 # Skyhop / Flight Agent: Design
 
-Status: implemented except section 8 (price verification), which is a proposal.
+Status: implemented, including section 8 (price verification by a second provider).
 Audience: a maintainer, a reviewer, or anyone plugging in a **third-party flight-data provider**.
 
 ## 1. Goal
@@ -445,6 +445,7 @@ FlightAPI.io, Skyscanner via RapidAPI. Not viable: Amadeus Self-Service (shut do
 | `POST /api/searches` | Start a background search, returns `{id}`. 422 if over budget. |
 | `GET /api/searches`, `/api/searches/{id}` | History list (light), or one search with progress, request and full result. |
 | `DELETE /api/searches/{id}` | Remove from history. |
+| `POST /api/searches/{id}/verify` | Re-check prices on `FLIGHTAGENT_VERIFIER` (section 8): `?trip=<index>`, `?key=<trip key>`, or the top 5. |
 | `GET /api/config`, `/health` | Active provider chain and airline booking links; liveness. |
 
 Jobs run as asyncio tasks; progress (`done/total` lookups) is written to `History`. Searches still `running`
@@ -453,10 +454,10 @@ at startup are marked failed. The cache key is `provider|origin|dest|day|currenc
 ## 7. Configuration
 
 `.env` (loaded by Docker Compose): `FLIGHTAGENT_PROVIDER` (comma list = fallback order), `SERPAPI_API_KEY`,
-`FLIGHTAGENT_CACHE_TTL_HOURS`. The compose file pins `FLIGHTAGENT_CACHE_DB=/data/offers.sqlite` so the cache and
+`FLIGHTAGENT_VERIFIER` (one provider name, section 8), `FLIGHTAGENT_CACHE_TTL_HOURS`. The compose file pins `FLIGHTAGENT_CACHE_DB=/data/offers.sqlite` so the cache and
 `history.sqlite` live on the `flightagent-cache` volume. Never commit `.env`.
 
-## 8. Proposal: price verification by an independent provider
+## 8. Price verification by an independent provider (built Oct 2026; the proposal below, then what was built)
 
 **Problem.** A provider can be wrong in ways we cannot see (a parser bug hid the cheapest fares for the
 scraper). A trip shown as "cheapest" is only trustworthy if a second, independent source agrees.
@@ -487,6 +488,33 @@ Manually comparing `gflights` and `serpapi` on TLV→FCO (2026-10-05) matched on
 - A flight missing from the verifier is `not_found`, never `confirmed`.
 - With no verifier configured nothing changes and no extra lookups are made.
 
+**As built** (`verify.py`, `conformance.py`, `tests/test_verify.py`, `tests/test_verify_ui.py`).
+- `FLIGHTAGENT_VERIFIER` takes one provider name. It must differ from the *first* provider of `FLIGHTAGENT_PROVIDER`;
+  equal (or a comma list) is a configuration error (`POST .../verify` answers 409, `/api/config` reports no verifier).
+  Caveat: with `gflights,serpapi` and `FLIGHTAGENT_VERIFIER=serpapi`, a lookup that fell back to serpapi is verified by
+  itself. `SearchResult.sources` shows when that happened.
+- Matching: airline code + flight number (spaces and leading zeros ignored) + departure minute, for every segment.
+  Several verifier fares for the same flights: the closest one is compared, so a second fare class is not a mismatch.
+  A flight the verifier lists *without a price* is `not_found` (with a note), never `confirmed`.
+- Self-transfer legs are two tickets: `LegView.hub` (new) splits them, each ticket is looked up on its own route and
+  day, and the sum is compared. Results saved before `hub` existed come back `error` ("search again").
+- A trip's status is its worst leg's, ranked `confirmed < error < not_found < price_differs`: a disagreeing price is
+  the only real evidence of a wrong fare; the other two are inconclusive.
+- Lookups go through `FlightSearchEngine.lookups()` and the shared offer cache (keys carry the provider name), so the
+  routes and days shared by several trips are fetched once, and re-verifying within the cache lifetime costs nothing.
+  A failed lookup is reported per key as `error`, never as "no flights".
+- API: `POST /api/searches/{id}/verify` with `?trip=<index into top>`, `?key=<trip key>` (any trip of the stored result:
+  top, daily picks, matrix cells; this is what the per-card button sends), or neither for the top 5. Results are merged
+  into the history row's `verifications` (trip key -> `TripVerification`), returned by `GET /api/searches/{id}`, and
+  survive rechecks and filter changes because they are keyed by flights, not by position.
+- UI: when `/api/config` reports a verifier, the results header has "Verify top 5 on <verifier>" and each trip card a
+  "Verify on <verifier>" button; a checked trip carries a badge with per-leg detail in its tooltip. No verifier, no buttons.
+- Conformance: `python tests/provider_contract.py --candidate <name> --reference gflights` runs both providers on a
+  fixed set of TLV routes and exits non-zero below 95 % overlap or price agreement. Samples where a provider raises are
+  listed and left out of the rates. Not collected by pytest (it uses live providers).
+- Still open: which second provider (serpapi is the only one wired today) and whether the default tolerance holds up
+  on real data.
+
 ## 9. Risks and open questions
 
 - **Scraping fragility and terms.** `gflights` can be blocked or break on a layout change. The fixture test should
@@ -510,9 +538,9 @@ Manually comparing `gflights` and `serpapi` on TLV→FCO (2026-10-05) matched on
 ## 11. Layout
 
 ```
-src/flightagent/  api.py engine.py models.py history.py cache.py report.py cli.py links.py chat.py simple.py
+src/flightagent/  api.py engine.py models.py history.py cache.py report.py cli.py links.py chat.py simple.py verify.py conformance.py
                   providers/{base,gflights,serpapi,mock,airports}.py   web/{index.html,style.css,app.js,airports.json}
-tests/            test_engine.py  fixtures/gflights_tlv_fco_2026-10-05.json
+tests/            test_engine.py test_verify.py provider_contract.py  fixtures/gflights_tlv_fco_2026-10-05.json
 docs/DESIGN.md    this file
 ```
 Airport data: OpenFlights (ODbL), `web/airports.json`.
