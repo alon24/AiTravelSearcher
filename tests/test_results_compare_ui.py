@@ -309,7 +309,7 @@ def test_clicking_a_site_button_opens_the_site_and_copies_the_flight(results):
     p.wait_for_function("window.__copied !== null")
     note = p.evaluate("window.__copied")
     import re
-    assert re.search(r"[A-Z0-9]{2}\d+ [A-Z]{3} → [A-Z]{3}, \w{3} \d+ \w{3} \d\d:\d\d", note), note        # e.g. "LH5429 TLV → IST, Wed 7 Oct 05:00"
+    assert re.search(r"[A-Z0-9]{2}\d+ [A-Z]{3} → [A-Z]{3}, \w{3},? \d+ \w{3} \d\d:\d\d", note), note        # e.g. "LH5429 TLV → IST, Wed 7 Oct 05:00" (newer Chromium writes "Wed, 7 Oct")
     assert "Search for it there" in p.inner_text(".toast")
 
 
