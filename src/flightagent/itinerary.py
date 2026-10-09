@@ -2,7 +2,7 @@
 differ, the estimated ground-transfer time (see geo.py) and whether it all fits."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Literal
 
 from pydantic import BaseModel
@@ -51,10 +51,12 @@ def fmt_dur(minutes: int) -> str:
 
 
 def _gap(arr: datetime, arr_code: str, dep: datetime, dep_code: str) -> tuple[int, bool]:
-    """Minutes between landing and the next departure. Local times are converted with each airport's time zone."""
+    """Minutes between landing and the next departure. Local times are converted with each airport's time zone, to UTC
+    first: Python subtracts two times of the same zone as wall-clock times, missing a clock change in between."""
     a_tz, d_tz = tz_of(arr_code), tz_of(dep_code)
     if a_tz and d_tz:
-        return int((dep.replace(tzinfo=d_tz) - arr.replace(tzinfo=a_tz)).total_seconds() // 60), True
+        utc = lambda t, tz: t.replace(tzinfo=tz).astimezone(timezone.utc)  # noqa: E731
+        return int((utc(dep, d_tz) - utc(arr, a_tz)).total_seconds() // 60), True
     return int((dep - arr).total_seconds() // 60), False
 
 
