@@ -35,6 +35,7 @@ jobs:
       - run: python -m playwright install --with-deps chromium
       - run: pytest -q -rs
       - run: node src/flightagent/web/airport-search.test.js
+      - run: node src/flightagent/web/hub.test.js
 
   build:
     needs: test

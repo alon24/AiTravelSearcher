@@ -53,6 +53,7 @@ cp .env.example .env                    # set FLIGHTAGENT_PROVIDER=mock to work 
 ```bash
 .venv/bin/pytest                                  # whole suite
 node src/flightagent/web/airport-search.test.js   # airport typo/alias search (run from repo root)
+node src/flightagent/web/hub.test.js              # Travel Hub link: search params in, handoff JSON out
 python3 tools/sync_assist_manifest.py --check     # extension manifest matches airlines.json
 (cd worker && node --test)                        # the Worker (also run by pytest)
 ```

@@ -206,6 +206,7 @@ const Builder = (() => {
         pax.length ? h("div", { class: "pax" }, pax.join(" / ") + (pax.length > 1 ? " (legs priced for different travellers!)" : "")) : null),
       check && !check.error && check.warnings.length ? h("div", { class: "warn info" }, h("span", { "aria-hidden": "true" }, "ℹ"), check.warnings[0]) : null,
       h("div", { class: "actions" },
+        h("button", { type: "button", class: "btn small accent hub-save", disabled: !fl.length, title: "Put these flights on your trip in Travel Hub", onclick: () => saveToHub(fl.map(l => ({ ...l.flight, currency: l.currency }))) }, hubLabel()),
         h("button", { type: "button", class: "btn small", disabled: !fl.length, onclick: async () => { try { await navigator.clipboard.writeText(summaryText()); toast("Trip summary copied"); } catch { toast("Could not copy"); } } }, "Copy summary"),
         h("button", { type: "button", class: "btn small ghost", disabled: !legs.length, onclick: () => { if (confirm("Remove all legs from the Trip builder?")) { legs = []; check = null; editingId = null; save(); render(); } } }, "Clear all")));
   }

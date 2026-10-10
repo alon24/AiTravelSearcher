@@ -1,0 +1,24 @@
+{
+  "v": 1,
+  "kind": "flights",
+  "source": "skyhop",
+  "searchId": "s_portugal",
+  "currency": "ILS",
+  "adults": 3,
+  "childrenAges": [],
+  "names": { "LIS": "Lisbon", "OPO": "Porto", "TLV": "Tel Aviv" },
+  "legs": [
+    {
+      "origin": "TLV", "destination": "LIS",
+      "departs": "2026-11-16T09:30:00", "arrives": "2026-11-17T00:58:00",
+      "airlines": ["Ryanair", "Pegasus"], "flightNumbers": ["FR3561", "PC3363"], "stops": 1,
+      "price": 378, "bookingUrl": "https://www.ryanair.com/"
+    },
+    {
+      "origin": "OPO", "destination": "TLV",
+      "departs": "2026-11-19T16:00:00", "arrives": "2026-11-20T00:18:00",
+      "airlines": ["Austrian", "Pegasus"], "flightNumbers": ["OS2798", "PC8425"], "stops": 1,
+      "price": 414
+    }
+  ]
+}

@@ -1141,7 +1141,8 @@ function tripCard(t, cur, pax = 1) {
       const bad = /^(SELF|Long|Tight|Not enough)/.test(w);
       return h("div", { class: "warn" + (bad ? "" : " info") }, h("span", { "aria-hidden": "true" }, bad ? "⚠" : "ℹ"), w);
     })) : null,
-    h("div", { class: "actions" }, h("button", { type: "button", class: "btn small", onclick: () => Builder.addTrip(t, { pax: paxLabel(resultsQuery), currency: cur }) }, "＋ Add all flights to Trip builder")));
+    h("div", { class: "actions" }, h("button", { type: "button", class: "btn small", onclick: () => Builder.addTrip(t, { pax: paxLabel(resultsQuery), currency: cur }) }, "＋ Add all flights to Trip builder"),
+      h("button", { type: "button", class: "btn small accent hub-save", title: "Put these flights on your trip in Travel Hub, next to its hotels and day-by-day map", onclick: () => saveToHub(t.legs.map(l => ({ ...l, currency: resultsQuery.currency }))) }, hubLabel())));
 }
 function legTimes(leg) {
   const e = legEnds(leg), sh = dayShift(e.dep, e.arr);
@@ -1264,6 +1265,25 @@ function openSharedSearch() {
     toast("Shared search loaded: press Find flights to run it");
   } catch { toast("That search link is broken or out of date"); }
   history.replaceState(null, "", location.pathname + location.search);
+}
+
+// Opened from Travel Hub (hub.js): the trip fills the form, and "Save to Travel Hub" later sends the picked flights back.
+function openHubSearch() {
+  const p = SkyhopHub.fromParams(location.search);
+  if (!p) return;
+  SkyhopHub.remember(p.context);
+  writeForm({ ...readForm(), ...p.form }); onFormChange(); showStep(1);
+  toast("Your Travel Hub trip is filled in: press Find flights");
+  history.replaceState(null, "", location.pathname + location.hash);
+  requestAnimationFrame(() => { const go = $("#go"); go.scrollIntoView({ block: "center" }); go.focus({ preventScroll: true }); });
+}
+const hubLabel = () => ((SkyhopHub.context() || {}).trip ? "✈ Save to my Travel Hub trip" : "✈ Save to Travel Hub");
+/** Sends picked flights (leg views with the currency they were priced in, in travel order) to the hub's Trip; prices are totals for everyone in the search. */
+function saveToHub(offers) {
+  const ctx = SkyhopHub.context() || {}, q = resultsQuery || toRequest(readForm()).req || {};
+  const data = SkyhopHub.payload(offers, { trip: ctx.trip, searchId: current ? String(current) : null, adults: q.adults || 1, kids: q.children_ages || [],
+    currency: offers[0].currency, cityOf: c => (airport(c) || {}).city || "" });
+  location.assign(SkyhopHub.handoffUrl(ctx.hub || SkyhopHub.DEFAULT_HUB, data));
 }
 
 async function init() {
@@ -1423,6 +1443,7 @@ async function init() {
   Finder.init();
   Chat.init();
   openSharedSearch();
+  openHubSearch();
   refreshHistory(); runEstimate();
   setInterval(() => { if (!document.hidden && !pollTimer) refreshHistory(); }, 60000);
 }
