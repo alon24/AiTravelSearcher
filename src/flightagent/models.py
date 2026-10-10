@@ -185,6 +185,7 @@ class LegView(BaseModel):
     self_transfer: bool
     deep_links: list[str]
     priced: bool = True
+    hub: str | None = None      # self-transfer: where the two tickets meet (needed to re-check each ticket)
 
 
 class Trip(BaseModel):
@@ -206,6 +207,28 @@ class Trip(BaseModel):
     @property
     def flight_type(self) -> str:
         return "direct" if self.stops == 0 else f"{self.stops} stop(s)"
+
+
+VerifyStatus = Literal["confirmed", "price_differs", "not_found", "error"]
+
+
+class Verification(BaseModel):
+    """One leg re-checked against an independent provider (docs/DESIGN.md section 8)."""
+
+    status: VerifyStatus
+    price: float                       # what the search provider charged for this leg
+    seen_price: float | None = None    # what the verifier shows for the same flights (None unless found)
+    delta: float | None = None         # seen_price - price
+    provider: str
+    checked_at: float                  # unix time
+    note: str = ""
+
+
+class TripVerification(BaseModel):
+    status: VerifyStatus               # the worst leg status
+    legs: list[Verification]
+    provider: str
+    checked_at: float
 
 
 class DailyBest(BaseModel):

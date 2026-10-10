@@ -24,10 +24,11 @@ from .geo import airports_by_country, country_airports
 from .history import History
 from .itinerary import ItineraryCheck, analyse
 from .links import AIRLINE_SITES, BAG_NOTES, BAG_SHORT, KNOWN_AIRLINES
-from .models import LegView, SearchRequest, SearchResult
+from .models import LegView, SearchRequest, SearchResult, Trip
 from .polling import next_check_time
 from .report import render
-from .simple import SimpleSearch, build_engine, run_simple_search, to_request
+from .simple import SimpleSearch, build_engine, build_verifier, run_simple_search, to_request, verifier_name
+from .verify import trip_key, verify_trips
 
 load_dotenv()
 
@@ -133,7 +134,11 @@ async def _run_job(sid: str, req: SearchRequest) -> None:
 
 @app.get("/api/config")
 async def config() -> dict:
-    return {"provider": os.getenv("FLIGHTAGENT_PROVIDER", "mock"), "airline_sites": AIRLINE_SITES, "airlines": KNOWN_AIRLINES, "bag_notes": BAG_NOTES, "bag_short": BAG_SHORT}
+    try:
+        verifier = verifier_name()
+    except RuntimeError:
+        verifier = None
+    return {"provider": os.getenv("FLIGHTAGENT_PROVIDER", "mock"), "verifier": verifier, "airline_sites": AIRLINE_SITES, "airlines": KNOWN_AIRLINES, "bag_notes": BAG_NOTES, "bag_short": BAG_SHORT}
 
 
 # Typed decisions for the browser extension when it uses Jev: the OpenRouter key lives on this server, never in the
@@ -249,6 +254,44 @@ async def recheck_search(sid: str) -> dict:
     except RuntimeError as e:
         raise HTTPException(502, str(e))
     return {"changed": changed, "search": history().get(sid)}
+
+
+VERIFY_TOP = 5     # "Verify" without a trip checks this many top trips: about 2 lookups each
+
+
+@app.post("/api/searches/{sid}/verify")
+async def verify_search(sid: str, trip: int | None = None, key: str | None = None) -> dict:
+    """Re-check prices on the independent provider set by FLIGHTAGENT_VERIFIER (docs/DESIGN.md section 8). `trip` is
+    an index into the result's top list, `key` any trip of the result (as trip_key() writes it); neither = the top 5.
+    Spends verifier lookups only when called. Results are stored on the history row under `verifications`."""
+    try:
+        verifier = build_verifier()
+    except RuntimeError as e:
+        raise HTTPException(409, str(e))
+    if verifier is None:
+        raise HTTPException(409, "No verifier configured: set FLIGHTAGENT_VERIFIER to a second provider (e.g. serpapi)")
+    row = history().get(sid)
+    if not row or row["status"] != "done" or not row.get("result"):
+        raise HTTPException(404, "search not found or not finished")
+    res = row["result"]
+    top = [Trip.model_validate(t) for t in res.get("top", [])]
+    if trip is not None:
+        if not 0 <= trip < len(top):
+            raise HTTPException(404, f"no trip {trip} in this search's top {len(top)}")
+        trips = [top[trip]]
+    elif key is not None:
+        every = top + [Trip.model_validate(t) for d in res.get("daily", []) for t in (d["cheapest"], d["best_value"])] \
+            + [Trip.model_validate(c["cheapest"]) for c in res.get("cells", [])]
+        trips = [next((t for t in every if trip_key(t) == key), None)]
+        if trips[0] is None:
+            raise HTTPException(404, "that trip is not part of this search's result")
+    else:
+        trips = top[:VERIFY_TOP]
+    checked = await verify_trips(trips, SearchRequest(**row["request"]), verifier)
+    found = {trip_key(t): v.model_dump(mode="json") for t, v in zip(trips, checked)}
+    history().add_verifications(sid, found)
+    return {"verifier": verifier.provider.name, "checked": found, "lookups": verifier.api_calls, "cache_hits": verifier.cache_hits,
+            "search": history().get(sid)}
 
 
 @app.get("/api/searches")

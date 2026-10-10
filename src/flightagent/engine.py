@@ -21,7 +21,7 @@ LONG_LAYOVER_MIN = 8 * 60
 def leg_view(l: Offer) -> LegView:
     return LegView(origin=l.origin, destination=l.destination, airlines=l.airlines, segments=l.segments, stops=l.stops,
                    layovers_min=l.layovers_min, duration_min=l.duration_min, price=l.price,
-                   self_transfer=l.self_transfer, deep_links=l.deep_links, priced=l.priced)
+                   self_transfer=l.self_transfer, deep_links=l.deep_links, priced=l.priced, hub=l.hub)
 
 
 class BudgetExceeded(RuntimeError):
@@ -38,6 +38,7 @@ class FlightSearchEngine:
         self.oldest_ts: float | None = None
         self.api_calls = self.cache_hits = 0
         self.sources: Counter[str] = Counter()
+        self._errors: dict[Key, str] = {}
         self.provider = provider
         self.cache = cache
         self.sem = asyncio.Semaphore(concurrency)
@@ -108,6 +109,19 @@ class FlightSearchEngine:
         key = (origin, dest, day)
         raw, _ = await self._prefetch(req, {key})
         return raw.get(key, [])
+
+    async def lookups(self, req: SearchRequest, keys: set[Key]) -> tuple[dict[Key, list[Offer]], dict[Key, str]]:
+        """Fetch these one-way lookups through the cache (used by price verification). Returns the offers per key and,
+        separately, the error for every key whose lookup failed, so a failure is never mistaken for "no flights"."""
+        self.api_calls = self.cache_hits = 0
+        self.sources = Counter()
+        self._on_progress = None
+        self._errors = {}
+        try:
+            raw, _ = await self._prefetch(req, set(keys))
+        except RuntimeError as e:      # every call failed, or over budget
+            return {}, {k: str(e) for k in keys}
+        return raw, {k: self._errors.get(k, "lookup failed") for k in keys if k not in raw}
 
     # ---------------------------------------------------------------- planning
 
@@ -205,6 +219,7 @@ class FlightSearchEngine:
                     )
                 except Exception as e:  # one bad route/day must not sink the whole search
                     errors.append(f"{k[0]}->{k[1]} {k[2]}: {e}")
+                    self._errors[k] = str(e) or type(e).__name__
                     return
                 self.api_calls += 1
                 if self.cache:

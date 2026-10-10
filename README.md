@@ -171,6 +171,12 @@ python tools/build_pages.py _site                 # the server-less GitHub Pages
 `FLIGHTAGENT_PROVIDER` accepts a comma list as a fallback order. The default `gflights,serpapi`
 scrapes for free and only spends SerpApi credits if Google blocks or breaks the scraper.
 
+`FLIGHTAGENT_VERIFIER=serpapi` turns on price verification: "Verify" buttons on the results screen look the trip's
+flights up again on that second provider and badge the trip *Verified*, *Price differs* (with both prices), *Not found*
+or *Couldn't verify*. It spends the verifier's lookups (about two per trip) only when pressed. See docs/DESIGN.md
+section 8. `python tests/provider_contract.py --candidate serpapi --reference gflights` measures how well two providers
+agree before you trust a new one.
+
 Scraper notes: it uses the `fast-flights` package for its browser-impersonating HTTP client, but
 parses the page itself, because the library drops Google's "best flights" block (often the cheapest
 fares). It accepts city codes (`ROM`, `LON`) directly. Scraping may violate Google's terms, can be

@@ -74,6 +74,7 @@ The search itself (prices, dates, mixing airlines) does not need either one.
 |---|---|
 | `FLIGHTAGENT_PROVIDER=gflights,serpapi` | Free scraper first, SerpApi if Google blocks it. `mock` gives fake demo fares. |
 | `SERPAPI_API_KEY=` | Optional, from serpapi.com (free plan: 250 lookups a month). |
+| `FLIGHTAGENT_VERIFIER=serpapi` | Optional. Adds "Verify" buttons that re-check a trip's price on a second provider (must differ from the first `FLIGHTAGENT_PROVIDER`). |
 | `OPENROUTER_API_KEY=` | For Jev, see above. |
 | `FLIGHTAGENT_DECIDER=laya` or `jev` | Model for the server-side diagnostics (not the extension badge). |
 
