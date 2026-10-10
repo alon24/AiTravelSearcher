@@ -201,6 +201,25 @@ implemented. Add a provider by implementing `FlightProvider.one_way` (`providers
   and Skyhop itself never books or takes payment.
 - Providers return only what Google Flights shows; some low-cost carriers may be missing.
 
+## Ask Skyhop: the AI chat in the app
+
+Press **✨ Ask Skyhop** (bottom right) and describe the trip in plain words, conditions included: *"Portugal for a week
+in late November, direct only, no Ryanair, 2 adults and a 6-year-old"*.
+- The chat runs the search itself. It fills the form and shows the results beside the chat, so you can see and tweak
+  what it did. Then it tells you the best pick.
+- Follow-ups keep your conditions: *"same in December"*, *"add Madrid"*, *"drop the direct-only"*.
+- Conversations are remembered on your device. Find them under **Recent chats**.
+- **📝 Summarize** turns a conversation into a **trip brief** (what you want, your conditions, the best options found)
+  and keeps it on the device. From a brief you can:
+  - **Continue** it later in a new chat, for example with new dates. The search is filled back in.
+  - **Share** it. The brief includes a link that opens Skyhop with that search filled in.
+  - On the web version, signed in, **Save to Drive**. It is saved to a "Skyhop trip briefs" folder in your Google
+    Drive, so it reaches your other devices.
+- With real fares, a search that needs more than 40 paid lookups is confirmed with you first.
+
+The model call needs an OpenRouter key: `OPENROUTER_API_KEY` in `.env` for Docker, or the Worker's secret on the web
+version. The model is set with `FLIGHTAGENT_CHAT_MODEL` (Worker: `CHAT_MODEL`).
+
 ## Natural-language chat (built in, no n8n)
 
 Skyhop used to have this as an n8n workflow calling `POST /search/simple`; that external chat app has been

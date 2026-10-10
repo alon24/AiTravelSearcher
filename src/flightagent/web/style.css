@@ -604,3 +604,43 @@ td.air-names { white-space: normal; min-width: 110px; }
 .cmp-actions { grid-template-columns: minmax(0, 1fr); }
 .site-btn.retry { border-style: dashed; border-color: var(--line-2); background: var(--card-2); color: var(--ink); }
 .site-btn.retry:hover { background: var(--accent-soft); border-color: var(--accent); }
+
+/* ------------------------------------------------------------ Ask Skyhop (chat.js) */
+.chat-launch { position: fixed; right: 20px; bottom: 84px; z-index: 45; display: inline-flex; align-items: center; gap: 8px; border: 1.5px solid var(--accent); border-radius: 999px; padding: 11px 18px; font-weight: 800; font-size: 15px; color: var(--accent-ink); background: var(--card); box-shadow: var(--shadow-lg); cursor: pointer; }
+.chat-launch:hover { transform: translateY(-2px); background: var(--accent-soft); }
+.chat-launch[hidden] { display: none; }
+.chat { width: min(560px, 100vw); overflow: hidden; }
+.chat .tb-body { min-height: 0; }
+.chat-tools { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.chat-tools .btn:disabled { opacity: .45; cursor: not-allowed; }
+.chat-body { align-content: start; grid-template-columns: minmax(0, 1fr); }
+.msg { max-width: 88%; padding: 10px 14px; border-radius: 16px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14.5px; }
+.msg.me { justify-self: end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
+.msg.ai { justify-self: start; background: var(--card); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.msg.ai.bad { background: var(--bad-bg); color: var(--bad-ink); border-color: transparent; }
+.msg.typing { color: var(--muted); letter-spacing: .2em; }
+.msg.tool { justify-self: stretch; max-width: none; background: var(--accent-soft); border-radius: 12px; font-size: 13.5px; display: grid; gap: 6px; white-space: normal; }
+.msg.tool.busy { color: var(--ink-2); }
+.msg.tool .bad { color: var(--bad-ink); }
+.tool-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.msg.brief { justify-self: stretch; max-width: none; background: var(--card); border: 1.5px solid var(--accent); border-radius: 14px; white-space: normal; display: grid; gap: 6px; }
+.msg.brief p, .msg.brief ul { margin: 0; color: var(--ink-2); } .msg.brief ul { padding-left: 18px; }
+.brief-title { font-weight: 800; font-size: 15.5px; } .brief-meta { color: var(--muted); font-size: 12.5px; }
+.msg.brief .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.chat-examples { display: grid; gap: 8px; }
+.chip-btn { text-align: left; border: 1px solid var(--line-2); background: var(--card-2); color: var(--ink); border-radius: 12px; padding: 9px 12px; font: inherit; font-size: 13.5px; cursor: pointer; }
+.chip-btn:hover { border-color: var(--accent); background: var(--accent-soft); }
+.chat-recent { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 12px; padding: 10px 12px; font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.chat-recent:hover { border-color: var(--accent); } .chat-recent small { color: var(--muted); flex-shrink: 0; }
+.chat-recent span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chat-form { display: flex; gap: 8px; align-items: flex-end; }
+.chat-form[hidden], #chat-signin[hidden] { display: none; }
+.chat-form .btn { flex: none; width: auto; }
+.chat-form textarea { flex: 1; min-width: 0; resize: none; border: 1px solid var(--line-2); border-radius: 12px; padding: 10px 12px; font: inherit; font-size: 15px; background: var(--card); color: var(--ink); min-height: 46px; max-height: 160px; }
+@media (max-width: 720px) {
+  .chat-launch { bottom: 82px; right: 16px; padding: 11px 14px; } .chat-launch span { display: none; }
+  .chat .tb-head p { display: none; }
+  .chat .tb-head h2 { font-size: 20px; white-space: nowrap; }
+  .chat .tb-head { align-items: center; }
+  .msg { max-width: 94%; }
+}

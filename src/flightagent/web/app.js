@@ -1200,6 +1200,19 @@ async function toggleAccount() {
   showMode(); showAccount(); onFormChange();
 }
 
+// A shared search link (chat.js shareLink): #search=<base64url JSON request> fills the form; the user presses Find flights.
+function openSharedSearch() {
+  const m = /^#search=([\w-]+)$/.exec(location.hash);
+  if (!m) return;
+  try {
+    const bytes = Uint8Array.from(atob(m[1].replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+    writeForm(requestToForm(SkyhopLocal.models.searchRequest(JSON.parse(new TextDecoder().decode(bytes)))));
+    onFormChange(); showStep(1);
+    toast("Shared search loaded: press Find flights to run it");
+  } catch { toast("That search link is broken or out of date"); }
+  history.replaceState(null, "", location.pathname + location.search);
+}
+
 async function init() {
   const saved = store.get("skyhop.theme"); if (saved) document.documentElement.dataset.theme = saved;
   $$(".theme-toggle").forEach(b => b.addEventListener("click", () => {
@@ -1349,6 +1362,8 @@ async function init() {
   });
   Builder.init();
   Finder.init();
+  Chat.init();
+  openSharedSearch();
   refreshHistory(); runEstimate();
   setInterval(() => { if (!document.hidden && !pollTimer) refreshHistory(); }, 60000);
 }

@@ -5,6 +5,7 @@
   "use strict";
   const L = (root.SkyhopLocal = root.SkyhopLocal || {});
   const now = () => Date.now() / 1000;
+  const STORES = ["offers", "fares", "searches", "sites", "chats", "briefs"];
 
   /** A tiny async key-value store: one IndexedDB object store, or a Map. */
   class Store {
@@ -14,8 +15,10 @@
       if (this.db || this.mem) return;
       try {
         this.db = await new Promise((resolve, reject) => {
-          const r = indexedDB.open("skyhop", 1);
-          r.onupgradeneeded = () => { for (const s of ["offers", "fares", "searches", "sites"]) r.result.createObjectStore(s); };
+          const r = indexedDB.open("skyhop", 2);           // v2 added the AI chat's conversations and trip briefs
+          r.onupgradeneeded = () => {
+            for (const s of STORES) if (!r.result.objectStoreNames.contains(s)) r.result.createObjectStore(s);
+          };
           r.onsuccess = () => resolve(r.result);
           r.onerror = () => reject(r.error);
         });

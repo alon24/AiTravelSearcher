@@ -191,6 +191,27 @@
 </div>
 <div class="tooltip" id="tooltip" hidden></div>
 
+<button class="chat-launch" id="chat-launch" type="button" aria-controls="chat" aria-expanded="false" hidden>✨ <span>Ask Skyhop</span></button>
+<div class="tb-scrim" id="chat-scrim" hidden></div>
+<aside class="tb chat" id="chat" hidden role="dialog" aria-label="Ask Skyhop">
+  <div class="tb-head">
+    <div><h2>Ask Skyhop</h2><p>Tell me where, when and what matters. I search, show the results beside this chat, and remember it all.</p></div>
+    <div class="chat-tools">
+      <button class="btn small" id="chat-summarize" type="button" title="Turn this conversation into a trip brief you can share and continue later">📝 Summarize</button>
+      <button class="btn small" id="chat-new" type="button">＋ New</button>
+      <button class="btn icon-btn" id="chat-close" type="button" aria-label="Close the chat">✕</button>
+    </div>
+  </div>
+  <div class="tb-body chat-body" id="chat-body" aria-live="polite"></div>
+  <div class="tb-foot">
+    <form class="chat-form" id="chat-form">
+      <textarea id="chat-input" rows="2" maxlength="2000" placeholder="e.g. Portugal for a week in late November, direct only, under ₪2000" aria-label="Message to Skyhop"></textarea>
+      <button class="btn primary small-primary" id="chat-send" type="submit">Send</button>
+    </form>
+    <button class="btn primary small-primary" id="chat-signin" type="button" hidden>Sign in with Google to chat</button>
+  </div>
+</aside>
+
 <button class="tb-launch" id="tb-launch" type="button" aria-controls="tb" aria-expanded="false">🧳 <span>Trip builder</span> <b id="tb-count">0</b></button>
 <div class="tb-scrim" id="tb-scrim" hidden></div>
 <aside class="tb" id="tb" hidden role="dialog" aria-label="Trip builder">
@@ -213,6 +234,7 @@
 <script src="local/sites.js" defer></script>
 <script src="local/serpapi.js" defer></script>
 <script src="local/account.js" defer></script>
+<script src="local/drive.js" defer></script>
 <script src="local/backend.js" defer></script>
 <script src="airport-search.js" defer></script>
 <script src="app.js" defer></script>
@@ -220,5 +242,6 @@
 <script src="finder.js" defer></script>
 <script src="mix.js" defer></script>
 <script src="compare.js" defer></script>
+<script src="chat.js" defer></script>
 </body>
 </html>

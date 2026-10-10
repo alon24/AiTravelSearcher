@@ -3,7 +3,8 @@
    to Skyhop's OAuth client (and, with ALLOWED_EMAILS set, to one of those accounts). Routes:
      GET  /health                   which services are configured, and whether the caller's token is accepted
      GET  /serpapi?origin&dest&...  one one-way Google Flights lookup through SerpApi (one credit)
-     POST /decide                   a typed decision from Jev, as the Python service's /api/decide (decide.py) */
+     POST /decide                   a typed decision from Jev, as the Python service's /api/decide (decide.py)
+     POST /chat                     one model turn for the page's AI chat, as the Python service's /api/chat/complete */
 
 const SERPAPI_URL = "https://serpapi.com/search.json";
 const JEV_URL = "https://openrouter.ai/api/alpha/decisions";
@@ -11,6 +12,10 @@ const DEFAULT_JEV_MODEL = "typesafe/jev-1.13";
 const MAX_STATE_CHARS = 12_000;      // as decide.py: bounds what one call can spend
 const MAX_QUESTIONS = 8;
 const MAX_BODY = 64_000;
+const CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
+const DEFAULT_CHAT_MODEL = "openai/gpt-4o-mini";
+const MAX_CHAT_MESSAGES = 80, MAX_CHAT_CHARS = 80_000, MAX_CHAT_TOOLS = 4;   // as chat.py's MAX_RELAY_*
+const ROLES = new Set(["system", "user", "assistant", "tool"]);
 const CODE_RE = /^[A-Z]{3}$/;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const STOPS = { 0: 1, 1: 2, 2: 3, 3: 0 };   // our max stops -> SerpApi `stops` (0 any, 1 nonstop, 2 up to 1, 3 up to 2)
@@ -74,7 +79,7 @@ async function caller(request, env) {
 
 // ------------------------------------------------------------------------------------------------ routes
 async function health(request, env) {
-  return json({ serpapi: !!env.SERPAPI_API_KEY, jev: !!env.OPENROUTER_API_KEY, sign_in: !!env.GOOGLE_CLIENT_ID, user: await caller(request, env) });
+  return json({ serpapi: !!env.SERPAPI_API_KEY, jev: !!env.OPENROUTER_API_KEY, chat: !!env.OPENROUTER_API_KEY, sign_in: !!env.GOOGLE_CLIENT_ID, user: await caller(request, env) });
 }
 
 /** The SerpApi query for one one-way lookup, or an error message. */
@@ -143,6 +148,34 @@ async function decide(request, env) {
   return json({ answers: data.answers, cost: Number((data.usage || {}).cost) || 0, model: data.model, backend: "jev" });
 }
 
+/** The page's chat request -> OpenRouter's, or an error message (chat.complete's limits). */
+export function chatRequest(body, model) {
+  const { messages, tools, json_mode } = body || {};
+  if (!Array.isArray(messages) || !messages.length || messages.length > MAX_CHAT_MESSAGES) return { error: `send between 1 and ${MAX_CHAT_MESSAGES} messages` };
+  if (messages.some(m => !m || typeof m !== "object" || !ROLES.has(m.role))) return { error: "every message needs a role: system, user, assistant or tool" };
+  if (tools != null && (!Array.isArray(tools) || tools.length > MAX_CHAT_TOOLS)) return { error: `at most ${MAX_CHAT_TOOLS} tools` };
+  if (JSON.stringify({ messages, tools: tools ?? null }).length > MAX_CHAT_CHARS) return { error: `the conversation is longer than ${MAX_CHAT_CHARS} characters; start a new chat` };
+  const request = { model, messages, temperature: 0 };
+  if (tools && tools.length) request.tools = tools;
+  if (json_mode) request.response_format = { type: "json_object" };
+  return { request };
+}
+
+async function chat(request, env) {
+  if (!env.OPENROUTER_API_KEY) return error("OPENROUTER_API_KEY is not configured", 503);
+  const raw = await request.text();
+  if (raw.length > MAX_CHAT_CHARS + 4_000) return error("body too large", 413);
+  let body;
+  try { body = JSON.parse(raw); } catch { return error("invalid JSON", 400); }
+  const { request: out, error: bad } = chatRequest(body, env.CHAT_MODEL || DEFAULT_CHAT_MODEL);
+  if (bad) return error(bad, 422);
+  const r = await fetch(CHAT_URL, { method: "POST", body: JSON.stringify(out),
+    headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json", "X-Title": "Skyhop chat" } });
+  if (!r.ok) return error(`chat model answered ${r.status}`, 502);
+  const message = ((await r.json()).choices || [])[0]?.message;
+  return message ? json({ message }) : error("unexpected answer from the chat model", 502);
+}
+
 export default {
   async fetch(request, env) {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
@@ -152,6 +185,7 @@ export default {
       if (!(await caller(request, env))) return error("sign in with an allowed Google account", 401);
       if (url.pathname === "/serpapi" && request.method === "GET") return await serpapi(url, env);
       if (url.pathname === "/decide" && request.method === "POST") return await decide(request, env);
+      if (url.pathname === "/chat" && request.method === "POST") return await chat(request, env);
     } catch {
       return error("upstream request failed", 502);
     }

@@ -9,6 +9,7 @@ service for it. The Docker version doesn't need the Worker, because its Python s
 | `GET /health` | Shows which keys are set and whether your Google sign-in is accepted. It is open to everyone. |
 | `GET /serpapi?origin=TLV&dest=ROM&date=2026-11-02&currency=USD&adults=1&max_stops=1` | Runs one one-way Google Flights lookup through SerpApi, costing one credit. |
 | `POST /decide` | Asks Jev (via OpenRouter) for a typed decision, like the Python service's `/api/decide`. |
+| `POST /chat` | Runs one model turn for the in-app AI chat, like the Python service's `/api/chat/complete`. The model is the `CHAT_MODEL` variable. |
 
 Every route except `/health` needs one of these:
 
@@ -24,7 +25,8 @@ Every route except `/health` needs one of these:
    - add your account id (shown on the Workers overview page) as the **variable** `CLOUDFLARE_ACCOUNT_ID`.
 2. **Google sign-in.** Reuse the OAuth client that mymaps-ai uses (Google Cloud Console → APIs & Services →
    Credentials). Its *Authorized JavaScript origins* must include `https://alon24.github.io`. Add its client ID as the
-   **variable** `SKYHOP_GOOGLE_CLIENT_ID`.
+   **variable** `SKYHOP_GOOGLE_CLIENT_ID`. For "Save to Drive", also enable the **Google Drive API** in that project
+   (APIs & Services → Library). If the consent screen is in testing mode, add your account as a test user.
 3. **Deploy.** Push to `main`, or re-run the "Test and deploy to Pages" workflow. The Worker is published at
    `https://skyhop-worker.<your-subdomain>.workers.dev`.
 4. **Keys.** In Cloudflare, open Workers → skyhop-worker → Settings → Variables and Secrets:

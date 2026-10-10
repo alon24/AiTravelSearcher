@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ValidationError
 
 from .airline_sites import resolve as resolve_airline_site
-from .chat import ChatError, chat as run_chat
+from .chat import ChatError, chat as run_chat, complete as chat_complete
 from .decide import configured_decider, decide_jev, jev_configured, spent_usd
 from .engine import BudgetExceeded, FlightSearchEngine, leg_view
 from .explore import ExploreResult, explore
@@ -108,6 +108,24 @@ async def chat_endpoint(b: ChatBody) -> dict:
         return await run_chat(b.message, b.session_id)
     except ChatError as e:
         raise HTTPException(400, str(e)) from e
+
+
+class CompleteBody(BaseModel):
+    messages: list[dict]
+    tools: list[dict] | None = None
+    json_mode: bool = False
+
+
+@app.post("/api/chat/complete")
+async def chat_complete_endpoint(b: CompleteBody, x_skyhop: str | None = Header(default=None)) -> dict:
+    """One model turn for the web app's chat (web/chat.js runs the tools itself): this adds the key. See chat.complete."""
+    _require_skyhop_header(x_skyhop)
+    try:
+        return {"message": await asyncio.to_thread(chat_complete, b.messages, b.tools, b.json_mode)}
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    except ChatError as e:
+        raise HTTPException(502, str(e)) from e
 
 
 @app.get("/health")

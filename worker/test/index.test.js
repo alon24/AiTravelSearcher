@@ -1,6 +1,6 @@
 import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
-import worker, { serpapiParams, jevRequest, _serpapi, _authCache } from "../src/index.js";
+import worker, { serpapiParams, jevRequest, chatRequest, _serpapi, _authCache } from "../src/index.js";
 
 const ENV = { GOOGLE_CLIENT_ID: "client-1", SERPAPI_API_KEY: "serp-key", OPENROUTER_API_KEY: "or-key", APP_TOKEN: "app-secret" };
 let calls;
@@ -27,7 +27,7 @@ beforeEach(() => _authCache.clear());
 
 test("health says what is configured and who is calling, without signing in", async () => {
   stubFetch([["https://oauth2.googleapis.com/tokeninfo", tokeninfo()]]);
-  assert.deepEqual(await (await call("/health")).json(), { serpapi: true, jev: true, sign_in: true, user: null });
+  assert.deepEqual(await (await call("/health")).json(), { serpapi: true, jev: true, chat: true, sign_in: true, user: null });
   assert.equal((await (await call("/health", { token: "t1" })).json()).user, "ilan@example.com");
   assert.equal((await call("/health", { env: {} }).then(r => r.json())).serpapi, false);
 });
@@ -129,4 +129,27 @@ test("preflight requests get CORS headers", async () => {
   const r = await call("/serpapi", { method: "OPTIONS" });
   assert.equal(r.status, 204);
   assert.match(r.headers.get("Access-Control-Allow-Headers"), /Authorization/);
+});
+
+test("chat relays one turn with the page's tools and the key", async () => {
+  stubFetch([["https://openrouter.ai/api/v1/chat/completions", reply({ choices: [{ message: { role: "assistant", content: "Hi" } }] })]]);
+  const tools = [{ type: "function", function: { name: "search_flights" } }];
+  const r = await call("/chat", { appToken: "app-secret", method: "POST", body: JSON.stringify({ messages: [{ role: "user", content: "Rome" }], tools }) });
+  assert.deepEqual(await r.json(), { message: { role: "assistant", content: "Hi" } });
+  const sent = JSON.parse(calls[0].init.body);
+  assert.deepEqual(sent.tools, tools);
+  assert.equal(sent.model, "openai/gpt-4o-mini");
+  assert.equal(calls[0].init.headers.Authorization, "Bearer or-key");
+  stubFetch([["https://openrouter.ai/", reply({ error: "x" }, 500)]]);
+  assert.equal((await call("/chat", { appToken: "app-secret", method: "POST", body: JSON.stringify({ messages: [{ role: "user", content: "x" }] }) })).status, 502);
+});
+
+test("chat requests are bounded like the Python relay", () => {
+  const user = { role: "user", content: "x" };
+  assert.equal(chatRequest({ messages: [user], json_mode: true }, "m").request.response_format.type, "json_object");
+  assert.equal(chatRequest({ messages: [user] }, "m").request.tools, undefined);
+  for (const bad of [{}, { messages: [] }, { messages: [{ role: "boss" }] }, { messages: Array(81).fill(user) },
+    { messages: [{ role: "user", content: "x".repeat(80_001) }] }, { messages: [user], tools: Array(5).fill({}) }]) {
+    assert.ok(chatRequest(bad, "m").error, JSON.stringify(bad).slice(0, 60));
+  }
 });

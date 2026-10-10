@@ -8,10 +8,11 @@
   const KEY = "skyhop.google";
   const GIS = "https://accounts.google.com/gsi/client";
   const REVOKE = "https://oauth2.googleapis.com/revoke";
+  const SIGN_IN = "openid email", DRIVE = "https://www.googleapis.com/auth/drive.file";
   const rt = () => root.SKYHOP_RUNTIME || {};
   const configured = () => !!(rt().workerUrl && rt().googleClientId);
 
-  let session = load();     // {token, until, email}
+  let session = load();     // {token, until, email, scopes}
   let health = null;        // the Worker's /health for this session: {serpapi, jev, sign_in, user}
   let checked = null;
 
@@ -63,22 +64,41 @@
     }));
   }
 
-  /** Google's sign-in popup, then the Worker's verdict on the token. Resolves with the account's email. */
-  async function signIn() {
+  /** Google's consent popup for these scopes; resolves with {token, until, scopes}. */
+  async function requestToken(scope, hint) {
     await loadGis();
     const answer = await new Promise((ok, no) => {
-      root.google.accounts.oauth2.initTokenClient({ client_id: rt().googleClientId, scope: "openid email",
+      root.google.accounts.oauth2.initTokenClient({ client_id: rt().googleClientId, scope, ...(hint ? { login_hint: hint } : {}),
         callback: r => (r.error ? no(new Error(r.error_description || r.error)) : ok(r)),
         error_callback: e => no(new Error(e && e.type === "popup_closed" ? "Sign-in was cancelled" : "Google sign-in failed")),
       }).requestAccessToken();
     });
-    save({ token: answer.access_token, until: Date.now() + ((Number(answer.expires_in) || 3600) - 60) * 1000, email: null });
+    return { token: answer.access_token, until: Date.now() + ((Number(answer.expires_in) || 3600) - 60) * 1000,
+      scopes: String(answer.scope || scope).split(/\s+/) };
+  }
+
+  /** Google's sign-in popup, then the Worker's verdict on the token. Resolves with the account's email. */
+  async function signIn() {
+    save({ ...(await requestToken(SIGN_IN)), email: null });
     const h = await check(true);
     if (!h) { save(null); throw new Error("Couldn't reach Skyhop's server"); }
     if (!h.user) throw new Error("This Google account isn't allowed to use Skyhop's live fares");
     save({ ...session, email: h.user });
     return h.user;
   }
+
+  /** A token that may also write Skyhop's own files in the user's Google Drive (drive.file: nothing else in their Drive).
+      Asks once, from a click (a popup); later calls reuse it until it expires. */
+  async function driveToken() {
+    if (!signedIn()) throw new Error("Sign in with Google first");
+    if (!(session.scopes || []).includes(DRIVE)) {
+      const t = await requestToken(`${SIGN_IN} ${DRIVE}`, session.email);
+      if (!t.scopes.includes(DRIVE)) throw new Error("Skyhop wasn't given access to Google Drive");
+      save({ ...session, ...t });
+    }
+    return session.token;
+  }
+  const hasDrive = () => signedIn() && (session.scopes || []).includes(DRIVE);
 
   function signOut() {
     if (session) fetch(REVOKE, { method: "POST", mode: "no-cors", body: new URLSearchParams({ token: session.token }) }).catch(() => {});
@@ -87,7 +107,7 @@
   }
 
   L.account = {
-    configured, check, signIn, signOut, get, signedIn,
+    configured, check, signIn, signOut, get, signedIn, driveToken, hasDrive,
     email: () => (signedIn() ? session.email || health.user : null),
     live: () => signedIn() && !!health.serpapi,          // real fares through SerpApi
   };

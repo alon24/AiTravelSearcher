@@ -26,7 +26,7 @@ fares. Skyhop never books or takes payment; it hands the user off to the airline
 | Search algorithm (enumerate, fetch, filter, rank) | `src/flightagent/engine.py`, `models.py` |
 | Providers: `gflights` (free Google Flights scraper), `serpapi`, `mock` | `src/flightagent/providers/` |
 | SQLite offer cache (TTL 6h) and past searches | `cache.py`, `history.py` |
-| Natural-language chat via OpenRouter | `chat.py` (`POST /api/chat`, `flightagent-chat`) |
+| Natural-language chat via OpenRouter | `chat.py` (`POST /api/chat`, `flightagent-chat`); in-app "Ask Skyhop" is `web/chat.js` over `POST /api/chat/complete` |
 | Web UI: plain JS, no build step | `src/flightagent/web/` |
 | Server-less build for GitHub Pages: the engine ported to JS, `/api` answered in the page | `web/local/`, `tools/build_pages.py` |
 | Cloudflare Worker holding the API keys for Pages (Google sign-in, SerpApi, Jev) | `worker/` (see its README) |

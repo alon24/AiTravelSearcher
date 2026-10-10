@@ -69,11 +69,26 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
    - The token is kept in localStorage until it expires (about 1 h), so a reload or a phone doesn't ask again. A 401
      from the Worker signs the page out and says so.
    - `/decide` (Jev) is on the Worker, but the extension still talks to the local server; pointing it at the Worker is
-     stage 3. Chat has no web UI yet. Next comes an in-app AI chat whose conversations can be summarised to Google Drive
-     and resumed with new dates; after that, shared results and group chat, then a link to mymaps-ai maps.
+     stage 3. Shared results with group chat, and a link to mymaps-ai maps, are planned next.
    - CI (`pages.yml`) bakes `SKYHOP_WORKER_URL` and `SKYHOP_GOOGLE_CLIENT_ID` (GitHub variables) into `runtime.js`.
      When the `CLOUDFLARE_API_TOKEN` secret exists, it also deploys the Worker. Setup steps are in `worker/README.md`.
-3. **Real free fares:** fetched through the Chrome extension on desktop; on phones from a cloud fetcher if Google
+3. **Ask Skyhop, the AI chat (`web/chat.js`).**
+   - **Where things run.** The conversation and its one tool run in the page. Only the model call leaves it, through
+     `POST /api/chat/complete` (`chat.complete`, server) or the Worker's `POST /chat` (Pages). Both add the key, fix
+     the model and bound a call: at most 80 messages, 80k characters and 4 tools.
+   - **The `search_flights` tool.** It takes `SearchRequest` fields. It validates them with the JS port of the
+     request model, estimates, and runs the search through the normal `/api/searches` route, so the form fills in and
+     the results render as for a typed search. It then hands the model a digest: the top 5 trips, the cheapest per
+     destination, and warnings.
+   - **Asking before spending.** A live search needing more than 40 lookups returns `needs_confirmation`. The model
+     must ask, then pass `confirmed_lookups`.
+   - **Storage.** Conversations and briefs are kept in IndexedDB (stores `chats` and `briefs`, DB v2).
+   - **Summarize.** A JSON-mode call writes the brief's text; the search request is taken from the last search, not
+     from the model.
+   - **Drive.** Briefs go to Drive as Markdown with the brief's JSON in a trailing comment (`local/drive.js`, scope
+     `drive.file`, asked for on the first "Save to Drive"). They are listed back from Drive on other devices.
+   - **Sharing.** `#search=<base64url request>` links open Skyhop with the search filled in.
+4. **Real free fares:** fetched through the Chrome extension on desktop; on phones from a cloud fetcher if Google
    answers data-centre IPs (`.github/workflows/gflights-probe.yml` measures that), else SerpApi through the Worker.
 
 The port found a real bug: Python subtracts two times of the *same* zone as wall-clock times, so a connection across a

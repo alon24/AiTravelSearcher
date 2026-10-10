@@ -10,3 +10,4 @@ keep_vars = true
 
 [vars]
 JEV_MODEL = "typesafe/jev-1.13"
+CHAT_MODEL = "openai/gpt-4o-mini"

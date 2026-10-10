@@ -115,11 +115,16 @@ def _save_history(session_id: str, messages: list[dict]) -> None:
         _sessions[session_id] = messages
 
 
-def _call_model(messages: list[dict], key: str, model: str) -> dict:
+def _call_model(messages: list[dict], key: str, model: str, tools: list[dict] | None = TOOL_SPEC, json_mode: bool = False) -> dict:
+    body = {"model": model, "messages": messages, "temperature": 0}
+    if tools:
+        body["tools"] = tools
+    if json_mode:
+        body["response_format"] = {"type": "json_object"}
     try:
         r = httpx.post(CHAT_URL, timeout=60.0,
                        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json", "X-Title": "Skyhop flightagent chat"},
-                       json={"model": model, "messages": messages, "tools": TOOL_SPEC, "temperature": 0})
+                       json=body)
     except httpx.HTTPError as e:
         raise ChatError(f"couldn't reach the chat model: {e}") from e
     if r.status_code != 200:
@@ -167,3 +172,29 @@ async def chat(message: str, session_id: str | None = None) -> dict:
     _save_history(session_id, messages[1:])
     return {"reply": "Sorry, I couldn't put together an answer from that search. Try narrowing the dates or destinations.",
             "session_id": session_id}
+
+
+# ---------------------------------------------------------------------------------------------- the web app's chat
+# web/chat.js runs the conversation and its tools in the page (so a search fills the form and shows its results there);
+# the model call itself needs the key, so it comes here (or to the Worker's POST /chat on GitHub Pages, same limits).
+MAX_RELAY_MESSAGES = 80
+MAX_RELAY_CHARS = 80_000       # the whole request as JSON: bounds what one call can spend
+MAX_RELAY_TOOLS = 4
+ROLES = {"system", "user", "assistant", "tool"}
+
+
+def complete(messages: list[dict], tools: list[dict] | None = None, json_mode: bool = False) -> dict:
+    """One model turn: returns the model's message ({role, content[, tool_calls]}). ValueError for a request outside
+    the limits, ChatError when there is no key or the model can't be reached."""
+    if not messages or len(messages) > MAX_RELAY_MESSAGES:
+        raise ValueError(f"send between 1 and {MAX_RELAY_MESSAGES} messages")
+    if any(not isinstance(m, dict) or m.get("role") not in ROLES for m in messages):
+        raise ValueError("every message needs a role: system, user, assistant or tool")
+    if len(tools or []) > MAX_RELAY_TOOLS:
+        raise ValueError(f"at most {MAX_RELAY_TOOLS} tools")
+    if len(json.dumps({"messages": messages, "tools": tools})) > MAX_RELAY_CHARS:
+        raise ValueError(f"the conversation is longer than {MAX_RELAY_CHARS} characters; start a new chat")
+    key = openrouter_key()
+    if not key:
+        raise ChatError("no OpenRouter key: set OPENROUTER_API_KEY (or OPENROUTER_KEY) in .env and restart")
+    return _call_model(messages, key, os.environ.get("FLIGHTAGENT_CHAT_MODEL", DEFAULT_MODEL), tools, json_mode)
