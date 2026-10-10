@@ -188,3 +188,48 @@ def test_system_prompt_forcefully_instructs_combining_multiple_destinations():
     assert "ROM,PAR,LON" in p and "Worked example" in p
     assert "NOT destinations=\"ROM\" alone" in p
     assert "NEVER call the tool once per city" in p
+
+
+# ------------------------------------------------------------------ POST /api/chat/complete (the web app's chat)
+def _complete(body, header=True):
+    return TestClient(app).post("/api/chat/complete", json=body, headers={"X-Skyhop": "1"} if header else {})
+
+
+def test_complete_relays_one_turn_with_the_page_s_tools(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_KEY", "k")
+    seen = {}
+    def post(url, timeout, headers, json):
+        seen.update(json=json, auth=headers["Authorization"])
+        return _resp(message=_reply(tool_calls=[_tool_call("c1", {"destinations": ["ROM"]})]))
+    monkeypatch.setattr(httpx, "post", post)
+    tools = [{"type": "function", "function": {"name": "search_flights", "parameters": {"type": "object"}}}]
+    r = _complete({"messages": [{"role": "system", "content": "s"}, {"role": "user", "content": "Rome"}], "tools": tools})
+    assert r.status_code == 200 and r.json()["message"]["tool_calls"][0]["id"] == "c1"
+    assert seen["json"]["tools"] == tools and seen["auth"] == "Bearer k" and "response_format" not in seen["json"]
+
+
+def test_complete_can_ask_for_json_without_tools(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_KEY", "k")
+    seen = {}
+    monkeypatch.setattr(httpx, "post", lambda url, timeout, headers, json: seen.update(json=json) or _resp(message=_reply(content="{}")))
+    assert _complete({"messages": [{"role": "user", "content": "sum up"}], "json_mode": True}).json()["message"]["content"] == "{}"
+    assert seen["json"]["response_format"] == {"type": "json_object"} and "tools" not in seen["json"]
+
+
+@pytest.mark.parametrize("body", [
+    {"messages": []},
+    {"messages": [{"role": "boss", "content": "x"}]},
+    {"messages": [{"role": "user", "content": "x"}] * 81},
+    {"messages": [{"role": "user", "content": "x" * 80_001}]},
+    {"messages": [{"role": "user", "content": "x"}], "tools": [{}] * 5},
+], ids=["empty", "bad role", "too many", "too long", "too many tools"])
+def test_complete_refuses_requests_outside_the_limits(monkeypatch, body):
+    monkeypatch.setenv("OPENROUTER_KEY", "k")
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: pytest.fail("must not call the model"))
+    assert _complete(body).status_code == 422
+
+
+def test_complete_needs_the_page_header_and_a_key():
+    assert _complete({"messages": [{"role": "user", "content": "x"}]}, header=False).status_code == 403
+    r = _complete({"messages": [{"role": "user", "content": "x"}]})
+    assert r.status_code == 502 and "OPENROUTER_API_KEY" in r.json()["detail"]

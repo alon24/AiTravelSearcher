@@ -1,0 +1,22 @@
+name = "skyhop-worker"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+# Secrets (Cloudflare dashboard -> Workers -> skyhop-worker -> Settings -> Variables and Secrets, or
+# `npx wrangler secret put <NAME>`; never commit them): SERPAPI_API_KEY, OPENROUTER_API_KEY, APP_TOKEN (optional).
+# GOOGLE_CLIENT_ID is passed at deploy time by CI from the SKYHOP_GOOGLE_CLIENT_ID GitHub variable.
+# ALLOWED_EMAILS (comma separated) is set in the dashboard; keep_vars stops deploys from wiping it.
+keep_vars = true
+
+[vars]
+JEV_MODEL = "typesafe/jev-1.13"
+CHAT_MODEL = "openai/gpt-4o-mini"
+
+# Shared trips (src/trips.js): one SQLite-backed Durable Object per trip; available on the Workers free plan.
+[[durable_objects.bindings]]
+name = "TRIPS"
+class_name = "SharedTrip"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SharedTrip"]

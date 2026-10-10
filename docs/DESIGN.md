@@ -40,7 +40,7 @@ flowchart LR
   open-jaw, mixed airlines and self-transfer are built by combining one-way offers. That is why any
   provider that can price a one-way flight can be plugged in.
 
-### Hosting on GitHub Pages (Oct 2026, stage 1 of 3)
+### Hosting on GitHub Pages (Oct 2026)
 
 The goal is to run Skyhop like `alon24/mymaps-ai`: static files on GitHub Pages, a small Cloudflare Worker for the
 secrets, nothing on the user's machine. Stages, each its own PR, with the Docker service working throughout:
@@ -57,8 +57,65 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
      server and against the Pages build served under a sub-path (`conftest.py`).
    - Not in the browser: the background recheck loop (a recheck runs when the user asks), chat, Jev. A search still
      running when the tab closes is marked failed on the next visit.
-2. **Worker:** OpenRouter (chat, Jev) and SerpApi keys behind a Cloudflare Worker with Google sign-in, as in mymaps-ai.
-3. **Real free fares:** fetched through the Chrome extension on desktop; on phones from a cloud fetcher if Google
+2. **Worker (`worker/`):** a Cloudflare Worker holds the SerpApi and OpenRouter keys. Sign-in works like mymaps-ai:
+   - The page gets a Google access token (Google Identity Services token client, scope `openid email`,
+     `local/account.js`) and sends it as a Bearer header.
+   - The Worker asks Google's `tokeninfo` whether the token was issued to our client, and caches the answer for up to
+     5 minutes. `ALLOWED_EMAILS` limits who may spend credits.
+   - Signed in, `backend.js` swaps the mock provider for `local/serpapi.js`, which calls `GET /serpapi` and parses the
+     answer exactly like `SerpApiProvider.parse` (parity-tested). The badge says LIVE and the estimate counts SerpApi
+     credits.
+   - Offer-cache keys include the provider, so demo and real fares never mix.
+   - The token is kept in localStorage until it expires (about 1 h), so a reload or a phone doesn't ask again. A 401
+     from the Worker signs the page out and says so.
+   - `/decide` (Jev) is on the Worker, but the extension still talks to the local server; pointing it at the Worker is
+     stage 3. Shared trips (4) and MyMaps AI maps (5) came next.
+   - CI (`pages.yml`) bakes `SKYHOP_WORKER_URL` and `SKYHOP_GOOGLE_CLIENT_ID` (GitHub variables) into `runtime.js`.
+     When the `CLOUDFLARE_API_TOKEN` secret exists, it also deploys the Worker. Setup steps are in `worker/README.md`.
+3. **Ask Skyhop, the AI chat (`web/chat.js`).**
+   - **Where things run.** The conversation and its one tool run in the page. Only the model call leaves it, through
+     `POST /api/chat/complete` (`chat.complete`, server) or the Worker's `POST /chat` (Pages). Both add the key, fix
+     the model and bound a call: at most 80 messages, 80k characters and 4 tools.
+   - **The `search_flights` tool.** It takes `SearchRequest` fields. It validates them with the JS port of the
+     request model, estimates, and runs the search through the normal `/api/searches` route, so the form fills in and
+     the results render as for a typed search. It then hands the model a digest: the top 5 trips, the cheapest per
+     destination, and warnings.
+   - **Asking before spending.** A live search needing more than 40 lookups returns `needs_confirmation`. The model
+     must ask, then pass `confirmed_lookups`.
+   - **Storage.** Conversations and briefs are kept in IndexedDB (stores `chats` and `briefs`, DB v2).
+   - **Summarize.** A JSON-mode call writes the brief's text; the search request is taken from the last search, not
+     from the model.
+   - **Drive.** Briefs go to Drive as Markdown with the brief's JSON in a trailing comment (`local/drive.js`, scope
+     `drive.file`, asked for on the first "Save to Drive"). They are listed back from Drive on other devices.
+   - **Sharing.** `#search=<base64url request>` links open Skyhop with the search filled in.
+4. **Shared trips (`web/trip.js`, `worker/src/trips.js`).**
+   - **Storage.** Each trip is one Durable Object (SQLite-backed, so it works on the Workers free plan). It holds the
+     title, owner, members, brief, last search and numbered messages: people's words, Skyhop's answers, searches as
+     args, digest and request, and briefs.
+   - **Who can do what.** Only an `ALLOWED_EMAILS` account can start a trip. Any Google account with the link joins
+     by reading it.
+   - **Guest allowance.** The Worker now tells *allowed* accounts apart from *guests* (`/health` returns `user` or
+     `guest`). A guest's `/chat` and `/serpapi` calls are accepted only with an `X-Trip` header, and each one is
+     charged to that trip's daily allowance (`spend`: 60 chat turns and 300 lookups per UTC day). So a leaked link
+     costs at most that much.
+   - **Skyhop's turns.** A turn runs in the browser of whoever pressed ✨. It sees the trip's history with names
+     ("dana: …"), runs its searches there, and posts the search cards and the answer for everyone.
+   - **Syncing.** Other members pick up new messages by polling `GET /trips/:id?since=` every 4 s while the chat is
+     open. Polling was chosen over WebSockets as simpler, and fine for a few people.
+5. **MyMaps AI maps (`web/local/mymaps.js`).**
+   - **No shared server.** mymaps-ai keeps each map as a JSON file (schema 1: layers of GeoJSON features with
+     `name`, `description`, `color`, `icon`) in the "MyMaps AI" Drive folder, tagged `appProperties.app=mymaps-ai`,
+     and opens one at `#/m/<fileId>`. Skyhop writes the same files, so no change to mymaps-ai was needed.
+   - **Same OAuth client.** The `drive.file` scope only shows an app the files it created. Both apps use one Google
+     OAuth client, so each sees the other's maps. With a different client ID, "Add to" would list nothing.
+   - **The layer.** Home, each destination with its cheapest fare and best pick, and a line from home to each.
+     Positions come from `web/airport_coords.json` (6,088 airports, built by `tools/build_airports.py` from
+     OpenFlights; a city code uses its first airport). Adding to a map picks a colour it doesn't use yet.
+   - **Sharing.** "Anyone with the link can view" adds a Drive `anyone`/`reader` permission, so others can open the
+     map in MyMaps AI.
+   - **In the chat.** The map's link is kept with the conversation, or posted to a shared trip as a `map` message.
+     The model is told to offer a map after results for a country or several cities.
+6. **Real free fares:** fetched through the Chrome extension on desktop; on phones from a cloud fetcher if Google
    answers data-centre IPs (`.github/workflows/gflights-probe.yml` measures that), else SerpApi through the Worker.
 
 The port found a real bug: Python subtracts two times of the *same* zone as wall-clock times, so a connection across a

@@ -2,6 +2,8 @@
 
     python tools/build_airports.py            # downloads airports.dat if missing
 Row format: [iata, city, airport name, country, rank, [aliases]]  rank: 0 normal, 1 popular, 2 city group.
+Also writes web/airport_coords.json ({iata: [lat, lon]}, for putting a search on a MyMaps AI map; a city group sits at
+its first airport) and data/airport_tz.json.
 """
 import csv, json, sys, urllib.request
 from pathlib import Path
@@ -9,9 +11,11 @@ from pathlib import Path
 URL = "https://raw.githubusercontent.com/jpatokal/openflights/master/data/airports.dat"
 OUT = Path(__file__).resolve().parents[1] / "src/flightagent/web/airports.json"
 TZ_OUT = Path(__file__).resolve().parents[1] / "src/flightagent/data/airport_tz.json"
+COORDS_OUT = OUT.with_name("airport_coords.json")
 DAT = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/airports.dat")
 
 EXTRA = [("BER", "Berlin", "Berlin Brandenburg Airport", "Germany")]  # missing from the OpenFlights snapshot
+EXTRA_COORDS = {"BER": [52.362, 13.501]}
 POPULAR = set("""TLV LHR LGW STN LTN LCY CDG ORY BVA FCO CIA MXP LIN BGY BCN MAD AMS FRA MUC BER VIE ZRH BRU CPH ARN OSL HEL
 DUB LIS OPO ATH SKG IST SAW AYT ESB BUD PRG WAW KRK GDN OTP BBU SOF BEG ZAG LCA PFO RHO HER JTR CHQ CFU KGS MLA NAP VCE TSF BLQ PSA
 FLR CTA PMO BRI CAG NCE LYS MRS TLS BOD NTE GVA BSL HAM DUS CGN STR NUE MAN EDI GLA BHX BRS LPL NCL BFS AGP PMI IBZ VLC SVQ BIO ALC
@@ -71,12 +75,13 @@ def main():
     if not DAT.exists():
         print("downloading", URL)
         DAT.write_bytes(urllib.request.urlopen(URL, timeout=60).read())
-    out, tz = [], {}
+    out, tz, coords = [], {}, dict(EXTRA_COORDS)
     for row in csv.reader(DAT.open(encoding="utf-8")):
         iata, typ = row[4], row[12]
         if typ != "airport" or len(iata) != 3 or iata == "\\N" or iata in GROUPS:
             continue
         out.append([iata, row[2], row[1], row[3], 1 if iata in POPULAR else 0, ALIASES.get(iata, [])])
+        coords[iata] = [round(float(row[6]), 3), round(float(row[7]), 3)]
         if row[11] and row[11] != "\\N":
             tz[iata] = row[11]
     tz.update(EXTRA_TZ)
@@ -84,6 +89,13 @@ def main():
         out.append([code, city, name, country, 1 if code in POPULAR else 0, ALIASES.get(code, [])])
     for code, (city, country) in GROUPS.items():
         out.append([code, city, "All airports", country, 2, ALIASES.get(code, [])])
+    sys.path.insert(0, str(OUT.parents[2]))
+    from flightagent.providers.airports import CITY_AIRPORTS
+    for code in GROUPS:
+        first = CITY_AIRPORTS.get(code, "").split(",")[0]
+        if first in coords:
+            coords[code] = coords[first]
+    COORDS_OUT.write_text(json.dumps(coords, separators=(",", ":")), encoding="utf-8")
     TZ_OUT.parent.mkdir(parents=True, exist_ok=True)
     TZ_OUT.write_text(json.dumps(tz, separators=(",", ":")), encoding="utf-8")
     OUT.write_text(json.dumps(out, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")

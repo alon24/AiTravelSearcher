@@ -12,8 +12,10 @@ so any provider that can price a one-way flight works.
 **Web UI:** run `docker compose up -d --build`, then open http://localhost:8765/ (search form, live progress, past searches).
 **Installing on another computer (server + Chrome extension): [`docs/INSTALL.md`](docs/INSTALL.md)** (`tools/install.sh` on Linux/macOS).
 **Without a server (GitHub Pages):** every push to `main` also publishes a build that runs entirely in the browser
-(`.github/workflows/pages.yml`). For now it shows **demo fares only**; real fares come in the next steps (see
-"Hosting on GitHub Pages" in [`docs/DESIGN.md`](docs/DESIGN.md)). One-time setup: Settings → Pages → Source: GitHub Actions.
+(`.github/workflows/pages.yml`). It shows **demo fares** until you press **Sign in** (Google). Once you're signed in,
+searches use real Google Flights fares through SerpApi. The keys stay in a small Cloudflare Worker, set up once as
+described in [`worker/README.md`](worker/README.md). One-time setup: Settings → Pages → Source: GitHub Actions. See
+"Hosting on GitHub Pages" in [`docs/DESIGN.md`](docs/DESIGN.md).
 
 Docs: [`docs/DESIGN.md`](docs/DESIGN.md) architecture, provider contract and a price-verification proposal; [`docs/STITCH_BRIEF.md`](docs/STITCH_BRIEF.md) UI design brief for Google Stitch.
 
@@ -157,7 +159,7 @@ cp .env.example .env            # FLIGHTAGENT_PROVIDER=mock works offline, no ke
 .venv/bin/uvicorn flightagent.api:app                 # POST /search, POST /search/report
 .venv/bin/pytest
 node src/flightagent/web/airport-search.test.js   # typo/alias airport search (buka -> Bucharest)
-python tools/build_airports.py                    # regenerate web/airports.json (OpenFlights + aliases)
+python tools/build_airports.py                    # regenerate web/airports.json and airport_coords.json (OpenFlights + aliases)
 python tools/build_pages.py _site                 # the server-less GitHub Pages build; serve _site/ with any static server
 ```
 
@@ -198,6 +200,41 @@ implemented. Add a provider by implementing `FlightProvider.one_way` (`providers
   "Select ... on site" go to the airline's own website (see "Using Skyhop" above) — never a search engine,
   and Skyhop itself never books or takes payment.
 - Providers return only what Google Flights shows; some low-cost carriers may be missing.
+
+## Ask Skyhop: the AI chat in the app
+
+Press **✨ Ask Skyhop** (bottom right) and describe the trip in plain words, conditions included: *"Portugal for a week
+in late November, direct only, no Ryanair, 2 adults and a 6-year-old"*.
+- The chat runs the search itself. It fills the form and shows the results beside the chat, so you can see and tweak
+  what it did. Then it tells you the best pick.
+- Follow-ups keep your conditions: *"same in December"*, *"add Madrid"*, *"drop the direct-only"*.
+- Conversations are remembered on your device. Find them under **Recent chats**.
+- **📝 Summarize** turns a conversation into a **trip brief** (what you want, your conditions, the best options found)
+  and keeps it on the device. From a brief you can:
+  - **Continue** it later in a new chat, for example with new dates. The search is filled back in.
+  - **Share** it. The brief includes a link that opens Skyhop with that search filled in.
+  - On the web version, signed in, **Save to Drive**. It is saved to a "Skyhop trip briefs" folder in your Google
+    Drive, so it reaches your other devices.
+- With real fares, a search that needs more than 40 paid lookups is confirmed with you first.
+- **👥 Share** (web version, signed in) turns the conversation into a **shared trip**: a group chat with an invite
+  link.
+  - Friends open the link and sign in with Google, any account. They see the whole conversation and its searches,
+    and can write to the group. Anyone can press **✨** to ask Skyhop, and its searches and answer are posted for
+    everyone.
+  - **Open results** on any search runs it on your own screen.
+  - **Summarize** saves a brief that everyone in the trip sees.
+  - Friends who aren't on `ALLOWED_EMAILS` use the AI and real fares only inside the trip, within a daily allowance
+    (60 AI turns and 300 fare lookups per trip per day). A shared link can never run up your bill.
+- **🗺 Map it** (web version, signed in) puts a search on a [MyMaps AI](https://alon24.github.io/mymaps-ai/) map:
+  home, each destination with its best fare, and a line to each. After a search over a country or several cities,
+  Skyhop offers it.
+  - Choose a **new map**, or **add** the search as a new layer to a map you already have.
+  - Tick **Anyone with the link can view it** so others can open the map without signing in.
+  - The map is saved in the "MyMaps AI" folder of your Google Drive and opens in MyMaps AI. In a shared trip, the map
+    link is posted for everyone.
+
+The model call needs an OpenRouter key: `OPENROUTER_API_KEY` in `.env` for Docker, or the Worker's secret on the web
+version. The model is set with `FLIGHTAGENT_CHAT_MODEL` (Worker: `CHAT_MODEL`).
 
 ## Natural-language chat (built in, no n8n)
 

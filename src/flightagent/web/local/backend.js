@@ -21,7 +21,9 @@
     cache = new L.db.OfferCache();
     history = new L.db.History();
   }
-  const engine = () => new L.engine.Engine(engineProvider, cache);
+  /** Real fares through the Worker once signed in (account.js), else the provider given to setup() (demo fares). */
+  const provider = () => (L.account && L.account.live() ? L.serpapi.provider(L.account.get) : engineProvider);
+  const engine = () => new L.engine.Engine(provider(), cache);
   async function zones() { if (!L.geo.zonesLoaded()) L.geo.setZones(await loadZones().catch(() => ({}))); }
 
   function request(body) {
@@ -42,7 +44,7 @@
 
   // ------------------------------------------------------------------------------------------- routes
   const routes = [
-    ["GET", /^\/api\/config$/, async () => ({ ...(await loadConfig()), provider: engineProvider.name })],
+    ["GET", /^\/api\/config$/, async () => { if (L.account) await L.account.check(); return { ...(await loadConfig()), provider: provider().name }; }],
     ["GET", /^\/api\/rates$/, rates],
     ["GET", /^\/api\/countries$/, countries],
     ["GET", /^\/api\/decide\/health$/, async () => ({ jev_configured: false, decider: "laya", spent: 0 })],
@@ -59,6 +61,7 @@
     ["GET", /^\/api\/flights$/, flights],
     ["POST", /^\/api\/itinerary\/check$/, checkItinerary],
     ["POST", /^\/api\/explore$/, explore],
+    ["POST", /^\/api\/chat\/complete$/, chatTurn],
   ];
 
   /** fetch()-like entry point: resolves with the route's JSON, or rejects with the error message the server would give. */
@@ -160,6 +163,14 @@
     if (!body.legs || !body.legs.length || body.legs.some(l => !l.segments || !l.segments.length)) fail("every leg needs at least one flight segment");
     await zones();
     return L.itinerary.analyse(body.legs, body.currency || "USD");
+  }
+
+  /** One model turn for the AI chat (chat.js), through the Worker: it holds the OpenRouter key. */
+  async function chatTurn({ body }) {
+    if (!(L.account && L.account.signedIn())) fail("Sign in with Google to chat with Skyhop");
+    try {
+      return await L.account.get("/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    } catch (e) { fail(e.message); }
   }
 
   async function rates() {
