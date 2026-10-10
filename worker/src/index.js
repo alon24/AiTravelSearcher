@@ -21,7 +21,7 @@ const MAX_QUESTIONS = 8;
 const MAX_BODY = 64_000;
 const CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 const DEFAULT_CHAT_MODEL = "openai/gpt-4o-mini";
-const MAX_CHAT_MESSAGES = 80, MAX_CHAT_CHARS = 80_000, MAX_CHAT_TOOLS = 4;   // as chat.py's MAX_RELAY_*
+const MAX_CHAT_MESSAGES = 80, MAX_CHAT_CHARS = 80_000, MAX_CHAT_TOOLS = 4, MAX_CHAT_OUTPUT_TOKENS = 800;   // as chat.py's MAX_RELAY_*
 const ROLES = new Set(["system", "user", "assistant", "tool"]);
 const CODE_RE = /^[A-Z]{3}$/;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -211,7 +211,7 @@ export function chatRequest(body, model) {
   if (messages.some(m => !m || typeof m !== "object" || !ROLES.has(m.role))) return { error: "every message needs a role: system, user, assistant or tool" };
   if (tools != null && (!Array.isArray(tools) || tools.length > MAX_CHAT_TOOLS)) return { error: `at most ${MAX_CHAT_TOOLS} tools` };
   if (JSON.stringify({ messages, tools: tools ?? null }).length > MAX_CHAT_CHARS) return { error: `the conversation is longer than ${MAX_CHAT_CHARS} characters; start a new chat` };
-  const request = { model, messages, temperature: 0 };
+  const request = { model, messages, temperature: 0, max_tokens: MAX_CHAT_OUTPUT_TOKENS };
   if (tools && tools.length) request.tools = tools;
   if (json_mode) request.response_format = { type: "json_object" };
   return { request };
