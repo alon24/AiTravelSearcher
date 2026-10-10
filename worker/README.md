@@ -7,8 +7,9 @@ service for it. The Docker version doesn't need the Worker, because its Python s
 | Route | What it does |
 |---|---|
 | `GET /health` | Shows which keys are set and whether your Google sign-in is accepted. It is open to everyone. |
+| `GET /gflights?origin=TLV&dest=FCO&date=2026-11-02&currency=USD&adults=1&max_stops=1` | Runs one one-way lookup straight from Google Flights. It's free and needs no key, but Google may refuse it, so the page then asks `/serpapi`. |
 | `GET /serpapi?origin=TLV&dest=ROM&date=2026-11-02&currency=USD&adults=1&max_stops=1` | Runs one one-way Google Flights lookup through SerpApi, costing one credit. |
-| `POST /decide` | Asks Jev (via OpenRouter) for a typed decision, like the Python service's `/api/decide`. |
+| `POST /decide` | Asks Jev (via OpenRouter) for a typed decision, like the Python service's `/api/decide`. The Airline Assist extension uses it on the web version. |
 | `POST /chat` | Runs one model turn for the in-app AI chat, like the Python service's `/api/chat/complete`. The model is the `CHAT_MODEL` variable. |
 | `POST /trips`, `GET /trips/:id?since=N`, `POST /trips/:id/messages`, `PATCH /trips/:id` | Shared trips: a group chat per trip, stored in a Durable Object (`src/trips.js`). |
 
@@ -20,8 +21,8 @@ Every route except `/health` needs one of these:
 
 Any other verified Google account counts as a **guest**:
 - A guest can join shared trips it has the link to.
-- A guest can use `/chat` and `/serpapi` only inside such a trip (the `X-Trip` header), out of that trip's daily
-  allowance.
+- A guest can use `/chat`, `/gflights` and `/serpapi` only inside such a trip (the `X-Trip` header), out of that
+  trip's daily allowance.
 - Only allowed accounts can start trips or use `/decide`.
 
 Shared trips use a SQLite-backed Durable Object, which the Workers free plan includes. The first deploy creates it from
@@ -41,7 +42,8 @@ Shared trips use a SQLite-backed Durable Object, which the Workers free plan inc
 3. **Deploy.** Push to `main`, or re-run the "Test and deploy to Pages" workflow. The Worker is published at
    `https://skyhop-worker.<your-subdomain>.workers.dev`.
 4. **Keys.** In Cloudflare, open Workers → skyhop-worker → Settings → Variables and Secrets:
-   - add the **secrets** `SERPAPI_API_KEY` and `OPENROUTER_API_KEY`;
+   - add the **secrets** `SERPAPI_API_KEY` (optional: free Google Flights fares come first, SerpApi is the fallback)
+     and `OPENROUTER_API_KEY` (the AI chat and Jev);
    - add the **variable** `ALLOWED_EMAILS` (comma separated). Without it, any Google account can spend your SerpApi
      credits.
 5. **Point the site at it.** Add the Worker's URL as the **variable** `SKYHOP_WORKER_URL`, then re-run the workflow.

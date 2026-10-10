@@ -257,6 +257,12 @@ def test_fallback_provider_and_selection(monkeypatch):
     assert got[0].price == 99 and got.source == "fake"
     r = run(FlightSearchEngine(FallbackProvider(Boom(), backup)), req())
     assert r.sources == {"fake": r.api_calls} and r.elapsed_s >= 0
+    assert got.fallback == "boom failed (blocked), so fake answered"
+    assert any(w.startswith(f"{r.api_calls} lookup(s) used the backup provider; first: boom failed (blocked)") for w in r.warnings), \
+        "a lookup answered by the backup (maybe paid) always says why"
+    both = FallbackProvider(Boom(), Boom())
+    with pytest.raises(RuntimeError, match=r"^boom: blocked; boom: blocked$"):
+        asyncio.run(both.one_way("TLV", "ROM", date(2026, 10, 5), currency="USD", adults=1, max_stops=1))
     from flightagent.report import render
     assert "lookups via fake x" in render(r)
     monkeypatch.setenv("SERPAPI_API_KEY", "k")

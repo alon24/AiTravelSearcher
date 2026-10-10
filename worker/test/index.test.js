@@ -27,7 +27,7 @@ beforeEach(() => _authCache.clear());
 
 test("health says what is configured and who is calling, without signing in", async () => {
   stubFetch([["https://oauth2.googleapis.com/tokeninfo", tokeninfo()]]);
-  assert.deepEqual(await (await call("/health")).json(), { serpapi: true, jev: true, chat: true, sign_in: true, trips: false, user: null, guest: null });
+  assert.deepEqual(await (await call("/health")).json(), { gflights: true, serpapi: true, jev: true, chat: true, sign_in: true, trips: false, user: null, guest: null });
   assert.equal((await (await call("/health", { token: "t1" })).json()).user, "ilan@example.com");
   assert.equal((await call("/health", { env: {} }).then(r => r.json())).serpapi, false);
 });
@@ -152,4 +152,11 @@ test("chat requests are bounded like the Python relay", () => {
     { messages: [{ role: "user", content: "x".repeat(80_001) }] }, { messages: [user], tools: Array(5).fill({}) }]) {
     assert.ok(chatRequest(bad, "m").error, JSON.stringify(bad).slice(0, 60));
   }
+});
+
+test("a failed upstream call names the failure instead of hiding it", async () => {
+  stubFetch([["https://oauth2.googleapis.com/tokeninfo", tokeninfo()], ["https://openrouter.ai/", () => { throw new Error("connection reset"); }]]);
+  const r = await call("/decide", { token: "t", method: "POST", body: JSON.stringify({ state: "s", questions: { q: { type: "noul" } } }) });
+  assert.equal(r.status, 502);
+  assert.equal((await r.json()).error, "upstream request failed: connection reset");
 });

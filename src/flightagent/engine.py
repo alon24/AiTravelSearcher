@@ -182,6 +182,7 @@ class FlightSearchEngine:
             raise BudgetExceeded(len(missing), req.max_api_calls)
 
         errors: list[str] = []
+        fallbacks: list[str] = []      # why a lookup was answered by the backup provider (FallbackProvider)
         done = 0
         if self._on_progress:
             self._on_progress(0, len(missing))
@@ -210,6 +211,8 @@ class FlightSearchEngine:
                 if self.cache:
                     self.cache.remember_fares({self._fare_key(req, o): o.price for o in offers if o.priced})
                 self.sources[getattr(offers, "source", "") or self.provider.name] += 1
+                if getattr(offers, "fallback", ""):
+                    fallbacks.append(offers.fallback)
                 raw[k] = offers
                 if self.cache and offers:  # never cache "no flights": it may be a bad code, not a fact
                     self.cache.put(self._cache_key(req, k), offers, self._ttl_for(k[2], offers))
@@ -218,6 +221,8 @@ class FlightSearchEngine:
         if errors and not raw:
             raise RuntimeError(f"All provider calls failed. First error: {errors[0]}")
         warnings = [f"{len(errors)} provider call(s) failed; first: {errors[0]}"] if errors else []
+        if fallbacks:
+            warnings.append(f"{len(fallbacks)} lookup(s) used the backup provider; first: {fallbacks[0]}")
         if raw and not any(raw.values()):
             warnings.append("The provider returned no flights for ANY route. Check the airport codes "
                             "(use airports such as FCO, or a city code the provider supports) and the dates.")

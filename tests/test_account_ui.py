@@ -23,12 +23,22 @@ def _fares(q):
         "airline": "Zed Air", "flight_number": "ZZ 101", "duration": 180}]}], "other_flights": []}
 
 
+def _google(q):
+    """The Worker's /gflights answer for one lookup: Google's result groups with one nonstop Gee Air flight."""
+    o, d, day = q["origin"][0], q["dest"][0], q["date"][0]
+    ymd = [int(x) for x in day.split("-")]
+    seg = [None] * 23
+    seg[3], seg[6], seg[8], seg[10], seg[11], seg[20], seg[21] = o, d, [9], [12], 180, ymd, ymd
+    seg[22] = ["GG", "7", None, "Gee Air"]
+    return {"groups": [[[None, None, [seg]], [[None, 77]]]]}
+
+
 @pytest.fixture
 def worker(page, base_url):
     """Point the page at a fake Worker and Google; `state` sets who the Worker accepts and records what it was asked."""
     if not base_url.endswith("/skyhop"):
         pytest.skip("sign-in exists only on the Pages build")
-    state = {"user": "ilan@example.com", "guest": None, "serpapi": True, "asked": [], "revoked": []}
+    state = {"user": "ilan@example.com", "guest": None, "serpapi": True, "gflights": None, "asked": [], "revoked": []}
 
     def answer(route):
         req = route.request
@@ -38,10 +48,16 @@ def worker(page, base_url):
         signed = req.headers.get("authorization") == "Bearer tok-1"
         state["asked"].append((url.path, signed))
         if url.path == "/health":
-            body = {"serpapi": state["serpapi"], "jev": True, "sign_in": True, "user": state["user"] if signed else None,
+            body = {"gflights": bool(state["gflights"]), "serpapi": state["serpapi"], "jev": True, "sign_in": True, "user": state["user"] if signed else None,
                     "guest": state["guest"] if signed else None}
         elif not (signed and state["user"]):
             return route.fulfill(status=401, headers=CORS, json={"error": "sign in"})
+        elif url.path == "/gflights":
+            if state["gflights"] == "blocked":
+                return route.fulfill(status=502, headers=CORS, json={"error": "Google returned no result data (a robot check)"})
+            body = _google(parse_qs(url.query))
+        elif state.get("serpapi_down"):
+            return route.fulfill(status=502, headers=CORS, json={"error": "SerpApi: Invalid API key"})
         else:
             body = _fares(parse_qs(url.query))
         route.fulfill(status=200, headers=CORS, content_type="application/json", body=json.dumps(body))
@@ -82,6 +98,45 @@ def test_signing_in_turns_on_real_fares_from_the_worker(page, worker):
     lookups = [signed for path, signed in worker["asked"] if path == "/serpapi"]
     assert lookups and all(lookups), "every fare lookup goes to the Worker with the Google token"
     assert "Zed Air" in page.inner_text("main")
+
+
+def test_free_google_flights_fares_come_first(page, worker):
+    worker["gflights"] = "ok"
+    _sign_in(page)
+    _fill(page)
+    page.wait_for_function("/free; up to \\d+ SerpApi credits only if Google refuses/.test(document.querySelector('#estimate-text').textContent)")
+    page.click("#go")
+    page.wait_for_selector("text=gflights ×4", timeout=60000)
+    assert "Gee Air" in page.inner_text("main")
+    assert not [p for p, _ in worker["asked"] if p == "/serpapi"], "no SerpApi credits spent while Google answers"
+
+
+def test_serpapi_answers_when_google_refuses_the_worker(page, worker):
+    worker["gflights"] = "blocked"
+    _sign_in(page)
+    _fill(page)
+    page.click("#go")
+    page.wait_for_selector("text=serpapi ×4", timeout=60000)
+    assert "Zed Air" in page.inner_text("main")
+    assert "4 lookup(s) used the backup provider; first: gflights failed (Google returned no result data (a robot check)), " \
+           "so serpapi answered" in page.inner_text("main"), "the page says why credits were spent"
+
+
+def test_when_google_and_serpapi_both_fail_both_reasons_are_shown(page, worker):
+    worker["gflights"], worker["serpapi_down"] = "blocked", True
+    _sign_in(page)
+    _fill(page, end="2026-11-04", nights=1)
+    page.click("#go")
+    page.wait_for_selector("text=SerpApi: Invalid API key", timeout=60000)
+    assert "gflights: Google returned no result data (a robot check); serpapi: SerpApi: Invalid API key" in page.inner_text("main")
+
+
+def test_live_fares_need_no_serpapi_key(page, worker):
+    worker["gflights"], worker["serpapi"] = "ok", False
+    _sign_in(page)
+    _fill(page, end="2026-11-04", nights=1)
+    page.click("#go")
+    page.wait_for_selector("text=gflights ×", timeout=60000)
 
 
 def test_sign_in_survives_a_reload_and_sign_out_returns_to_demo(page, worker):
@@ -139,3 +194,14 @@ def test_sign_in_fits_the_phone_top_bar(page, worker):
     box = page.locator(".topbar .theme-toggle").bounding_box()
     assert box["x"] + box["width"] <= 360, "the top bar must not spill off a phone screen"
     assert page.evaluate("document.documentElement.scrollWidth") <= 360
+
+
+def test_the_airline_assist_extension_gets_the_worker_for_jev(page, worker):
+    """No local server on the web version: the page hands the extension its Worker and sign-in (content-bridge.js)."""
+    page.evaluate("window.routes = []; addEventListener('skyhop-jev-route', e => routes.push(e.detail.route))")
+    _sign_in(page)
+    page.wait_for_function("routes.some(r => r)")
+    route = [r for r in page.evaluate("routes") if r][-1]
+    assert route["url"] == WORKER and route["token"] == "tok-1" and route["until"] > 0
+    page.locator(".account-btn:visible").click()
+    page.wait_for_function("routes.length && routes[routes.length - 1] === null")

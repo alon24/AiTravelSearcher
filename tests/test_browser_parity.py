@@ -158,3 +158,15 @@ def test_serpapi_answers_parse_the_same(data):
     """Real fares on Pages come from SerpApi through the Worker; the page must read them as the Python provider does."""
     py = SerpApiProvider("k").parse(data, "TLV", "ROM", date(2026, 10, 5), "EUR")
     assert js({"op": "serpapi_parse", "data": data, "args": ["TLV", "ROM", "2026-10-05", "EUR"]}) == [json.loads(o.model_dump_json()) for o in py]
+
+
+def test_google_flights_results_parse_the_same():
+    """Free fares on Pages come from Google Flights through the Worker; the page must read them as gflights.py does."""
+    from flightagent.providers.gflights import parse_groups
+
+    fx = json.loads((Path(__file__).parent / "fixtures" / "gflights_tlv_fco_2026-10-05.json").read_text())
+    groups = fx["best"] + fx["other"]
+    groups[1] = [groups[1][0], []]                                  # a flight Google lists without a fare
+    py = [json.loads(o.model_dump_json()) for o in parse_groups(groups, "TLV", "FCO", "EUR")]
+    assert js({"op": "gflights_parse", "groups": groups, "args": ["TLV", "FCO", "EUR"]}) == py
+    assert [o["priced"] for o in py].count(False) == 1

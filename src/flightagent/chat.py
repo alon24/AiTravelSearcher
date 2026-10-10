@@ -163,7 +163,7 @@ async def chat(message: str, session_id: str | None = None) -> dict:
             try:
                 args = json.loads(call["function"]["arguments"])
                 result = await run_simple_search(SimpleSearch(**args))
-                content = result.get("report") or f"Error: {result.get('error', 'unknown error')}"
+                content = result.get("report") or f"Error: {result.get('error') or 'the search gave neither a report nor an error message'}"
             except Exception as e:      # a malformed tool call, or a genuinely bad search: tell the MODEL, not the caller
                 content = f"Error: {e}"
             messages.append({"role": "tool", "tool_call_id": call["id"], "content": content})

@@ -3,7 +3,7 @@
    conversation. Only an account on ALLOWED_EMAILS can start one; guests then spend the AI and fare lookups out of the
    trip's daily allowance (spend()), which bounds what a shared link can cost its owner. */
 
-export const LIMITS = { messages: 1000, text: 4000, data: 12_000, title: 120, chat: 60, serpapi: 300 };  // chat/serpapi: per trip per UTC day
+export const LIMITS = { messages: 1000, text: 4000, data: 12_000, title: 120, chat: 60, serpapi: 300, gflights: 1000 };  // chat/serpapi/gflights: per trip per UTC day
 const KINDS = new Set(["user", "ai", "search", "brief", "map"]);
 const ID_RE = /^[a-z0-9]{12}$/;
 

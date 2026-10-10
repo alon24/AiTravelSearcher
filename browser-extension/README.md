@@ -126,3 +126,12 @@ and offline. Details and measurements: `docs/DESIGN.md`, "Jev as an alternative 
 the page asks the extension to ping the chosen backend. If it's down the badge turns amber and reads "✕ not running",
 with a message -- for Laya: "start it with ~/laya-service/start.sh, or switch to Jev"; for Jev: the reason (no key on the
 server, server unreachable). It turns green again on its own once the backend answers.
+
+## Jev on the web version -- v0.8.0
+
+The extension now also attaches to the GitHub Pages site (`https://alon24.github.io/AiTravelSearcher/`). There is no
+local server there, so when you sign in the page hands the extension its Cloudflare Worker and your Google sign-in, and
+Jev's questions go to the Worker's `/decide` (new host permission `https://*.workers.dev/*`). The sign-in is kept only
+until the browser closes or the token expires (about an hour); sign in again on the page to renew it. Jev is the
+default on the web version until you pick Laya. **New host permissions: re-enable the extension in
+`chrome://extensions` if Chrome switches it off after the update.**

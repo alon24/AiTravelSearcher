@@ -21,8 +21,14 @@
     cache = new L.db.OfferCache();
     history = new L.db.History();
   }
-  /** Real fares through the Worker once signed in (account.js), else the provider given to setup() (demo fares). */
-  const provider = () => (L.account && L.account.live() ? L.serpapi.provider(L.account.get) : engineProvider);
+  /** Real fares through the Worker once signed in (account.js): free Google Flights first, SerpApi if Google refuses
+      (or only the one the Worker has); else the provider given to setup() (demo fares). */
+  function provider() {
+    const a = L.account;
+    if (!a || !a.live()) return engineProvider;
+    const free = a.has("gflights") && L.gflights.provider(a.get), paid = a.has("serpapi") && L.serpapi.provider(a.get);
+    return free && paid ? L.gflights.fallback(free, paid) : free || paid;
+  }
   const engine = () => new L.engine.Engine(provider(), cache);
   async function zones() { if (!L.geo.zonesLoaded()) L.geo.setZones(await loadZones().catch(() => ({}))); }
 

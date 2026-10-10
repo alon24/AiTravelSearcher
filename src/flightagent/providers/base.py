@@ -7,9 +7,10 @@ from ..models import Offer
 
 
 class Offers(list):
-    """A list of offers that remembers which provider produced it (used by FallbackProvider)."""
+    """A list of offers that remembers which provider produced it, and why the backup answered (FallbackProvider)."""
 
     source: str = ""
+    fallback: str = ""
 
 
 class FlightProvider(Protocol):
@@ -32,10 +33,16 @@ class FallbackProvider:
         self.name = f"{primary.name}+{backup.name}"
 
     async def one_way(self, origin, dest, day, **kw):
+        why = ""
         try:
             res, src = await self.primary.one_way(origin, dest, day, **kw), self.primary.name
-        except Exception:
-            res, src = await self.backup.one_way(origin, dest, day, **kw), self.backup.name
+        except Exception as e:      # say why, so a paid answer or a failure is never a mystery
+            why = f"{self.primary.name} failed ({e}), so {self.backup.name} answered"
+            try:
+                res, src = await self.backup.one_way(origin, dest, day, **kw), self.backup.name
+            except Exception as e2:
+                raise RuntimeError(f"{self.primary.name}: {e}; {self.backup.name}: {e2}") from e2
         out = Offers(res)
         out.source = getattr(res, "source", "") or src
+        out.fallback = why or getattr(res, "fallback", "")
         return out

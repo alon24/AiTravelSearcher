@@ -64,3 +64,9 @@ window.addEventListener("skyhop-check-decider", () => {
     chrome.runtime.sendMessage({ type: "laya-ping" }, (r) => answer(chrome.runtime.lastError ? { ok: false, error: chrome.runtime.lastError.message } : (r || { ok: false, error: "no answer" })));
   } catch (err) { answer({ ok: false, error: "the extension was reloaded -- refresh this page" }); }
 });
+
+// On the web version (GitHub Pages) there is no local server for Jev: the page says which Worker to use, with its
+// Google sign-in, and the background script keeps that for this browser session.
+window.addEventListener("skyhop-jev-route", (e) => {
+  try { chrome.runtime.sendMessage({ type: "set-jev-route", route: e.detail?.route || null }, () => publishDecider()); } catch (err) { /* orphaned */ }
+});

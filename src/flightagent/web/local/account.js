@@ -13,7 +13,7 @@
   const configured = () => !!(rt().workerUrl && rt().googleClientId);
 
   let session = load();     // {token, until, email, scopes}
-  let health = null;        // the Worker's /health for this session: {serpapi, chat, trips, user, guest}
+  let health = null;        // the Worker's /health for this session: {gflights, serpapi, chat, trips, user, guest}
   let trip = null;          // the shared trip on screen (trip.js): a guest's AI and fares are billed to it
   let checked = null;
 
@@ -74,7 +74,7 @@
     const answer = await new Promise((ok, no) => {
       root.google.accounts.oauth2.initTokenClient({ client_id: rt().googleClientId, scope, ...(hint ? { login_hint: hint } : {}),
         callback: r => (r.error ? no(new Error(r.error_description || r.error)) : ok(r)),
-        error_callback: e => no(new Error(e && e.type === "popup_closed" ? "Sign-in was cancelled" : "Google sign-in failed")),
+        error_callback: e => no(new Error(e && e.type === "popup_closed" ? "Sign-in was cancelled" : `Google sign-in failed (${(e && e.type) || "no reason given"})`)),
       }).requestAccessToken();
     });
     return { token: answer.access_token, until: Date.now() + ((Number(answer.expires_in) || 3600) - 60) * 1000,
@@ -113,7 +113,10 @@
   L.account = {
     configured, check, signIn, signOut, get, signedIn, driveToken, hasDrive,
     allowed, email: who,
-    live: () => (allowed() || (signedIn() && !!trip)) && !!health.serpapi,          // real fares through SerpApi
+    live: () => (allowed() || (signedIn() && !!trip)) && !!(health.gflights || health.serpapi),   // real fares through the Worker
+    has: service => !!(health && health[service]),
+    /** Where the Airline Assist extension sends Jev's questions on the web version: this Worker with this token. */
+    jevRoute: () => (allowed() && health.jev ? { url: rt().workerUrl.replace(/\/+$/, ""), token: session.token, until: session.until } : null),
     trips: () => !!(health && health.trips),
     setTrip: id => { trip = id || null; },
   };

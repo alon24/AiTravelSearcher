@@ -1,7 +1,8 @@
 """Regenerate browser-extension/manifest.json's host_permissions (and bump nothing else) from airlines.json.
 
-Every airline's registrable domains become `https://*.<domain>/*` (covers www., booking. and the apex), plus the
-local Laya service the background script calls. Run after editing browser-extension/airlines.json:
+Every airline's registrable domains become `https://*.<domain>/*` (covers www., booking. and the apex), plus what the
+background script calls: the local Laya service, the local Skyhop server and the web version's Worker. Run after
+editing browser-extension/airlines.json:
 
     python3 tools/sync_assist_manifest.py          # rewrite
     python3 tools/sync_assist_manifest.py --check  # exit 1 if manifest.json is out of date (used by the tests)
@@ -15,11 +16,12 @@ from pathlib import Path
 EXT = Path(__file__).resolve().parent.parent / "browser-extension"
 LAYA = "http://127.0.0.1:8799/*"      # the local decision service
 SKYHOP = "http://127.0.0.1:8765/*"    # this app's server: /api/decide (holds the OpenRouter key for Jev)
+WORKER = "https://*.workers.dev/*"    # the web version's Cloudflare Worker: /decide (Jev) when Skyhop runs on GitHub Pages
 
 
 def expected_hosts(registry: dict) -> list[str]:
     hosts = sorted({f"https://*.{d}/*" for a in registry["airlines"].values() for d in a["hosts"]})
-    return hosts + [LAYA, SKYHOP]
+    return hosts + [LAYA, SKYHOP, WORKER]
 
 
 def main(argv: list[str]) -> int:
