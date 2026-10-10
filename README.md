@@ -166,7 +166,7 @@ cp .env.example .env            # FLIGHTAGENT_PROVIDER=mock works offline, no ke
 .venv/bin/uvicorn flightagent.api:app                 # POST /search, POST /search/report
 .venv/bin/pytest
 node src/flightagent/web/airport-search.test.js   # typo/alias airport search (buka -> Bucharest)
-python tools/build_airports.py                    # regenerate web/airports.json and airport_coords.json (OpenFlights + aliases)
+python tools/build_airports.py                    # regenerate web/airports.json and airport_coords.json (OpenFlights + OurAirports + aliases)
 python tools/build_pages.py _site                 # the server-less GitHub Pages build; serve _site/ with any static server
 ```
 

@@ -642,4 +642,14 @@ src/flightagent/  api.py engine.py models.py history.py cache.py report.py cli.p
 tests/            test_engine.py  fixtures/gflights_tlv_fco_2026-10-05.json
 docs/DESIGN.md    this file
 ```
-Airport data: OpenFlights (ODbL), `web/airports.json`.
+Airport data: `web/airports.json`, built by `tools/build_airports.py` from OpenFlights (ODbL: names, coordinates, time
+zones) and OurAirports (public domain, updated nightly). OurAirports supplies whether an airport has scheduled
+flights now and whether it is a large airport. It also adds the scheduled airports that OpenFlights lacks: 388 on
+2026-10-10, BER among them. The build has 6,475 airports, 4,138 of them with scheduled flights.
+A code matches OurAirports only when the country also matches: OpenFlights' AVR is Alverca, OurAirports' AVR is
+Amravati.
+- **Country search** (fixed 2026-10-10: "portugal" showed Faro, Porto and unrelated "Port…" towns, not Lisbon or
+  Madeira). A country's whole name, or 5+ letters of it, lists its airports with scheduled flights first. In a
+  destination field it also offers one pick that adds the country's large airports, up to the field's 8; "Portugal"
+  adds LIS, OPO, FAO, FNC and PDL. The airline finder's country list (`geo.country_airports`, mirrored in
+  `local/backend.js`) also keeps only airports with scheduled flights.

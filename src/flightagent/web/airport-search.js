@@ -1,7 +1,7 @@
 /* Typo-tolerant, phonetic airport search. Works in the browser (window.AirportSearch) and in Node (tests).
    Layers, strongest first: exact/prefix code, name/alias prefix, contains, phonetic prefix ("buka" ~ Bucharest),
    edit-distance typos ("praga", "amstrdam"). Popular airports and city groups get a boost so hubs beat obscure
-   airports with a similar name. */
+   airports with a similar name. A country name lists that country's airports with scheduled flights. */
 (function (root) {
   "use strict";
   const fold = s => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
@@ -33,13 +33,13 @@
   }
 
   function prepare(rows) {
-    return rows.map(([code, city, name, country, rank, aliases]) => {
+    return rows.map(([code, city, name, country, rank, aliases, service = 0]) => {
       const terms = [];
       const add = (text, weight) => { const t = fold(text); if (t) terms.push({ t, p: phon(t), w: weight }); };
       add(city, 0); (aliases || []).forEach(a => add(a, 0));
       // single words of the airport name ("gurion", "heathrow"), a bit weaker, only real words
       fold(name).split(/[^a-z֐-׿]+/).filter(w => w.length >= 4 && !STOP.has(w)).forEach(w => add(w, -12));
-      return { code, city, name, country, rank, terms, key: fold(`${code} ${city} ${name} ${country} ${(aliases || []).join(" ")}`) };
+      return { code, city, name, country, rank, service, terms, key: fold(`${code} ${city} ${name} ${country} ${(aliases || []).join(" ")}`) };
     });
   }
   const STOP = new Set(["airport", "international", "intl", "regional", "field", "municipal", "airfield", "airbase", "city", "county", "memorial"]);
@@ -57,10 +57,32 @@
     return best <= allow ? { score: 62 - 9 * best, d: best } : null;
   }
 
+  // A country typed by name ("portugal", "Port"): its airports with scheduled flights (OurAirports, see
+  // tools/build_airports.py) come first, and country() offers its main airports as one pick.
+  const COUNTRY_ALIASES = { usa: "united states", us: "united states", uk: "united kingdom", england: "united kingdom", holland: "netherlands" };
+  function countryOf(list, q) {
+    const want = COUNTRY_ALIASES[q] || q;
+    const names = list.countryNames || (list.countryNames = [...new Set(list.map(a => a.country))].map(c => [fold(c), c]));
+    // the whole name, or 5+ letters of it: "roma" is Rome, not Romania
+    const hit = names.find(([f]) => f === want) || (want.length >= 5 && names.find(([f]) => f.startsWith(want)));
+    return hit ? hit[1] : null;
+  }
+  /** {name, codes}: a country's large airports with scheduled flights (else all with scheduled flights), most popular
+      first, at most `max`; `of` is how many there are in all. Null when the query names no country. */
+  function country(list, query, max = 8) {
+    const name = countryOf(list, fold(query));
+    if (!name) return null;
+    const served = list.filter(a => a.country === name && a.rank !== 2 && a.service > 0);
+    const main = served.some(a => a.service === 2) ? served.filter(a => a.service === 2) : served;
+    if (!main.length) return null;
+    main.sort((x, y) => y.rank - x.rank || x.city.localeCompare(y.city));
+    return { name, codes: main.slice(0, max).map(a => a.code), of: main.length };
+  }
+
   function search(list, query, limit = 8) {
     const q = fold(query);
     if (!q) return [];
-    const qp = phon(q), out = [];
+    const qp = phon(q), out = [], land = countryOf(list, q);
     for (const a of list) {
       const code = a.code.toLowerCase();
       let sc = 0, kind = "";
@@ -73,14 +95,15 @@
         else { const f = fuzzy(qp, t.p); if (f) { s = f.score + t.w; k = "fuzzy"; } }
         if (s > sc) { sc = s; kind = k; }
       }
+      if (land && a.country === land && a.service > 0) { const c = 68 + 10 * a.service; if (c > sc) { sc = c; kind = "country"; } }
       if (!sc && q.length >= 3 && a.key.includes(q)) { sc = 20; kind = "name"; }
       if (sc) out.push({ a, score: sc + boost(a) * (kind === "fuzzy" && sc < 55 ? 0.3 : 1), kind });
     }
-    out.sort((x, y) => y.score - x.score || x.a.city.localeCompare(y.a.city));
+    out.sort((x, y) => y.score - x.score || y.a.service - x.a.service || x.a.city.localeCompare(y.a.city));
     return out.slice(0, limit);
   }
 
-  const api = { prepare, search, fold, phon, dl };
+  const api = { prepare, search, country, fold, phon, dl };
   root.AirportSearch = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof window !== "undefined" ? window : globalThis);

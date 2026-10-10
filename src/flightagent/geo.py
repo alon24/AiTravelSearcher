@@ -70,13 +70,15 @@ def tz_of(code: str) -> ZoneInfo | None:
 
 @lru_cache
 def airports_by_country() -> dict[str, list[tuple[str, str, int]]]:
-    """country -> [(iata, airport name, rank)]. Rank 1 = well-known airport. City groups are excluded."""
+    """country -> [(iata, airport name, rank)]. Rank 1 = well-known airport. Only airports with scheduled flights
+    (OurAirports, tools/build_airports.py) when the country has any: air bases and closed fields would be wasted
+    lookups. City groups are excluded."""
     rows = json.loads((Path(__file__).parent / "web" / "airports.json").read_text(encoding="utf-8"))
-    out: dict[str, list[tuple[str, str, int]]] = {}
-    for iata, _city, name, country, rank, _aliases in rows:
+    out: dict[str, list[tuple[str, str, int, int]]] = {}
+    for iata, _city, name, country, rank, _aliases, service in rows:
         if rank != 2:
-            out.setdefault(country, []).append((iata, name, rank))
-    return out
+            out.setdefault(country, []).append((iata, name, rank, service))
+    return {c: [a[:3] for a in airports if a[3] or not any(x[3] for x in airports)] for c, airports in out.items()}
 
 
 def country_airports(country: str, limit: int = 60) -> tuple[list[str], bool]:

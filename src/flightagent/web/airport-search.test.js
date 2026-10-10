@@ -14,12 +14,20 @@ const cases = [
   ["new yrok", ["NYC", "JFK"], 3], ["ניו יורק", ["NYC", "JFK"], 3], ["רומא", ["ROM"], 1], ["פריז", ["PAR"], 3], ["בוקרשט", ["OTP", "BUH"], 2],
   ["par", ["PAR", "CDG"], 2], ["lond", ["LON", "LHR"], 2], ["bangkok", ["BKK"], 1], ["bkk", ["BKK"], 1],
 ];
+// a country by name: its airports with scheduled flights first (Lisbon and Madeira were missing for "portugal")
+cases.push(["portugal", ["LIS"], 5], ["portugal", ["OPO"], 5], ["portugal", ["FAO"], 5], ["portugal", ["FNC"], 5], ["portug", ["LIS"], 5],
+  ["madeira", ["FNC"], 2], ["azores", ["PDL"], 3], ["spain", ["MAD"], 8], ["usa", ["NYC"], 3]);
 let failed = 0;
 for (const [q, want, n] of cases) {
   const got = top(q, n);
   const ok = want.some(w => got.includes(w));
   if (!ok) { failed++; console.log(`FAIL ${q.padEnd(18)} wanted one of ${want} in top ${n}, got ${top(q, 5)}`); }
 }
+const pt = S.country(list, "Portugal");
+assert.deepStrictEqual(pt && [...pt.codes].sort(), ["FAO", "FNC", "LIS", "OPO", "PDL"], "Portugal's large airports with scheduled flights");
+assert.ok(!top("portugal", 8).some(c => ["AVR", "QLR", "BYJ"].includes(c)), "air bases with no scheduled flights stay out");
+assert.strictEqual(S.country(list, "roma"), null, "four letters of a country are a city");
+assert.strictEqual(S.country(list, "united states").of > 8 && S.country(list, "usa").codes.length, 8);
 // speed: a keystroke must stay well under a frame budget on 6k airports
 const t0 = process.hrtime.bigint(); for (let i = 0; i < 20; i++) S.search(list, "bukarst"); const ms = Number(process.hrtime.bigint() - t0) / 1e6 / 20;
 console.log(`${cases.length - failed}/${cases.length} queries ok; ${ms.toFixed(1)} ms per search`);

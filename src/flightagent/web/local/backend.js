@@ -190,14 +190,16 @@
     }
   }
 
-  /** country -> [[iata, name, rank]], rank 1 = well-known; city groups (rank 2) left out, as in geo.py. */
+  /** country -> [[iata, name, rank]], rank 1 = well-known; only airports with scheduled flights when the country has
+      any, and city groups (rank 2) left out, as in geo.py. */
   async function byCountry() {
     const out = new Map();
-    for (const [iata, , name, country, rank] of await loadAirports()) {
+    for (const [iata, , name, country, rank, , service] of await loadAirports()) {
       if (rank === 2) continue;
       if (!out.has(country)) out.set(country, []);
-      out.get(country).push([iata, name, rank]);
+      out.get(country).push([iata, name, rank, service]);
     }
+    for (const [c, list] of out) out.set(c, list.filter(a => a[3] || !list.some(x => x[3])).map(a => a.slice(0, 3)));
     return out;
   }
   async function countries() {

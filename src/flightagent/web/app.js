@@ -119,17 +119,26 @@ function autocomplete(root, { id, placeholder, multi, max = 8, onChange }) {
     input.placeholder = multi && values.length ? "Add another…" : values.length ? "Change…" : placeholder;
   }
   function pick(code) {
-    code = code.toUpperCase();
-    if (multi) { if (!values.includes(code) && values.length < max) values.push(code); } else values = [code];
+    const codes = [].concat(code).map(c => c.toUpperCase());     // a country pick is several airports
+    if (multi) {
+      const room = codes.filter(c => !values.includes(c)), added = room.slice(0, max - values.length);
+      values.push(...added);
+      if (added.length < room.length) toast(`Added ${added.length} of ${room.length} airports: at most ${max} fit here. Remove some to add the rest.`);
+    } else values = [codes[0]];
     input.value = ""; close(); draw(); onChange();
   }
+  const choice = item => item.codes || item.code;
   function show() {
     const results = AirportSearch.search(AIRPORTS, input.value);
-    items = results.map(r => r.a);
+    const land = multi ? AirportSearch.country(AIRPORTS, input.value, max) : null;
+    items = [...(land ? [land] : []), ...results.map(r => r.a)];
     const q = input.value.trim();
-    const rows = items.map((a, i) => h("li", { role: "option", "aria-selected": String(i === active), onmousedown: e => { e.preventDefault(); pick(a.code); } },
-      h("span", { class: "ac-code" }, a.code),
-      h("span", {}, h("div", { class: "ac-city" }, a.city), h("div", { class: "ac-sub" }, `${a.name} · ${a.country}`))));
+    const rows = items.map((a, i) => h("li", { role: "option", class: a.codes ? "ac-country" : null, "aria-selected": String(i === active), onmousedown: e => { e.preventDefault(); pick(choice(a)); } },
+      ...(a.codes ? [h("span", { class: "ac-code" }, "🌍"),
+        h("span", {}, h("div", { class: "ac-city" }, `${a.name}: ${a.of > a.codes.length ? `${a.codes.length} of its ${a.of}` : `all ${a.codes.length}`} main airports`),
+          h("div", { class: "ac-sub" }, `${a.codes.join(" · ")} (large airports with scheduled flights)`))]
+        : [h("span", { class: "ac-code" }, a.code),
+          h("span", {}, h("div", { class: "ac-city" }, a.city), h("div", { class: "ac-sub" }, `${a.name} · ${a.country}`))])));
     if (results.length && results[0].kind === "fuzzy") rows.unshift(h("li", { class: "ac-hint", role: "presentation" }, `No exact match for “${q}”. Did you mean…`));
     if (!results.length && q) rows.push(h("li", { class: "ac-hint", role: "presentation" }, "No match. Try a city, an airport name or a 3-letter code."));
     list.replaceChildren(...rows);
@@ -145,9 +154,9 @@ function autocomplete(root, { id, placeholder, multi, max = 8, onChange }) {
       $$("li[role=option]", list).forEach((li, i) => li.setAttribute("aria-selected", String(i === active)));
     } else if (e.key === "Enter") {
       const raw = input.value.trim();
-      if (active >= 0 && items[active]) { e.preventDefault(); pick(items[active].code); }
+      if (active >= 0 && items[active]) { e.preventDefault(); pick(choice(items[active])); }
       else if (/^[A-Za-z]{3}$/.test(raw) && AIRPORTS.some(a => a.code === raw.toUpperCase())) { e.preventDefault(); pick(raw); }
-      else if (items[0]) { e.preventDefault(); pick(items[0].code); }
+      else if (items[0]) { e.preventDefault(); pick(choice(items[0])); }
       else if (/^[A-Za-z]{3}$/.test(raw)) { e.preventDefault(); pick(raw); }
     } else if (e.key === "Backspace" && !input.value && values.length) { values.pop(); draw(); onChange(); }
     else if (e.key === "Escape") close();
