@@ -1184,7 +1184,7 @@ function showAccount() {
   $$(".account-btn").forEach(b => {
     b.hidden = false;
     b.textContent = email ? "Sign out" : "Sign in";
-    b.title = email ? `Signed in as ${email}. Searches use real fares (SerpApi credits).` : "Sign in with Google to search real fares instead of demo data";
+    b.title = email ? `Signed in as ${email}. Searches use real fares.` : "Sign in with Google to search real fares instead of demo data";
   });
 }
 async function toggleAccount() {
@@ -1203,7 +1203,12 @@ async function toggleAccount() {
 /** Demo or real fares can change with sign-in and with joining a shared trip (a guest's fares are billed to it). */
 async function refreshMode() {
   try { config = await api("/api/config"); } catch { /* keep */ }
-  showMode(); if (SkyhopLocal.account.configured()) showAccount(); onFormChange();
+  showMode(); if (SkyhopLocal.account.configured()) { showAccount(); shareJevRoute(); } onFormChange();
+}
+/** On the web version there is no local server for the Airline Assist extension to ask Jev through, so tell it to use
+    the Worker with this sign-in (content-bridge.js relays it); null when signed out. */
+function shareJevRoute() {
+  window.dispatchEvent(new CustomEvent("skyhop-jev-route", { detail: { route: SkyhopLocal.account.jevRoute() } }));
 }
 
 // A shared search link (chat.js shareLink): #search=<base64url JSON request> fills the form; the user presses Find flights.
@@ -1229,12 +1234,12 @@ async function init() {
   try { config = await api("/api/config"); } catch { /* keep defaults */ }
   showMode();
   if (SkyhopLocal.account.configured()) {
-    showAccount();
+    showAccount(); shareJevRoute();
     $$(".account-btn").forEach(b => b.addEventListener("click", toggleAccount));
     window.addEventListener("skyhop-signed-out", async () => {
       toast("Your Google sign-in expired. Sign in again for real fares.");
       try { config = await api("/api/config"); } catch { /* keep */ }
-      showMode(); showAccount();
+      showMode(); showAccount(); shareJevRoute();
     });
   }
   modeBadges().forEach(b => {
@@ -1284,7 +1289,9 @@ async function init() {
   window.addEventListener("focus", () => { if (extensionAvailable() && Date.now() - lastCheck > 10000) checkDecider(false); });
   async function switchDecider() {
     const next = decider() === "jev" ? "laya" : "jev";
-    if (next === "jev") {
+    if (next === "jev" && SkyhopLocal.account.configured()) {       // web version: Jev runs on the Worker
+      if (!SkyhopLocal.account.jevRoute()) { toast("Jev needs you signed in, with an OpenRouter key on Skyhop's Worker"); return; }
+    } else if (next === "jev") {
       try {
         const r = await api("/api/decide/health", { headers: { "X-Skyhop": "1" } });
         if (!r.jev_configured) { toast("Jev needs an OpenRouter key on this server: put OPENROUTER_API_KEY in .env, then run docker compose up -d"); return; }

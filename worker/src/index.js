@@ -2,11 +2,13 @@
    The page signs in with Google and sends that access token; the Worker accepts it only if Google says it was issued
    to Skyhop's OAuth client (and, with ALLOWED_EMAILS set, to one of those accounts). Routes:
      GET  /health                   which services are configured, and whether the caller's token is accepted
+     GET  /gflights?origin&dest&... one one-way lookup straight from Google Flights (free; gflights.js)
      GET  /serpapi?origin&dest&...  one one-way Google Flights lookup through SerpApi (one credit)
      POST /decide                   a typed decision from Jev, as the Python service's /api/decide (decide.py)
      POST /chat                     one model turn for the page's AI chat, as the Python service's /api/chat/complete
      /trips...                      shared trips: a group chat per trip (trips.js) */
 
+import { gflights } from "./gflights.js";
 import { SharedTrip, newTripId, tripStub, validTripId } from "./trips.js";
 
 const SERPAPI_URL = "https://serpapi.com/search.json";
@@ -96,7 +98,7 @@ async function mayspend(request, env, who, kind, n = 1) {
 // ------------------------------------------------------------------------------------------------ routes
 async function health(request, env) {
   const who = await caller(request, env);
-  return json({ serpapi: !!env.SERPAPI_API_KEY, jev: !!env.OPENROUTER_API_KEY, chat: !!env.OPENROUTER_API_KEY, sign_in: !!env.GOOGLE_CLIENT_ID,
+  return json({ gflights: true, serpapi: !!env.SERPAPI_API_KEY, jev: !!env.OPENROUTER_API_KEY, chat: !!env.OPENROUTER_API_KEY, sign_in: !!env.GOOGLE_CLIENT_ID,
     trips: !!env.TRIPS, user: who && who.allowed ? who.email : null, guest: who && !who.allowed ? who.email : null });
 }
 
@@ -237,6 +239,7 @@ export default {
       const who = await caller(request, env);
       if (!who) return error("sign in with Google", 401);
       if (url.pathname === "/trips" || url.pathname.startsWith("/trips/")) return await trips(request, env, url, who);
+      if (url.pathname === "/gflights" && request.method === "GET") return (await mayspend(request, env, who, "gflights")) || await gflights(url, { json, error }, sleep);
       if (url.pathname === "/serpapi" && request.method === "GET") return (await mayspend(request, env, who, "serpapi")) || await serpapi(url, env);
       if (url.pathname === "/chat" && request.method === "POST") return (await mayspend(request, env, who, "chat")) || await chat(request, env);
       if (!who.allowed) return error("sign in with an allowed Google account", 403);

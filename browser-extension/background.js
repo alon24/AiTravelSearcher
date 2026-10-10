@@ -93,10 +93,28 @@ const LAYA_URL = "http://127.0.0.1:8799";
 // the Skyhop server's /api/decide, which holds the OpenRouter key -- it must never be in the extension). The choice is
 // made in the Skyhop page header and kept in chrome.storage.local.
 const SKYHOP_URL = "http://127.0.0.1:8765";
-const getDecider = async () => ((await chrome.storage.local.get("decider")).decider === "jev" ? "jev" : "laya");
+// On the web version the page hands over its Cloudflare Worker and Google token instead ({url, token, until}, from
+// content-bridge.js); kept in session storage, so it's gone when the browser closes, and used until the token expires.
+async function jevRoute() {
+  const { jevRoute: r } = await chrome.storage.session.get("jevRoute");
+  return r && r.url && r.token && r.until > Date.now() ? r : null;
+}
+// Until one is picked: Jev on the web version (no local Laya there is likely), else Laya.
+async function getDecider() {
+  const { decider } = await chrome.storage.local.get("decider");
+  return decider ? (decider === "jev" ? "jev" : "laya") : (await jevRoute()) ? "jev" : "laya";
+}
 
 async function layaClassify(state, questions) {
   if (await getDecider() === "jev") {
+    const route = await jevRoute();
+    if (route) {
+      const r = await fetch(route.url + "/decide", { method: "POST", body: JSON.stringify({ state, questions }),
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + route.token } });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error("Jev via Skyhop's Worker: " + (body.error || "HTTP " + r.status));
+      return body.answers;
+    }
     const r = await fetch(SKYHOP_URL + "/api/decide", {
       method: "POST",
       // the custom header is what the Skyhop server requires (a plain web page can't send it cross-origin)
@@ -119,6 +137,14 @@ async function layaClassify(state, questions) {
 // Is the chosen backend reachable? (Jev: also that the server has the OpenRouter key.)
 async function deciderPing() {
   if (await getDecider() === "jev") {
+    const route = await jevRoute();
+    if (route) {
+      const r = await fetch(route.url + "/health", { headers: { Authorization: "Bearer " + route.token }, signal: AbortSignal.timeout(5000) });
+      const h = r.ok ? await r.json() : {};
+      if (!h.jev) throw new Error("Skyhop's Worker has no OpenRouter key for Jev");
+      if (!h.user) throw new Error("sign in to Skyhop again (Jev needs an invited Google account)");
+      return;
+    }
     const r = await fetch(SKYHOP_URL + "/api/decide/health", { headers: { "X-Skyhop": "1" }, signal: AbortSignal.timeout(5000) });
     if (!r.ok) throw new Error("the Skyhop server answered HTTP " + r.status);
     if (!(await r.json()).jev_configured) throw new Error("Jev is selected but the Skyhop server has no OpenRouter key (add OPENROUTER_API_KEY to .env, then docker compose up -d)");
@@ -154,6 +180,15 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     throw new Error("unknown laya message " + msg.type);
   })().then((r) => sendResponse({ ok: true, ...r }), (e) => sendResponse({ ok: false, error: String(e?.message || e) }));
   return true;   // async response
+});
+
+// The web version's Worker route for Jev (see jevRoute); null signs it out.
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type !== "set-jev-route") return false;
+  const r = msg.route;
+  chrome.storage.session.set({ jevRoute: r && typeof r.url === "string" && /^https:\/\//.test(r.url) ? { url: r.url, token: String(r.token), until: Number(r.until) } : null })
+    .then(() => sendResponse({ ok: true }));
+  return true;
 });
 
 // The Skyhop page header switches the decision backend (laya | jev); content-bridge.js relays it here.

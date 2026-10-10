@@ -50,7 +50,7 @@ async function startTrip() {
 }
 
 test("health tells a guest apart from an allowed account", async () => {
-  assert.deepEqual(await (await call("/health", "tok-dana")).json(), { serpapi: true, jev: true, chat: true, sign_in: true, trips: true, user: null, guest: "dana@example.com" });
+  assert.deepEqual(await (await call("/health", "tok-dana")).json(), { gflights: true, serpapi: true, jev: true, chat: true, sign_in: true, trips: true, user: null, guest: "dana@example.com" });
   assert.equal((await (await call("/health", "tok-ilan")).json()).user, "ilan@example.com");
 });
 

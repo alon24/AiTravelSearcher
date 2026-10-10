@@ -62,14 +62,23 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
      `local/account.js`) and sends it as a Bearer header.
    - The Worker asks Google's `tokeninfo` whether the token was issued to our client, and caches the answer for up to
      5 minutes. `ALLOWED_EMAILS` limits who may spend credits.
-   - Signed in, `backend.js` swaps the mock provider for `local/serpapi.js`, which calls `GET /serpapi` and parses the
-     answer exactly like `SerpApiProvider.parse` (parity-tested). The badge says LIVE and the estimate counts SerpApi
-     credits.
+   - Signed in, `backend.js` swaps the mock provider for real fares, in the server's default order
+     (`gflights,serpapi`): `local/gflights.js` first, `local/serpapi.js` when that lookup fails (`fallback()`, as
+     `FallbackProvider`). The badge says LIVE.
+   - **Free fares (`GET /gflights`, `worker/src/gflights.js`).** The Worker builds the same `tfs` query as fast-flights
+     (byte for byte, tested from pytest), fetches the Google Flights page with a browser User-Agent and a consent cookie,
+     and returns the `ds:1` result groups. The page parses them like `gflights.parse_groups` (parity-tested) and asks
+     again for flights listed without a fare, as `gflights.py` does. A robot check or cookie wall is a 502 that names
+     it, and the fallback answers from SerpApi. Whether Google answers Cloudflare's addresses isn't measured yet
+     (2026-10-10); the GitHub Actions probe got 10/10 answers from a cloud address on 2026-10-09.
+   - **SerpApi (`GET /serpapi`).** Parsed exactly like `SerpApiProvider.parse` (parity-tested); one credit a lookup.
    - Offer-cache keys include the provider, so demo and real fares never mix.
    - The token is kept in localStorage until it expires (about 1 h), so a reload or a phone doesn't ask again. A 401
      from the Worker signs the page out and says so.
-   - `/decide` (Jev) is on the Worker, but the extension still talks to the local server; pointing it at the Worker is
-     stage 3. Shared trips (4) and MyMaps AI maps (5) came next.
+   - **Jev for the extension.** On the web version the page hands the Airline Assist extension its Worker URL and
+     Google token (`skyhop-jev-route` event, `content-bridge.js`), which `background.js` keeps in session storage until
+     the token expires and uses for `POST /decide`. Without it, Jev goes to the local server as before. Jev is the
+     default there until Laya is picked, since a phone or a laptop without Docker has no Laya.
    - CI (`pages.yml`) bakes `SKYHOP_WORKER_URL` and `SKYHOP_GOOGLE_CLIENT_ID` (GitHub variables) into `runtime.js`.
      When the `CLOUDFLARE_API_TOKEN` secret exists, it also deploys the Worker. Setup steps are in `worker/README.md`.
 3. **Ask Skyhop, the AI chat (`web/chat.js`).**
@@ -115,8 +124,9 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
      map in MyMaps AI.
    - **In the chat.** The map's link is kept with the conversation, or posted to a shared trip as a `map` message.
      The model is told to offer a map after results for a country or several cities.
-6. **Real free fares:** fetched through the Chrome extension on desktop; on phones from a cloud fetcher if Google
-   answers data-centre IPs (`.github/workflows/gflights-probe.yml` measures that), else SerpApi through the Worker.
+6. **Phones.** Real fares come from the Worker (above), so a phone needs nothing else. Extensions don't run in phone
+   browsers, so there is no Assist there: each flight's **Check on <airline> site** button opens the airline's own
+   website (looked up when Skyhop doesn't know it) and copies the flight to paste into its search.
 
 The port found a real bug: Python subtracts two times of the *same* zone as wall-clock times, so a connection across a
 clock change (land FCO 01:00, leave CIA 03:00 on the night Rome springs forward) was reported as 2 h instead of 1 h.
