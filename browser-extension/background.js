@@ -99,6 +99,9 @@ async function jevRoute() {
   const { jevRoute: r } = await chrome.storage.session.get("jevRoute");
   return r && r.url && r.token && r.until > Date.now() ? r : null;
 }
+// In the Skyhop Android app (android/) these scripts run in the app's page, with no local server to fall back on.
+const IN_APP = !!globalThis.SKYHOP_APP;
+const APP_SIGN_IN = "sign in to Skyhop first (Jev needs your Google sign-in, on an invited account)";
 // Until one is picked: Jev on the web version (no local Laya there is likely), else Laya.
 async function getDecider() {
   const { decider } = await chrome.storage.local.get("decider");
@@ -115,6 +118,7 @@ async function layaClassify(state, questions) {
       if (!r.ok) throw new Error("Jev via Skyhop's Worker: " + (body.error || "HTTP " + r.status));
       return body.answers;
     }
+    if (IN_APP) throw new Error(APP_SIGN_IN);
     const r = await fetch(SKYHOP_URL + "/api/decide", {
       method: "POST",
       // the custom header is what the Skyhop server requires (a plain web page can't send it cross-origin)
@@ -145,13 +149,15 @@ async function deciderPing() {
       if (!h.user) throw new Error("sign in to Skyhop again (Jev needs an invited Google account)");
       return;
     }
+    if (IN_APP) throw new Error(APP_SIGN_IN);
     const r = await fetch(SKYHOP_URL + "/api/decide/health", { headers: { "X-Skyhop": "1" }, signal: AbortSignal.timeout(5000) });
     if (!r.ok) throw new Error("the Skyhop server answered HTTP " + r.status);
     if (!(await r.json()).jev_configured) throw new Error("Jev is selected but the Skyhop server has no OpenRouter key (add OPENROUTER_API_KEY to .env, then docker compose up -d)");
     return;
   }
-  const r = await fetch(LAYA_URL + "/health", { signal: AbortSignal.timeout(4000) });   // refused at once when it isn't running
-  if (!r.ok) throw new Error("HTTP " + r.status);
+  const r = await fetch(LAYA_URL + "/health", { signal: AbortSignal.timeout(4000) })   // refused at once when it isn't running
+    .catch((e) => { throw new Error(`the local Laya service isn't reachable (${e.message}) -- start it with ~/laya-service/start.sh`); });
+  if (!r.ok) throw new Error("the local Laya service answered HTTP " + r.status);
 }
 const PAGE_TYPES = {
   results: "Flight search results: flight times, prices, airline names, select buttons.",
@@ -165,7 +171,7 @@ const PAGE_TYPES = {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg?.type?.startsWith("laya-")) return false;
   (async () => {
-    if (msg.type === "laya-ping") { await deciderPing(); return {}; }
+    if (msg.type === "laya-ping") { await deciderPing(); return { decider: await getDecider() }; }
     if (msg.type === "laya-page") {
       const a = await layaClassify(msg.text, { page_type: { type: "choice", instructions: "Classify what kind of airline web page this text is from.", criteria: PAGE_TYPES } });
       return { choice: a.page_type.choice };

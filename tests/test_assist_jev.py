@@ -18,6 +18,7 @@ const job = JSON.parse(process.argv[1]), calls = [];
 globalThis.chrome = { storage: { local: { get: async () => job.local }, session: { get: async () => ({ jevRoute: job.route }) } } };
 globalThis.fetch = async (url, init = {}) => {
   calls.push({ url: String(url), auth: (init.headers || {}).Authorization || null, body: init.body ? JSON.parse(init.body) : null });
+  if (job.down) throw new TypeError("Failed to fetch");
   return new Response(JSON.stringify(job.answer), { status: job.status || 200 });
 };
 %s
@@ -30,10 +31,10 @@ globalThis.fetch = async (url, init = {}) => {
 """
 
 
-def run(op="classify", route=None, local=None, answer=None, status=200):
+def run(op="classify", route=None, local=None, answer=None, status=200, down=False):
     src = BACKGROUND.read_text()
     code = src[src.index("const LAYA_URL"):src.index("const PAGE_TYPES")]
-    job = {"op": op, "route": route, "local": local or {}, "answer": answer if answer is not None else {"answers": {"q": {"noul": 0.9}}}, "status": status}
+    job = {"op": op, "route": route, "local": local or {}, "answer": answer if answer is not None else {"answers": {"q": {"noul": 0.9}}}, "status": status, "down": down}
     out = subprocess.run(["node", "-e", HARNESS % code, json.dumps(job)], capture_output=True, text=True, timeout=60, check=True)
     return json.loads(out.stdout)
 
@@ -71,6 +72,10 @@ def test_the_badge_check_says_what_is_missing_on_the_worker():
     assert run("ping", route=live(), answer={"jev": True, "user": "ilan@example.com"})["result"] == "ok"
     assert "invited" in run("ping", route=live(), answer={"jev": True, "user": None})["error"]
     assert "OpenRouter" in run("ping", route=live(), answer={"jev": False, "user": "ilan@example.com"})["error"]
+
+
+def test_a_laya_service_that_isnt_running_says_how_to_start_it():
+    assert run("ping", down=True)["error"] == "the local Laya service isn't reachable (Failed to fetch) -- start it with ~/laya-service/start.sh"
 
 
 def test_a_worker_refusal_is_reported():

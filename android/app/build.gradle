@@ -1,0 +1,46 @@
+plugins {
+    id "com.android.application"
+}
+
+// Release signing comes from the environment (CI decodes the SKYHOP_ANDROID_KEYSTORE secret); without it the APK is
+// signed with a throwaway debug key, and an update then has to be installed over an uninstall.
+def keystore = System.getenv("SKYHOP_KEYSTORE_FILE")
+
+android {
+    namespace "io.github.alon24.skyhop"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "io.github.alon24.skyhop"
+        minSdk 26
+        targetSdk 35
+        versionCode((System.getenv("GITHUB_RUN_NUMBER") ?: "1") as int)
+        versionName "0.1.0"
+        buildConfigField "String", "SKYHOP_URL", "\"https://alon24.github.io/AiTravelSearcher/\""
+    }
+    buildFeatures { buildConfig true }
+    signingConfigs {
+        if (keystore) {
+            release {
+                storeFile file(keystore)
+                storePassword System.getenv("SKYHOP_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("SKYHOP_KEY_ALIAS")
+                keyPassword System.getenv("SKYHOP_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig keystore ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation "androidx.webkit:webkit:1.12.1"
+}

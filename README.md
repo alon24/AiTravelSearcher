@@ -18,7 +18,10 @@ free, and uses SerpApi credits only if Google refuses it. The Worker also holds 
 in [`worker/README.md`](worker/README.md). With the Airline Assist extension on desktop, Jev works on the web version
 too, through the same Worker, so no local server is needed. On a phone, airlines with a known results link get a
 **Search on <airline> site** button that opens their own search for that flight's route and day, including links your
-desktop extension learned. One-time setup: Settings → Pages → Source: GitHub Actions. See
+desktop extension learned. **Android app:** [`skyhop.apk`](https://github.com/alon24/AiTravelSearcher/releases/download/android-latest/skyhop.apk)
+(built from `android/`) is the same site with the airline's site in a second tab. There, **Select on site** has Jev find
+your flight, as the desktop extension does. Sign-in opens your phone's browser once and comes back to the app.
+One-time setup: Settings → Pages → Source: GitHub Actions. See
 "Hosting on GitHub Pages" in [`docs/DESIGN.md`](docs/DESIGN.md).
 
 Docs: [`docs/DESIGN.md`](docs/DESIGN.md) architecture, provider contract and a price-verification proposal; [`docs/STITCH_BRIEF.md`](docs/STITCH_BRIEF.md) UI design brief for Google Stitch.

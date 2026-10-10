@@ -139,6 +139,29 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
      and copies the flight to paste into its search.
    - **Why not an iframe** (asked 2026-10-10): a page can't script a frame from another site, and airline booking
      pages generally refuse to be framed. A native app's own web view can, which is the Android option.
+7. **The Android app** (`android/`, ilan chose it 2026-10-10 so Jev can pick the flight on a phone). Two web views:
+   the Pages site, and the airline's site as a second tab. No extension runs there, so the extension's own
+   `background.js` and `content-bridge.js` run *unchanged* in the Skyhop page on `android/web/app-shim.js`, which
+   provides the `chrome.*` calls they make (storage, one airline tab, `executeScript`, messages) over the app's Java
+   bridge (`MainActivity.java`). `tools/build_android.py` bundles them, with `airlines.json` and the drivers, into
+   `assets/skyhop-app.js`, which the app adds as a document-start script for the Pages origin only.
+   - **Drivers** run in the airline tab's page (an extension would use an isolated world), each file in its own
+     function scope; `airline-bridge.js` gives them `chrome.runtime.sendMessage`. The Skyhop page takes only
+     `laya-*` messages from that tab, because the airline's own scripts can reach the bridge too.
+   - **Jev only.** Laya is a service on a computer, so the app pins `decider` to `jev`; without a sign-in the
+     airline tab says so instead of falling back to a local server.
+   - **Sign-in.** Google refuses OAuth inside an app's web view, so `account.js` asks the app
+     (`SkyhopNative.signIn`), which opens `?app-sign-in` in the phone's browser. That page signs in with the usual popup and
+     hands the token back as `skyhop://signed-in?t=<base64url JSON>`. It accepts only Skyhop's two scope sets. Any app that
+     also claims the `skyhop:` scheme could be offered that link; the token is a one-hour access token for
+     `openid email` (plus `drive.file` when Drive is used).
+   - **Links** that leave the Skyhop site (airline sites, Google Flights) open in the airline tab.
+   - **Build.** `.github/workflows/android.yml` builds the APK; on `main` it publishes it as the `android-latest`
+     release. Without the signing-key secrets, every build gets a new throwaway key, so an update needs an uninstall.
+     The Java side is only compiled there. `tests/test_android_app.py` checks that the calls the scripts make exist in
+     `MainActivity.java`, and `tests/test_android_app_ui.py` drives the page side with a stand-in for the Java bridge,
+     including Jev finding a flight in the airline tab.
+   - **Unverified** (2026-10-10): the app on a real phone, and whether airline sites behave the same in a web view.
 
 The port found a real bug: Python subtracts two times of the *same* zone as wall-clock times, so a connection across a
 clock change (land FCO 01:00, leave CIA 03:00 on the night Rome springs forward) was reported as 2 h instead of 1 h.

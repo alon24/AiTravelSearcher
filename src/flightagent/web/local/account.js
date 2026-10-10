@@ -70,6 +70,7 @@
 
   /** Google's consent popup for these scopes; resolves with {token, until, scopes}. */
   async function requestToken(scope, hint) {
+    if (root.SkyhopNative) return appToken(scope, hint);
     await loadGis();
     const answer = await new Promise((ok, no) => {
       root.google.accounts.oauth2.initTokenClient({ client_id: rt().googleClientId, scope, ...(hint ? { login_hint: hint } : {}),
@@ -79,6 +80,30 @@
     });
     return { token: answer.access_token, until: Date.now() + ((Number(answer.expires_in) || 3600) - 60) * 1000,
       scopes: String(answer.scope || scope).split(/\s+/) };
+  }
+
+  /** In the Android app (android/): Google refuses sign-in inside an app's web view, so the app opens this page in the
+      phone's browser (?app-sign-in, see appSignIn), which signs in and hands the token back to the app. */
+  function appToken(scope, hint) {
+    return new Promise((ok, no) => {
+      const done = e => {
+        root.removeEventListener("skyhop-app-token", done);
+        const d = e.detail || {};
+        if (d.error) return no(new Error(d.error));
+        let t = null;
+        try { t = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(d.raw.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0)))); } catch { /* checked below */ }
+        if (!t || typeof t.token !== "string" || !(t.until > Date.now()) || !Array.isArray(t.scopes)) return no(new Error("The browser handed the app an unusable Google sign-in; try again"));
+        ok({ token: t.token, until: t.until, scopes: t.scopes });
+      };
+      root.addEventListener("skyhop-app-token", done);
+      root.SkyhopNative.signIn(scope, hint || "");
+    });
+  }
+  /** The browser side of appToken: Google's popup, then the token as a skyhop:// link back into the app. */
+  async function appSignIn(scope, hint) {
+    const t = await requestToken(scope, hint);
+    const raw = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(t)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    return `skyhop://signed-in?t=${raw}`;
   }
 
   /** Google's sign-in popup, then the Worker's verdict on the token. Resolves with the account's email. */
@@ -112,7 +137,7 @@
 
   L.account = {
     configured, check, signIn, signOut, get, signedIn, driveToken, hasDrive,
-    allowed, email: who,
+    allowed, email: who, appSignIn,
     live: () => (allowed() || (signedIn() && !!trip)) && !!(health.gflights || health.serpapi),   // real fares through the Worker
     has: service => !!(health && health[service]),
     /** Where the Airline Assist extension sends Jev's questions on the web version: this Worker with this token. */

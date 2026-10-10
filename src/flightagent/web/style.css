@@ -658,3 +658,10 @@ td.air-names { white-space: normal; min-width: 110px; }
   .chat .tb-head > div:first-child { flex-basis: 100%; }
   .msg { max-width: 94%; }
 }
+
+/* The phone's browser signing in for the Skyhop Android app (app.js appSignInPage): covers the page. */
+.app-sign-in { position: fixed; inset: 0; z-index: 70; display: grid; place-items: center; padding: 16px; background: var(--bg); }
+.app-sign-in .card { max-width: 420px; padding: 24px; display: grid; gap: 14px; }
+.app-sign-in h2 { margin: 0; }
+.app-sign-in p { margin: 0; color: var(--ink-2); }
+.app-sign-in [hidden] { display: none; }

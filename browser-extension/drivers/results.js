@@ -17,6 +17,7 @@
   window.__skyhopResultsRunning = true;
   const { departTime, flightNumber, airlineName = "the airline" } = details;   // departTime: "HH:MM" local at the origin, from Skyhop's result
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  let model = "";   // the decision model that answers (Laya or Jev): the ping says which
 
   function status(msg, isError) {
     window.__skyhopStatus = msg;
@@ -29,7 +30,7 @@
     banner.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:2147483647;color:#fff;" +
       "font:14px/1.4 system-ui,sans-serif;padding:10px 16px;text-align:center;direction:ltr;" +
       "background:" + (isError ? "#a11a2b" : "#1a1a2e") + ";";
-    banner.textContent = "Skyhop Assist (Laya): " + msg;
+    banner.textContent = `Skyhop Assist${model ? ` (${model})` : ""}: ` + msg;
     console.log("[Skyhop]", msg);
   }
   const log = (m) => console.log("[Skyhop/Laya]", m);
@@ -97,9 +98,10 @@
   }
 
   try {
-    status("checking the Laya service…");
+    status("checking the decision model…");
     const ping = await laya.ping();
-    if (!ping.ok) throw new Error("the Laya service isn't reachable (" + ping.error + ") -- start it with ~/laya-service/start.sh");
+    if (!ping.ok) throw new Error("can't ask its decision model: " + ping.error);
+    model = ping.decider === "jev" ? "Jev" : "Laya";
 
     // 1. Cookie banner (the results render behind it, so this is only to leave the page clean).
     if (/privacy settings|cookie|consent/i.test(document.body.innerText + " " + laya.shadowText())) {

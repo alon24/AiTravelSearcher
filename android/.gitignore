@@ -1,0 +1,6 @@
+# Built by tools/build_android.py
+app/src/main/assets/
+.gradle/
+build/
+app/build/
+local.properties

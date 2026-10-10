@@ -1223,6 +1223,25 @@ async function toggleAccount() {
   } catch (e) { toast(e.message); }
   await refreshMode();
 }
+/** The phone's browser, opened by the Skyhop Android app to sign in (account.js appToken): Google refuses sign-in inside
+    an app's web view, so it happens here and the token goes back to the app as a skyhop:// link. */
+const APP_SCOPES = new Set(["openid", "email", "https://www.googleapis.com/auth/drive.file"]);
+function appSignInPage(q) {
+  const scope = q.get("scope") || "openid email";
+  const msg = h("p", {}, "The Skyhop app needs your Google sign-in. Google doesn't allow signing in inside apps, so you sign in here and go back to the app.");
+  const back = h("a", { class: "btn", hidden: true }, "Back to the Skyhop app");
+  const go = h("button", { type: "button", class: "btn primary", onclick: async () => {
+    go.disabled = true;
+    try {
+      back.href = await SkyhopLocal.account.appSignIn(scope, q.get("hint") || "");
+      go.hidden = true; back.hidden = false; msg.textContent = "Signed in. Tap below if the app didn't open by itself.";
+      location.href = back.href;
+    } catch (e) { msg.textContent = `Sign-in didn't finish: ${e.message}`; go.disabled = false; }
+  } }, "Sign in with Google");
+  if (!scope.split(" ").every(x => APP_SCOPES.has(x))) { msg.textContent = `This sign-in link asks for access Skyhop never uses (${scope}), so it was refused.`; go.hidden = true; }
+  document.body.append(h("div", { class: "app-sign-in", role: "dialog", "aria-label": "Sign in for the Skyhop app" },
+    h("div", { class: "card" }, h("h2", {}, "Sign in for the Skyhop app"), msg, go, back)));
+}
 /** Demo or real fares can change with sign-in and with joining a shared trip (a guest's fares are billed to it). */
 async function refreshMode() {
   try { config = await api("/api/config"); } catch { /* keep */ }
@@ -1264,6 +1283,8 @@ async function init() {
       try { config = await api("/api/config"); } catch { /* keep */ }
       showMode(); showAccount(); shareJevRoute();
     });
+    const q = new URLSearchParams(location.search);
+    if (q.has("app-sign-in")) appSignInPage(q);
   }
   modeBadges().forEach(b => {
     // Airline Assist extension status, right next to the mode badge: the purple "Select on site"
@@ -1281,7 +1302,8 @@ async function init() {
     $$(".ext-badge").forEach(e => {
       e.classList.toggle("live", on); e.classList.toggle("demo", !on);
       e.textContent = on ? "✈ Assist on" : "✈ Assist off";
-      e.title = on ? "Airline Assist extension detected: flights show a purple \"Select on site\" button"
+      e.title = on ? (window.SkyhopNative ? "Airline Assist is built into the app: flights show a purple \"Select on site\" button that opens the airline's site in the app's second tab"
+          : "Airline Assist extension detected: flights show a purple \"Select on site\" button")
         : "Extension not detected on this page. Open chrome://extensions, make sure Skyhop Airline Assist is enabled, reload it, then reload this page. Until then only the plain airline homepage link works.";
     });
   };
@@ -1311,6 +1333,7 @@ async function init() {
   });
   window.addEventListener("focus", () => { if (extensionAvailable() && Date.now() - lastCheck > 10000) checkDecider(false); });
   async function switchDecider() {
+    if (window.SkyhopNative) { toast("The app always uses Jev: Laya runs only on a computer"); return; }
     const next = decider() === "jev" ? "laya" : "jev";
     if (next === "jev" && SkyhopLocal.account.configured()) {       // web version: Jev runs on the Worker
       if (!SkyhopLocal.account.jevRoute()) { toast("Jev needs you signed in, with an OpenRouter key on Skyhop's Worker"); return; }

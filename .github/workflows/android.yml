@@ -1,0 +1,60 @@
+name: Android app
+
+# Builds the Skyhop Android app (android/) and, on main, publishes the APK as the "android-latest" release:
+#   https://github.com/alon24/AiTravelSearcher/releases/download/android-latest/skyhop.apk
+# Optional, once: a stable signing key, so a new APK installs over the old one. Make one with
+#   keytool -genkeypair -v -keystore skyhop.jks -alias skyhop -keyalg RSA -keysize 2048 -validity 10000
+# and set the secrets SKYHOP_ANDROID_KEYSTORE (base64 of skyhop.jks) and SKYHOP_ANDROID_KEYSTORE_PASSWORD. Without them
+# each build is signed with a new throwaway key, and updating means uninstalling the old app first.
+on:
+  push:
+    branches: [main, "claude/**"]
+    paths: [android/**, browser-extension/**, tools/build_android.py, .github/workflows/android.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+      - run: python3 tools/build_android.py
+      - name: Signing key
+        env:
+          KEYSTORE: ${{ secrets.SKYHOP_ANDROID_KEYSTORE }}
+          PASSWORD: ${{ secrets.SKYHOP_ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE" ]; then
+            echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/skyhop.jks"
+            { echo "SKYHOP_KEYSTORE_FILE=$RUNNER_TEMP/skyhop.jks"; echo "SKYHOP_KEYSTORE_PASSWORD=$PASSWORD"; echo "SKYHOP_KEY_ALIAS=skyhop"; } >> "$GITHUB_ENV"
+          else
+            echo "::warning::No SKYHOP_ANDROID_KEYSTORE secret: this APK is signed with a throwaway key, so it won't install over an earlier one"
+          fi
+      - run: gradle -p android assembleRelease --no-daemon
+      - run: cp android/app/build/outputs/apk/release/app-release.apk skyhop.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: skyhop-apk
+          path: skyhop.apk
+      - name: Publish the APK
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view android-latest >/dev/null 2>&1 || gh release create android-latest --prerelease --title "Skyhop for Android" \
+            --notes "The newest Skyhop Android app, rebuilt from main. Download skyhop.apk on the phone and open it to install."
+          gh release upload android-latest skyhop.apk --clobber
+          gh release edit android-latest --notes "The newest Skyhop Android app, built from ${GITHUB_SHA::7}. Download skyhop.apk on the phone and open it to install."

@@ -140,3 +140,7 @@ default on the web version until you pick Laya. **New host permissions: re-enabl
 learns (and the ones it already knew) is also sent to the Worker (`POST /links`). Phones can't run the extension, so
 the site turns those links into **Search on <airline> site** buttons that open the airline's own results for the
 flight's route and day. You pick the flight and pay there.
+
+**v0.8.2: the same scripts run in the Android app** (`android/`, see docs/DESIGN.md). The results driver's banner now
+names the model that answered ("Skyhop Assist (Jev): …"). When it can't reach the model, it gives the reason the
+background script found. For example, it says the local Laya service isn't running and how to start it.
