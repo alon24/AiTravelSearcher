@@ -47,8 +47,8 @@ Shared trips and search links use SQLite-backed Durable Objects, which the Worke
      and `OPENROUTER_API_KEY` (the AI chat and Jev);
    - add the **variable** `ALLOWED_EMAILS` (comma separated). Without it, any Google account can spend your SerpApi
      credits.
-5. **Point the site at it.** Add the Worker's URL as the **variable** `SKYHOP_WORKER_URL`, then re-run the workflow.
-   The site now shows a **Sign in** button. Once you're signed in, searches use real fares and the badge says LIVE.
+5. **Done.** The same workflow run gives the site the Worker's address (set the variable `SKYHOP_WORKER_URL` only to use
+   a different one). The site now shows a **Sign in** button. Once you're signed in, searches use real fares and the badge says LIVE.
 
 Deploys keep what you set in the dashboard, because `wrangler.toml` has `keep_vars = true`.
 

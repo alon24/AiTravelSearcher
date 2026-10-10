@@ -37,7 +37,8 @@ jobs:
       - run: node src/flightagent/web/airport-search.test.js
 
   build:
-    needs: test
+    needs: [test, deploy-worker]
+    if: ${{ !cancelled() && needs.test.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,7 +50,7 @@ jobs:
       - run: pip install -e .
       - run: python tools/build_pages.py _site
         env:     # empty until the Worker is set up: the site then offers demo fares only
-          SKYHOP_WORKER_URL: ${{ vars.SKYHOP_WORKER_URL }}
+          SKYHOP_WORKER_URL: ${{ vars.SKYHOP_WORKER_URL || needs.deploy-worker.outputs.url }}
           SKYHOP_GOOGLE_CLIENT_ID: ${{ vars.SKYHOP_GOOGLE_CLIENT_ID }}
       - uses: actions/upload-pages-artifact@v3
         with:
@@ -70,6 +71,8 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     needs: test
     runs-on: ubuntu-latest
+    outputs:
+      url: ${{ steps.wrangler.outputs.url }}    # the site uses it unless the SKYHOP_WORKER_URL variable says otherwise
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
@@ -81,6 +84,9 @@ jobs:
         with:
           node-version: 22
       - name: Deploy the Worker (skipped until the CLOUDFLARE_API_TOKEN secret exists)
+        id: wrangler
         if: env.CLOUDFLARE_API_TOKEN != ''
         working-directory: worker
-        run: npx --yes wrangler@4 deploy --var "GOOGLE_CLIENT_ID:${{ vars.SKYHOP_GOOGLE_CLIENT_ID }}"
+        run: |
+          npx --yes wrangler@4 deploy --var "GOOGLE_CLIENT_ID:${{ vars.SKYHOP_GOOGLE_CLIENT_ID }}" | tee deploy.log
+          echo "url=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' deploy.log | head -1)" >> "$GITHUB_OUTPUT"
