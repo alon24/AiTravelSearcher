@@ -50,12 +50,17 @@
     return { name: "gflights", oneWay };
   }
 
-  /** providers.FallbackProvider: answer from `backup` when `primary` fails; the engine counts which one answered. */
+  /** providers.FallbackProvider: answer from `backup` when `primary` fails; the engine counts which one answered and warns why. */
   function fallback(primary, backup) {
     async function oneWay(...args) {
-      let offers, source = primary.name;
-      try { offers = await primary.oneWay(...args); } catch { offers = await backup.oneWay(...args); source = backup.name; }
+      let offers, source = primary.name, why = "";
+      try { offers = await primary.oneWay(...args); } catch (e) {     // say why, so a paid answer or a failure is never a mystery
+        why = `${primary.name} failed (${e.message || e}), so ${backup.name} answered`;
+        try { offers = await backup.oneWay(...args); } catch (e2) { throw new Error(`${primary.name}: ${e.message || e}; ${backup.name}: ${e2.message || e2}`); }
+        source = backup.name;
+      }
       offers.source = source;
+      offers.fallback = why;
       return offers;
     }
     return { name: `${primary.name},${backup.name}`, oneWay };

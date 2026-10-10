@@ -171,7 +171,7 @@
       }
       if (missing.length > req.max_api_calls) throw new BudgetExceeded(missing.length, req.max_api_calls);
 
-      const errors = [], p = L.models.pax(req);
+      const errors = [], fallbacks = [], p = L.models.pax(req);   // fallbacks: why the backup provider answered
       let done = 0;
       if (this.onProgress) this.onProgress(0, missing.length);
       const fetchOne = async k => {
@@ -188,6 +188,7 @@
         if (this.cache) await this.cache.rememberFares(Object.fromEntries(offers.filter(x => x.priced).map(x => [this.fareKey(req, x), x.price])));
         const src = offers.source || this.provider.name;
         this.sources[src] = (this.sources[src] || 0) + 1;
+        if (offers.fallback) fallbacks.push(offers.fallback);
         raw.set(k, offers);
         if (this.cache && offers.length) await this.cache.put(this.cacheKey(req, k), offers, this.ttlFor(day, offers));  // never cache "no flights"
       };
@@ -203,6 +204,7 @@
 
       if (errors.length && !raw.size) throw new Error(`All provider calls failed. First error: ${errors[0]}`);
       const warnings = errors.length ? [`${errors.length} provider call(s) failed; first: ${errors[0]}`] : [];
+      if (fallbacks.length) warnings.push(`${fallbacks.length} lookup(s) used the backup provider; first: ${fallbacks[0]}`);
       if (raw.size && ![...raw.values()].some(v => v.length)) {
         warnings.push("The provider returned no flights for ANY route. Check the airport codes "
           + "(use airports such as FCO, or a city code the provider supports) and the dates.");

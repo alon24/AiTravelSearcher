@@ -74,7 +74,7 @@
     const answer = await new Promise((ok, no) => {
       root.google.accounts.oauth2.initTokenClient({ client_id: rt().googleClientId, scope, ...(hint ? { login_hint: hint } : {}),
         callback: r => (r.error ? no(new Error(r.error_description || r.error)) : ok(r)),
-        error_callback: e => no(new Error(e && e.type === "popup_closed" ? "Sign-in was cancelled" : "Google sign-in failed")),
+        error_callback: e => no(new Error(e && e.type === "popup_closed" ? "Sign-in was cancelled" : `Google sign-in failed (${(e && e.type) || "no reason given"})`)),
       }).requestAccessToken();
     });
     return { token: answer.access_token, until: Date.now() + ((Number(answer.expires_in) || 3600) - 60) * 1000,

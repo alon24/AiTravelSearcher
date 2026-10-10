@@ -244,8 +244,8 @@ export default {
       if (url.pathname === "/chat" && request.method === "POST") return (await mayspend(request, env, who, "chat")) || await chat(request, env);
       if (!who.allowed) return error("sign in with an allowed Google account", 403);
       if (url.pathname === "/decide" && request.method === "POST") return await decide(request, env);
-    } catch {
-      return error("upstream request failed", 502);
+    } catch (e) {          // name the failure: an unexplained error is no help to someone deciding on a fare
+      return error(`upstream request failed: ${e && e.message ? e.message : e}`, 502);
     }
     return error("not found", 404);
   },

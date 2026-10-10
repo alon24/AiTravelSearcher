@@ -382,8 +382,9 @@ async function runEstimate() {
     const e = await post("/api/estimate", req);
     if (seq !== estSeq) return;
     overBudget = e.to_fetch > req.max_api_calls;
-    const primary = config.provider.split(",")[0].trim();
-    const cost = primary === "serpapi" ? `uses ~${e.to_fetch} SerpApi credits` : primary === "mock" ? "demo data, no cost" : "free";
+    const chain = config.provider.split(",").map(x => x.trim()), primary = chain[0];
+    const cost = primary === "serpapi" ? `uses ~${e.to_fetch} SerpApi credits` : primary === "mock" ? "demo data, no cost"
+      : chain.includes("serpapi") ? `free; up to ${e.to_fetch} SerpApi credits only if Google refuses` : "free";
     setEstimate(overBudget ? "over" : "ok",
       overBudget ? `Too big: ${e.to_fetch} lookups needed, max is ${req.max_api_calls}. Narrow the dates or cities.`
         : `≈ ${e.lookups} lookups · ${e.cached} cached · ${cost}`);
@@ -1072,7 +1073,7 @@ window.addEventListener("skyhop-progress", (e) => {
 window.addEventListener("skyhop-select-flight-result", (e) => {
   clearTimeout(extReplyTimer);
   const r = e.detail || {};
-  if (!r.ok) toast(`Couldn't open the airline site automatically: ${r.error || "unknown error"}`);
+  if (!r.ok) toast(`Couldn't open the airline site automatically: ${r.error || "the extension gave no reason"}`);
 });
 
 function unpricedPanel(res, row) {

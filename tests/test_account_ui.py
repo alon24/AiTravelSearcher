@@ -56,6 +56,8 @@ def worker(page, base_url):
             if state["gflights"] == "blocked":
                 return route.fulfill(status=502, headers=CORS, json={"error": "Google returned no result data (a robot check)"})
             body = _google(parse_qs(url.query))
+        elif state.get("serpapi_down"):
+            return route.fulfill(status=502, headers=CORS, json={"error": "SerpApi: Invalid API key"})
         else:
             body = _fares(parse_qs(url.query))
         route.fulfill(status=200, headers=CORS, content_type="application/json", body=json.dumps(body))
@@ -102,7 +104,7 @@ def test_free_google_flights_fares_come_first(page, worker):
     worker["gflights"] = "ok"
     _sign_in(page)
     _fill(page)
-    page.wait_for_function("/free/.test(document.querySelector('#estimate-text').textContent)")
+    page.wait_for_function("/free; up to \\d+ SerpApi credits only if Google refuses/.test(document.querySelector('#estimate-text').textContent)")
     page.click("#go")
     page.wait_for_selector("text=gflights ×4", timeout=60000)
     assert "Gee Air" in page.inner_text("main")
@@ -116,6 +118,17 @@ def test_serpapi_answers_when_google_refuses_the_worker(page, worker):
     page.click("#go")
     page.wait_for_selector("text=serpapi ×4", timeout=60000)
     assert "Zed Air" in page.inner_text("main")
+    assert "4 lookup(s) used the backup provider; first: gflights failed (Google returned no result data (a robot check)), " \
+           "so serpapi answered" in page.inner_text("main"), "the page says why credits were spent"
+
+
+def test_when_google_and_serpapi_both_fail_both_reasons_are_shown(page, worker):
+    worker["gflights"], worker["serpapi_down"] = "blocked", True
+    _sign_in(page)
+    _fill(page, end="2026-11-04", nights=1)
+    page.click("#go")
+    page.wait_for_selector("text=SerpApi: Invalid API key", timeout=60000)
+    assert "gflights: Google returned no result data (a robot check); serpapi: SerpApi: Invalid API key" in page.inner_text("main")
 
 
 def test_live_fares_need_no_serpapi_key(page, worker):

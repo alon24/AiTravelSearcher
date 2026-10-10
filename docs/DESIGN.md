@@ -65,6 +65,10 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
    - Signed in, `backend.js` swaps the mock provider for real fares, in the server's default order
      (`gflights,serpapi`): `local/gflights.js` first, `local/serpapi.js` when that lookup fails (`fallback()`, as
      `FallbackProvider`). The badge says LIVE.
+   - **Nothing silent (ilan, 2026-10-10: "this is money").** A lookup answered by the backup carries why
+     (`Offers.fallback`, both engines), and the results warn "N lookup(s) used the backup provider; first: gflights
+     failed (…), so serpapi answered". When both fail, the error names both reasons. The estimate says SerpApi credits
+     may be spent when Google refuses. The Worker's catch-all error names the failure.
    - **Free fares (`GET /gflights`, `worker/src/gflights.js`).** The Worker builds the same `tfs` query as fast-flights
      (byte for byte, tested from pytest), fetches the Google Flights page with a browser User-Agent and a consent cookie,
      and returns the `ds:1` result groups. The page parses them like `gflights.parse_groups` (parity-tested) and asks
