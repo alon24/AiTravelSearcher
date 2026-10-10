@@ -31,24 +31,24 @@ Shared trips and search links use SQLite-backed Durable Objects, which the Worke
 
 ## One-time setup
 
+Everything is set in GitHub (Settings → Secrets and variables → Actions); the deploy copies it to the Worker.
+
 1. **Cloudflare token.** In the Cloudflare dashboard, go to My Profile → API Tokens → Create Token, and pick the "Edit
-   Cloudflare Workers" template. In GitHub, go to Settings → Secrets and variables → Actions:
-   - add the token as the **secret** `CLOUDFLARE_API_TOKEN`;
-   - add your account id (shown on the Workers overview page) as the **variable** `CLOUDFLARE_ACCOUNT_ID`.
+   Cloudflare Workers" template. Add it as the **secret** `CLOUDFLARE_API_TOKEN`, and your account id (shown on the
+   Workers overview page) as the **variable** `CLOUDFLARE_ACCOUNT_ID`.
 2. **Google sign-in.** Reuse the OAuth client that mymaps-ai uses (Google Cloud Console → APIs & Services →
    Credentials). Its *Authorized JavaScript origins* must include `https://alon24.github.io`. Add its client ID as the
    **variable** `SKYHOP_GOOGLE_CLIENT_ID`. For "Save to Drive" and "Map it", also enable the **Google Drive API** in that
    project (APIs & Services → Library). It must be the *same* client as mymaps-ai: Google only lets an app see the
    Drive files its own client made, so "Map it" can add to your existing MyMaps AI maps only then. If the consent screen is in testing mode, add your account as a test user.
-3. **Deploy.** Push to `main`, or re-run the "Test and deploy to Pages" workflow. The Worker is published at
-   `https://skyhop-worker.<your-subdomain>.workers.dev`.
-4. **Keys.** In Cloudflare, open Workers → skyhop-worker → Settings → Variables and Secrets:
-   - add the **secrets** `SERPAPI_API_KEY` (optional: free Google Flights fares come first, SerpApi is the fallback)
-     and `OPENROUTER_API_KEY` (the AI chat and Jev);
-   - add the **variable** `ALLOWED_EMAILS` (comma separated). Without it, any Google account can spend your SerpApi
-     credits.
-5. **Done.** The same workflow run gives the site the Worker's address (set the variable `SKYHOP_WORKER_URL` only to use
-   a different one). The site now shows a **Sign in** button. Once you're signed in, searches use real fares and the badge says LIVE.
+3. **Who may spend the keys.** The **variable** `SKYHOP_ALLOWED_EMAILS` (comma separated). Without it, any Google
+   account can spend your SerpApi and OpenRouter credits.
+4. **Keys** (optional): the **secrets** `OPENROUTER_API_KEY` (the AI chat and Jev) and `SERPAPI_API_KEY` (backup fares
+   when Google refuses the Worker).
+5. **Deploy.** Re-run the "Test and deploy to Pages" workflow (or push to `main`). It publishes the Worker at
+   `https://skyhop-worker.<your-subdomain>.workers.dev` and gives the site that address (set the variable
+   `SKYHOP_WORKER_URL` only to use a different one). The site now shows a **Sign in** button. Once you're signed in,
+   searches use real fares and the badge says LIVE.
 
 Deploys keep what you set in the dashboard, because `wrangler.toml` has `keep_vars = true`.
 

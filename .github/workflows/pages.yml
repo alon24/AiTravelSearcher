@@ -76,6 +76,10 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      # Everything else can live in GitHub too, so the Cloudflare dashboard is never needed (worker/README.md):
+      ALLOWED_EMAILS: ${{ vars.SKYHOP_ALLOWED_EMAILS }}
+      SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
     steps:
       - uses: actions/checkout@v4
         if: env.CLOUDFLARE_API_TOKEN != ''
@@ -88,5 +92,10 @@ jobs:
         if: env.CLOUDFLARE_API_TOKEN != ''
         working-directory: worker
         run: |
-          npx --yes wrangler@4 deploy --var "GOOGLE_CLIENT_ID:${{ vars.SKYHOP_GOOGLE_CLIENT_ID }}" | tee deploy.log
+          vars=(--var "GOOGLE_CLIENT_ID:${{ vars.SKYHOP_GOOGLE_CLIENT_ID }}")
+          if [ -n "$ALLOWED_EMAILS" ]; then vars+=(--var "ALLOWED_EMAILS:$ALLOWED_EMAILS"); fi
+          npx --yes wrangler@4 deploy "${vars[@]}" | tee deploy.log
           echo "url=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' deploy.log | head -1)" >> "$GITHUB_OUTPUT"
+          for name in SERPAPI_API_KEY OPENROUTER_API_KEY; do        # secrets set in GitHub are copied to the Worker
+            if [ -n "${!name}" ]; then printf '%s' "${!name}" | npx --yes wrangler@4 secret put "$name"; fi
+          done

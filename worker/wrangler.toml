@@ -2,10 +2,10 @@ name = "skyhop-worker"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
 
-# Secrets (Cloudflare dashboard -> Workers -> skyhop-worker -> Settings -> Variables and Secrets, or
-# `npx wrangler secret put <NAME>`; never commit them): SERPAPI_API_KEY, OPENROUTER_API_KEY, APP_TOKEN (optional).
-# GOOGLE_CLIENT_ID is passed at deploy time by CI from the SKYHOP_GOOGLE_CLIENT_ID GitHub variable.
-# ALLOWED_EMAILS (comma separated) is set in the dashboard; keep_vars stops deploys from wiping it.
+# Secrets (never commit them): SERPAPI_API_KEY and OPENROUTER_API_KEY are copied by CI from GitHub secrets of the same
+# name; APP_TOKEN (optional) with `npx wrangler secret put APP_TOKEN`.
+# GOOGLE_CLIENT_ID and ALLOWED_EMAILS are passed at deploy time by CI from the SKYHOP_GOOGLE_CLIENT_ID and
+# SKYHOP_ALLOWED_EMAILS GitHub variables; keep_vars keeps anything set in the dashboard instead.
 keep_vars = true
 
 [vars]
