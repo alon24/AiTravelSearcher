@@ -40,6 +40,31 @@ flowchart LR
   open-jaw, mixed airlines and self-transfer are built by combining one-way offers. That is why any
   provider that can price a one-way flight can be plugged in.
 
+### Hosting on GitHub Pages (Oct 2026, stage 1 of 3)
+
+The goal is to run Skyhop like `alon24/mymaps-ai`: static files on GitHub Pages, a small Cloudflare Worker for the
+secrets, nothing on the user's machine. Stages, each its own PR, with the Docker service working throughout:
+
+1. **The engine runs in the page (this stage).** `web/local/*.js` is a line-for-line port of `engine.py`, `models.py`,
+   `itinerary.py`, `geo.py`, `polling.py`, `airline_sites.py` and the mock provider, plus `backend.js`, which answers the
+   same `/api` routes as `api.py` inside the page. `app.js`'s `api()` hands requests to it when `runtime.js` says
+   `backend: "browser"`; `tools/build_pages.py` writes that `runtime.js` and the data the server would send
+   (`config.json` from `links.py`, `local/airport_tz.json`). History, the offer cache and airline-site answers live in
+   IndexedDB (`local/db.js`). Airline websites come straight from Wikidata, which answers browsers. Fares are the mock
+   provider's, number for number (`local/rng.js` reproduces Python's Mersenne Twister and seeding).
+   - Kept honest by `tests/test_browser_parity.py` (Python and JS run the same searches, connection checks, request
+     validation and site choice; results must be identical) and by running **every UI test twice**, against the
+     server and against the Pages build served under a sub-path (`conftest.py`).
+   - Not in the browser: the background recheck loop (a recheck runs when the user asks), chat, Jev. A search still
+     running when the tab closes is marked failed on the next visit.
+2. **Worker:** OpenRouter (chat, Jev) and SerpApi keys behind a Cloudflare Worker with Google sign-in, as in mymaps-ai.
+3. **Real free fares:** fetched through the Chrome extension on desktop; on phones from a cloud fetcher if Google
+   answers data-centre IPs (`.github/workflows/gflights-probe.yml` measures that), else SerpApi through the Worker.
+
+The port found a real bug: Python subtracts two times of the *same* zone as wall-clock times, so a connection across a
+clock change (land FCO 01:00, leave CIA 03:00 on the night Rome springs forward) was reported as 2 h instead of 1 h.
+`itinerary._gap` now converts to UTC first.
+
 ## 3. Data model (`models.py`)
 
 | Type | Meaning |

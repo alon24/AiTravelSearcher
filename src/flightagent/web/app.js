@@ -31,8 +31,9 @@ const airlineNames = codes => (codes || []).map(c => (config.airlines || {})[c] 
 const pad = n => String(n).padStart(2, "0");
 const iso = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const day = str => new Date(str.length === 10 ? str + "T00:00:00" : str);
-const fmtDay = d => d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 const fmtShort = d => d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+// Built from parts: ICU versions disagree on whether en-GB puts a comma after the weekday ("Tue, 13 Oct" vs "Tue 13 Oct").
+const fmtDay = d => `${d.toLocaleDateString("en-GB", { weekday: "short" })} ${fmtShort(d)}`;
 const fmtTime = d => d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
 const hm = m => `${Math.floor(m / 60)}h ${pad(m % 60)}m`;
 // First departure and last arrival of a leg (times are local to each airport).
@@ -68,6 +69,7 @@ const store = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } },
 };
 async function api(path, opts) {
+  if (SkyhopLocal.backend.enabled()) return SkyhopLocal.backend.handle(path, opts);   // hosted without the server (GitHub Pages)
   const r = await fetch(path, opts);
   if (!r.ok) {
     let msg = r.statusText;
@@ -1007,8 +1009,7 @@ const siteLookups = new Map();     // "code|name" -> Promise<{url, unavailable}>
 function lookupSite(code, name) {
   const key = `${code}|${name}`;
   if (!siteLookups.has(key)) {
-    const p = fetch(`/api/airline-site?code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}`, { headers: { "X-Skyhop": "1" } })
-      .then(r => (r.ok ? r.json() : { unavailable: true }))
+    const p = api(`/api/airline-site?code=${encodeURIComponent(code)}&name=${encodeURIComponent(name)}`, { headers: { "X-Skyhop": "1" } })
       .then(j => ({ url: typeof j.url === "string" && /^https:\/\//.test(j.url) ? j.url : null, unavailable: !!j.unavailable }))
       .catch(() => ({ url: null, unavailable: true }));
     siteLookups.set(key, p);
@@ -1228,7 +1229,7 @@ async function init() {
     const next = decider() === "jev" ? "laya" : "jev";
     if (next === "jev") {
       try {
-        const r = await (await fetch("/api/decide/health", { headers: { "X-Skyhop": "1" } })).json();
+        const r = await api("/api/decide/health", { headers: { "X-Skyhop": "1" } });
         if (!r.jev_configured) { toast("Jev needs an OpenRouter key on this server: put OPENROUTER_API_KEY in .env, then run docker compose up -d"); return; }
       } catch { toast("Couldn't reach this server to check the Jev key"); return; }
     }

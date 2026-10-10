@@ -1,6 +1,10 @@
 """Results screen (docs/stitch/DESIGN.md, "Results screen rules"): the trip-length x destination matrix, the trips table grouped by
 length, the sticky airline bar, bold airline names, readable "Check on airline site" buttons and the full-screen layout.
 Drives the real page in Chromium against the real app (mock provider)."""
+import json
+import re
+from urllib.parse import parse_qs, urlparse
+
 import pytest
 
 pytest.importorskip("playwright.sync_api")
@@ -211,7 +215,6 @@ def test_airline_names_use_the_full_name_when_the_provider_abbreviates(page):
 
 def _button_names(loc):
     """['Lufthansa', ...] from the labels 'Check on X site' / "Looking for X's website…" / "Couldn't find X's website" of the buttons in `loc`."""
-    import re
     out = []
     for t in loc.all_inner_texts():
         t = t.replace("↗", "").strip()
@@ -235,13 +238,31 @@ def test_every_airline_in_every_row_has_a_button(results):
         assert set(_button_names(row.locator(".site-btn"))) == {x.strip() for x in row.locator(".mm-air").inner_text().split("·")}, i
 
 
+def _answer_site_lookups(page, answer, delay_ms=0):
+    """Answer airline-site lookups with `answer()` (a JSON string, as /api/airline-site sends). The server asks Wikidata itself; the
+    Pages build asks Wikidata from the page and then checks that the site answers, so those requests are answered to match."""
+    def server(route):
+        page.wait_for_timeout(delay_ms)
+        route.fulfill(status=200, content_type="application/json", body=answer())
+
+    def wikidata(route):
+        page.wait_for_timeout(delay_ms)
+        a = json.loads(answer())
+        if a.get("unavailable"):
+            return route.fulfill(status=503, body="")
+        label = re.search(r'rdfs:label "([^"]*)"', parse_qs(urlparse(route.request.url).query)["query"][0])
+        rows = [{"site": {"value": a["url"]}, "aLabel": {"value": label.group(1) if label else ""}, "byCode": {"value": "1"}}] if a["url"] else []
+        route.fulfill(status=200, content_type="application/json", body=json.dumps({"results": {"bindings": rows}}))
+
+    page.route("**/api/airline-site**", server)
+    page.route("https://query.wikidata.org/**", wikidata)
+    page.route("https://www.lufthansa-example.test/**", lambda r: r.fulfill(status=200, body=""))
+
+
 def _search_without_two_known_sites(page, answer):
     """Runs the 3-destination search after making Lufthansa and Austrian 'unknown' (stand-ins for a brand-new airline like Animawings),
-    with /api/airline-site answering `answer` (a dict) after a short delay."""
-    def handler(route):
-        page.wait_for_timeout(150)
-        route.fulfill(status=200, content_type="application/json", body=answer)
-    page.route("**/api/airline-site**", handler)
+    with airline-site lookups answering `answer` (JSON) after a short delay."""
+    _answer_site_lookups(page, lambda: answer, delay_ms=150)
     page.evaluate("() => { delete config.airline_sites.LH; delete config.airline_sites.OS; }")
     page.evaluate("""() => { const f = readForm(); f.to = ['ROM', 'PAR', 'LON']; f.start = '2026-10-05'; f.end = '2026-10-25';
                               f.lenMode = 'range'; f.nmin = 4; f.nmax = 6; writeForm(f); onFormChange(); }""")
@@ -252,7 +273,6 @@ def _search_without_two_known_sites(page, answer):
 
 def test_an_unknown_airline_is_looked_up_and_then_links_to_its_real_site(page):
     _search_without_two_known_sites(page, '{"url": "https://www.lufthansa-example.test/", "source": "wikidata"}')
-    page.wait_for_selector(".cmp-tr .site-btn.checking", timeout=5000) if page.locator(".cmp-tr .site-btn.checking").count() else None
     page.wait_for_function("document.querySelectorAll('.cmp-tr .site-btn.checking').length === 0", timeout=10000)
     links = page.locator(".cmp-tr a.site-btn[href^='https://www.lufthansa-example.test']")
     assert links.count() >= 1
@@ -276,12 +296,10 @@ def test_an_airline_with_no_website_says_so_plainly_and_is_not_a_link(page):
 
 
 def test_a_lookup_that_could_not_be_made_is_not_reported_as_no_website_and_can_be_retried(page):
-    state = {"n": 0}
-    def handler(route):
-        state["n"] += 1
-        body = '{"url": null, "source": null, "unavailable": true}' if state["n"] <= 2 else '{"url": "https://www.lufthansa-example.test/", "source": "wikidata"}'
-        route.fulfill(status=200, content_type="application/json", body=body)
-    page.route("**/api/airline-site**", handler)
+    state = {"retried": False}         # Wikidata is "down" until the user clicks Try again
+    def answer():
+        return '{"url": "https://www.lufthansa-example.test/", "source": "wikidata"}' if state["retried"] else '{"url": null, "source": null, "unavailable": true}'
+    _answer_site_lookups(page, answer)
     page.evaluate("() => { delete config.airline_sites.LH; }")
     page.evaluate("""() => { const f = readForm(); f.to = ['ROM', 'PAR', 'LON']; f.start = '2026-10-05'; f.end = '2026-10-25';
                               f.lenMode = 'range'; f.nmin = 4; f.nmax = 6; writeForm(f); onFormChange(); }""")
@@ -294,6 +312,7 @@ def test_a_lookup_that_could_not_be_made_is_not_reported_as_no_website_and_can_b
     assert "right now" in text and text.endswith("Try again")
     assert "Couldn't find" not in text                                               # it does NOT claim the airline has no website
     assert page.locator(".cmp-tr .site-btn.missing").count() == 0
+    state["retried"] = True
     retry.click()
     page.wait_for_function("document.querySelector('.cmp-tr a.site-btn[href^=\"https://www.lufthansa-example.test\"]')", timeout=10000)
     assert page.evaluate("config.airline_sites.LH") == "https://www.lufthansa-example.test/"
@@ -308,7 +327,6 @@ def test_clicking_a_site_button_opens_the_site_and_copies_the_flight(results):
     btn.click()
     p.wait_for_function("window.__copied !== null")
     note = p.evaluate("window.__copied")
-    import re
     assert re.search(r"[A-Z0-9]{2}\d+ [A-Z]{3} → [A-Z]{3}, \w{3} \d+ \w{3} \d\d:\d\d", note), note        # e.g. "LH5429 TLV → IST, Wed 7 Oct 05:00"
     assert "Search for it there" in p.inner_text(".toast")
 
@@ -331,7 +349,7 @@ def test_the_trip_builder_and_unpriced_flights_have_the_button_too(results):
     assert label.startswith("Check on ") or label.startswith("Find ")
     p.click("#tb-close")
     # a flight Google lists without a price, for an airline nobody has heard of: still a button; with no website found it says so
-    p.route("**/api/airline-site**", lambda r: r.fulfill(status=200, content_type="application/json", body='{"url": null, "source": null}'))
+    _answer_site_lookups(p, lambda: '{"url": null, "source": null}')
     html = p.evaluate("""() => {
         const u = { date: '2026-10-23', origin: 'TLV', destination: 'OTP', airline: 'Animawings', airline_code: 'XX', flights: 'XX123',
                     departs: '2026-10-23T09:10:00', arrives: '2026-10-23T12:00:00', duration_min: 170, stops: 0, link: '', last_price: null, last_seen: null };

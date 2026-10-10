@@ -28,6 +28,7 @@ fares. Skyhop never books or takes payment; it hands the user off to the airline
 | SQLite offer cache (TTL 6h) and past searches | `cache.py`, `history.py` |
 | Natural-language chat via OpenRouter | `chat.py` (`POST /api/chat`, `flightagent-chat`) |
 | Web UI: plain JS, no build step | `src/flightagent/web/` |
+| Server-less build for GitHub Pages: the engine ported to JS, `/api` answered in the page | `web/local/`, `tools/build_pages.py` |
 | Chrome extension that drives airline sites | `browser-extension/` (see its README) |
 | Architecture and decisions | `docs/DESIGN.md` (read before non-trivial changes) |
 
@@ -53,6 +54,10 @@ cp .env.example .env                    # set FLIGHTAGENT_PROVIDER=mock to work 
 node src/flightagent/web/airport-search.test.js   # airport typo/alias search (run from repo root)
 python3 tools/sync_assist_manifest.py --check     # extension manifest matches airlines.json
 ```
+
+- **Engine changes go in both languages.** `web/local/*.js` mirrors `engine.py`, `models.py`, `itinerary.py`, `geo.py`,
+  `polling.py` and the mock provider; `tests/test_browser_parity.py` fails if their results differ. UI tests run twice,
+  `[server]` and `[browser]` (the Pages build).
 
 - Unit tests use fake providers (see `Fake` in `tests/test_engine.py`) and never hit the network.
   `tests/fixtures/` holds a real captured Google Flights payload so scraper breakage shows up as a failure.
