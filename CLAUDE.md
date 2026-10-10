@@ -29,6 +29,7 @@ fares. Skyhop never books or takes payment; it hands the user off to the airline
 | Natural-language chat via OpenRouter | `chat.py` (`POST /api/chat`, `flightagent-chat`) |
 | Web UI: plain JS, no build step | `src/flightagent/web/` |
 | Server-less build for GitHub Pages: the engine ported to JS, `/api` answered in the page | `web/local/`, `tools/build_pages.py` |
+| Cloudflare Worker holding the API keys for Pages (Google sign-in, SerpApi, Jev) | `worker/` (see its README) |
 | Chrome extension that drives airline sites | `browser-extension/` (see its README) |
 | Architecture and decisions | `docs/DESIGN.md` (read before non-trivial changes) |
 
@@ -53,6 +54,7 @@ cp .env.example .env                    # set FLIGHTAGENT_PROVIDER=mock to work 
 .venv/bin/pytest                                  # whole suite
 node src/flightagent/web/airport-search.test.js   # airport typo/alias search (run from repo root)
 python3 tools/sync_assist_manifest.py --check     # extension manifest matches airlines.json
+(cd worker && node --test)                        # the Worker (also run by pytest)
 ```
 
 - **Engine changes go in both languages.** `web/local/*.js` mirrors `engine.py`, `models.py`, `itinerary.py`, `geo.py`,

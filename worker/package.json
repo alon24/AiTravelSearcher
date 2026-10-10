@@ -1,0 +1,10 @@
+{
+  "name": "skyhop-worker",
+  "private": true,
+  "type": "module",
+  "description": "Holds Skyhop's API keys (SerpApi, OpenRouter) for the GitHub Pages site; see README.md",
+  "scripts": {
+    "test": "node --test",
+    "deploy": "npx wrangler@4 deploy"
+  }
+}

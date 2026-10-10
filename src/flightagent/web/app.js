@@ -1168,6 +1168,38 @@ function isDark() {
 }
 function closeSidebar() { $("#sidebar").classList.remove("open"); $("#scrim").hidden = true; }
 
+const modeBadges = () => [$("#mode-badge"), $("#mode-badge-desk")];
+function showMode() {
+  const isMock = config.provider.split(",")[0].trim() === "mock";
+  modeBadges().forEach(b => {
+    b.hidden = false; b.className = "mode-badge " + (isMock ? "demo" : "live");
+    b.textContent = isMock ? "⚠ DEMO DATA" : "LIVE";
+    b.title = isMock ? "Fake prices from the mock provider -- nothing here is real" : `Live data from ${config.provider}`;
+  });
+}
+
+// Google sign-in on the GitHub Pages build (local/account.js): signed in, searches use real fares through Skyhop's Worker.
+function showAccount() {
+  const acct = SkyhopLocal.account, email = acct.email();
+  $$(".account-btn").forEach(b => {
+    b.hidden = false;
+    b.textContent = email ? "Sign out" : "Sign in";
+    b.title = email ? `Signed in as ${email}. Searches use real fares (SerpApi credits).` : "Sign in with Google to search real fares instead of demo data";
+  });
+}
+async function toggleAccount() {
+  const acct = SkyhopLocal.account;
+  try {
+    if (acct.email()) { acct.signOut(); toast("Signed out: back to demo fares"); }
+    else {
+      const email = await acct.signIn();
+      toast(acct.live() ? `Signed in as ${email}: fares are real now` : `Signed in as ${email}, but live fares aren't set up on Skyhop's server yet`);
+    }
+  } catch (e) { toast(e.message); }
+  try { config = await api("/api/config"); } catch { /* keep */ }
+  showMode(); showAccount(); onFormChange();
+}
+
 async function init() {
   const saved = store.get("skyhop.theme"); if (saved) document.documentElement.dataset.theme = saved;
   $$(".theme-toggle").forEach(b => b.addEventListener("click", () => {
@@ -1176,11 +1208,17 @@ async function init() {
   $("#menu").addEventListener("click", () => { $("#sidebar").classList.add("open"); $("#scrim").hidden = false; });
   $("#scrim").addEventListener("click", closeSidebar);
   try { config = await api("/api/config"); } catch { /* keep defaults */ }
-  const isMock = config.provider.split(",")[0].trim() === "mock";
-  $$(".mode-badge").forEach(b => {
-    b.hidden = false; b.className = "mode-badge " + (isMock ? "demo" : "live");
-    b.textContent = isMock ? "⚠ DEMO DATA" : "LIVE";
-    b.title = isMock ? "Fake prices from the mock provider -- nothing here is real" : `Live data from ${config.provider}`;
+  showMode();
+  if (SkyhopLocal.account.configured()) {
+    showAccount();
+    $$(".account-btn").forEach(b => b.addEventListener("click", toggleAccount));
+    window.addEventListener("skyhop-signed-out", async () => {
+      toast("Your Google sign-in expired. Sign in again for real fares.");
+      try { config = await api("/api/config"); } catch { /* keep */ }
+      showMode(); showAccount();
+    });
+  }
+  modeBadges().forEach(b => {
     // Airline Assist extension status, right next to the mode badge: the purple "Select on site"
     // buttons only exist when the extension is attached to this page, and without this there's no
     // way to tell "extension off" from "extension broken" (the plain "El Al ↗" link opens the

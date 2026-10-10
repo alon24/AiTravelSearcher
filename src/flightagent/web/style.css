@@ -133,6 +133,12 @@ main { padding: 28px clamp(16px, 2.4vw, 40px) 80px; width: 100%; min-width: 0; }
 .mode-badge.demo { background: var(--warn-bg); color: var(--warn-ink); border: 1.5px solid color-mix(in srgb, var(--warn-ink) 40%, transparent); }
 .mode-badge.live { background: var(--ok-bg); color: var(--ok-ink); border: 1.5px solid color-mix(in srgb, var(--ok-ink) 30%, transparent); }
 @media (max-width: 720px) { .mode-badge { font-size: 13px; padding: 4px 10px; } }
+.account-btn { white-space: nowrap; }
+@media (max-width: 720px) {
+  .topbar .ext-badge.demo { display: none; }     /* no extension on phones: "Assist off" is just noise there */
+  .topbar .account-btn { padding: 6px 10px; font-size: 13px; }
+}
+.account-btn[hidden] { display: none; }
 .btn.small.accent { background: var(--brand); color: #fff; border: 0; box-shadow: 0 4px 14px -6px rgba(196, 76, 255, .6); }
 .btn.small.accent:hover { filter: brightness(1.06); transform: translateY(-1px); }
 .icon-btn { width: 40px; height: 40px; padding: 0; border-radius: 12px; font-size: 18px; line-height: 1; }

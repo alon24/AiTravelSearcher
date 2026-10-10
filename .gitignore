@@ -5,3 +5,7 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 _site/
+
+# wrangler dev state
+.wrangler/
+node_modules/

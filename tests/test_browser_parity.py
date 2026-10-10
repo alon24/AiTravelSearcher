@@ -15,6 +15,7 @@ from flightagent.engine import FlightSearchEngine
 from flightagent.itinerary import analyse
 from flightagent.models import LegView, SearchRequest, Segment
 from flightagent.providers.mock import MockProvider
+from flightagent.providers.serpapi import SerpApiProvider
 
 RUNNER = Path(__file__).parent / "js" / "engine_runner.js"
 pytestmark = pytest.mark.skipif(not shutil.which("node"), reason="node is not installed")
@@ -132,3 +133,28 @@ def site(label, url, by_code):
 ])
 def test_airline_site_choice_matches(rows, name):
     assert js({"op": "pick", "rows": rows, "name": name}) == _pick(rows, name)
+
+
+def _flight(o, d, dep, arr, number="TK 787", **extra):
+    return {"departure_airport": {"id": o, "time": dep}, "arrival_airport": {"id": d, "time": arr},
+            "airline": "Turkish Airlines", "flight_number": number, **extra}
+
+
+SERPAPI_ANSWERS = {
+    "connection with durations": {
+        "search_metadata": {"google_flights_url": "https://www.google.com/travel/flights?x=1"},
+        "best_flights": [{"price": 123, "flights": [_flight("TLV", "IST", "2026-10-05 08:30", "2026-10-05 11:00", duration=190),
+                                                    _flight("IST", "FCO", "2026-10-05 13:00", "2026-10-05 14:30", "TK 1861", duration=150)]}],
+        "other_flights": [{"flights": []}, {"price": 99, "flights": []},
+                          {"price": 87.5, "flights": [_flight("TLV", "CIA", "2026-10-05 23:10", "2026-10-06 02:05", "W62327")]}]},
+    "no link, no flight number": {"best_flights": [{"price": 300, "flights": [
+        {k: v for k, v in _flight("TLV", "FCO", "2026-10-05 06:00", "2026-10-05 09:00").items() if k != "flight_number"}]}]},
+    "empty": {},
+}
+
+
+@pytest.mark.parametrize("data", SERPAPI_ANSWERS.values(), ids=SERPAPI_ANSWERS.keys())
+def test_serpapi_answers_parse_the_same(data):
+    """Real fares on Pages come from SerpApi through the Worker; the page must read them as the Python provider does."""
+    py = SerpApiProvider("k").parse(data, "TLV", "ROM", date(2026, 10, 5), "EUR")
+    assert js({"op": "serpapi_parse", "data": data, "args": ["TLV", "ROM", "2026-10-05", "EUR"]}) == [json.loads(o.model_dump_json()) for o in py]

@@ -12,8 +12,10 @@ so any provider that can price a one-way flight works.
 **Web UI:** run `docker compose up -d --build`, then open http://localhost:8765/ (search form, live progress, past searches).
 **Installing on another computer (server + Chrome extension): [`docs/INSTALL.md`](docs/INSTALL.md)** (`tools/install.sh` on Linux/macOS).
 **Without a server (GitHub Pages):** every push to `main` also publishes a build that runs entirely in the browser
-(`.github/workflows/pages.yml`). For now it shows **demo fares only**; real fares come in the next steps (see
-"Hosting on GitHub Pages" in [`docs/DESIGN.md`](docs/DESIGN.md)). One-time setup: Settings → Pages → Source: GitHub Actions.
+(`.github/workflows/pages.yml`). It shows **demo fares** until you press **Sign in** (Google). Once you're signed in,
+searches use real Google Flights fares through SerpApi. The keys stay in a small Cloudflare Worker, set up once as
+described in [`worker/README.md`](worker/README.md). One-time setup: Settings → Pages → Source: GitHub Actions. See
+"Hosting on GitHub Pages" in [`docs/DESIGN.md`](docs/DESIGN.md).
 
 Docs: [`docs/DESIGN.md`](docs/DESIGN.md) architecture, provider contract and a price-verification proposal; [`docs/STITCH_BRIEF.md`](docs/STITCH_BRIEF.md) UI design brief for Google Stitch.
 

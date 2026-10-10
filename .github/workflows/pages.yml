@@ -1,7 +1,8 @@
 name: Test and deploy to Pages
 
-# Every push runs the tests; a push to main also publishes the server-less build (tools/build_pages.py) to GitHub Pages.
-# One-time setup: Settings -> Pages -> Source: GitHub Actions.
+# Every push runs the tests; a push to main also publishes the server-less build (tools/build_pages.py) to GitHub Pages
+# and, once a Cloudflare token is set, deploys the Worker that holds the API keys (worker/README.md).
+# One-time setup: Settings -> Pages -> Source: GitHub Actions. Real fares: see worker/README.md.
 on:
   push:
     branches: [main]
@@ -47,6 +48,9 @@ jobs:
           cache-dependency-path: pyproject.toml
       - run: pip install -e .
       - run: python tools/build_pages.py _site
+        env:     # empty until the Worker is set up: the site then offers demo fares only
+          SKYHOP_WORKER_URL: ${{ vars.SKYHOP_WORKER_URL }}
+          SKYHOP_GOOGLE_CLIENT_ID: ${{ vars.SKYHOP_GOOGLE_CLIENT_ID }}
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
@@ -61,3 +65,22 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  deploy-worker:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.CLOUDFLARE_API_TOKEN != ''
+      - uses: actions/setup-node@v4
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        with:
+          node-version: 22
+      - name: Deploy the Worker (skipped until the CLOUDFLARE_API_TOKEN secret exists)
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        working-directory: worker
+        run: npx --yes wrangler@4 deploy --var "GOOGLE_CLIENT_ID:${{ vars.SKYHOP_GOOGLE_CLIENT_ID }}"

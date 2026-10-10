@@ -40,7 +40,7 @@ flowchart LR
   open-jaw, mixed airlines and self-transfer are built by combining one-way offers. That is why any
   provider that can price a one-way flight can be plugged in.
 
-### Hosting on GitHub Pages (Oct 2026, stage 1 of 3)
+### Hosting on GitHub Pages (Oct 2026)
 
 The goal is to run Skyhop like `alon24/mymaps-ai`: static files on GitHub Pages, a small Cloudflare Worker for the
 secrets, nothing on the user's machine. Stages, each its own PR, with the Docker service working throughout:
@@ -57,7 +57,22 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
      server and against the Pages build served under a sub-path (`conftest.py`).
    - Not in the browser: the background recheck loop (a recheck runs when the user asks), chat, Jev. A search still
      running when the tab closes is marked failed on the next visit.
-2. **Worker:** OpenRouter (chat, Jev) and SerpApi keys behind a Cloudflare Worker with Google sign-in, as in mymaps-ai.
+2. **Worker (`worker/`):** a Cloudflare Worker holds the SerpApi and OpenRouter keys. Sign-in works like mymaps-ai:
+   - The page gets a Google access token (Google Identity Services token client, scope `openid email`,
+     `local/account.js`) and sends it as a Bearer header.
+   - The Worker asks Google's `tokeninfo` whether the token was issued to our client, and caches the answer for up to
+     5 minutes. `ALLOWED_EMAILS` limits who may spend credits.
+   - Signed in, `backend.js` swaps the mock provider for `local/serpapi.js`, which calls `GET /serpapi` and parses the
+     answer exactly like `SerpApiProvider.parse` (parity-tested). The badge says LIVE and the estimate counts SerpApi
+     credits.
+   - Offer-cache keys include the provider, so demo and real fares never mix.
+   - The token is kept in localStorage until it expires (about 1 h), so a reload or a phone doesn't ask again. A 401
+     from the Worker signs the page out and says so.
+   - `/decide` (Jev) is on the Worker, but the extension still talks to the local server; pointing it at the Worker is
+     stage 3. Chat has no web UI yet. Next comes an in-app AI chat whose conversations can be summarised to Google Drive
+     and resumed with new dates; after that, shared results and group chat, then a link to mymaps-ai maps.
+   - CI (`pages.yml`) bakes `SKYHOP_WORKER_URL` and `SKYHOP_GOOGLE_CLIENT_ID` (GitHub variables) into `runtime.js`.
+     When the `CLOUDFLARE_API_TOKEN` secret exists, it also deploys the Worker. Setup steps are in `worker/README.md`.
 3. **Real free fares:** fetched through the Chrome extension on desktop; on phones from a cloud fetcher if Google
    answers data-centre IPs (`.github/workflows/gflights-probe.yml` measures that), else SerpApi through the Worker.
 
