@@ -6,9 +6,14 @@ import time
 import pytest
 
 
-@pytest.fixture(scope="session")
-def base_url(tmp_path_factory):
+@pytest.fixture(scope="session", params=["server", "browser"])
+def base_url(request, tmp_path_factory):
+    """Every UI test runs twice: against the Python service, and as the GitHub Pages build (no server: the /api
+    routes are answered inside the page by web/local/backend.js), served under a sub-path as Pages does."""
     pytest.importorskip("playwright.sync_api")
+    if request.param == "browser":
+        yield from _static_site(tmp_path_factory)
+        return
     uvicorn = pytest.importorskip("uvicorn")
     import os
     os.environ["FLIGHTAGENT_PROVIDER"] = "mock"
@@ -25,6 +30,26 @@ def base_url(tmp_path_factory):
     yield f"http://127.0.0.1:{port}"
     server.should_exit = True
     t.join(timeout=5)
+
+
+def _static_site(tmp_path_factory):
+    import functools
+    import sys
+    from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
+    from build_pages import build
+    root = tmp_path_factory.mktemp("pages")
+    build(root / "skyhop")
+
+    class Quiet(SimpleHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Quiet, directory=str(root)))
+    t = threading.Thread(target=server.serve_forever, daemon=True); t.start()
+    yield f"http://127.0.0.1:{server.server_port}/skyhop"
+    server.shutdown()
 
 
 @pytest.fixture

@@ -65,6 +65,14 @@ def test_gap_uses_time_zones_not_clock_difference():
     assert check_gap(0, a, leg("ZZZ", "TLV", datetime(2026, 10, 12, 14, 30))).tz_known is False
 
 
+def test_gap_counts_a_clock_change_between_airports_of_one_time_zone():
+    # Rome springs forward at 02:00 on 29 March: land FCO 01:00 CET (00:00 UTC), leave CIA 03:00 CEST (01:00 UTC).
+    a = leg("TLV", "FCO", datetime(2026, 3, 28, 22, 0), minutes=180)
+    b = leg("CIA", "TLV", datetime(2026, 3, 29, 3, 0))
+    g = check_gap(0, a, b)
+    assert g.gap_min == 60 and g.status == "tight"     # clocks say 2h, but only 1h passes
+
+
 def test_analyse_totals_and_separate_ticket_warning():
     a, b = leg("TLV", "FCO", T0, price=65), leg("CIA", "TLV", T0 + timedelta(days=4), price=80)
     res = analyse([a, b], "USD")

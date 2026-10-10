@@ -1,0 +1,47 @@
+name: Google Flights from the cloud
+
+# Does Google Flights answer the free scraper (providers/gflights.py) from a data-centre IP, here GitHub's runners?
+# If it does, a small cloud service can fetch fares for phones, where the Chrome extension can't run.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/gflights-probe.yml
+      - src/flightagent/providers/gflights.py
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e .
+      - name: Ten one-way lookups, a month ahead
+        run: |
+          python - <<'PY'
+          import asyncio
+          from datetime import date, timedelta
+          from flightagent.providers.gflights import GoogleFlightsScraper
+
+          async def main():
+              scraper, ok = GoogleFlightsScraper(), 0
+              routes = [("TLV", "FCO"), ("TLV", "ATH"), ("LHR", "JFK"), ("BUD", "TLV"), ("CDG", "BCN")]
+              for i, (o, d) in enumerate(routes * 2):
+                  day = date.today() + timedelta(days=30 + i)
+                  try:
+                      offers = await scraper.one_way(o, d, day, currency="USD", adults=1, max_stops=1)
+                      priced = [x.price for x in offers if x.priced]
+                      print(f"OK   {o}->{d} {day}: {len(offers)} flights, cheapest {min(priced, default=None)}")
+                      ok += bool(offers)
+                  except Exception as e:
+                      print(f"FAIL {o}->{d} {day}: {e}")
+              print(f"{ok}/10 lookups returned flights")
+              raise SystemExit(0 if ok >= 8 else 1)
+
+          asyncio.run(main())
+          PY
