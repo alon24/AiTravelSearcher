@@ -27,7 +27,7 @@ beforeEach(() => _authCache.clear());
 
 test("health says what is configured and who is calling, without signing in", async () => {
   stubFetch([["https://oauth2.googleapis.com/tokeninfo", tokeninfo()]]);
-  assert.deepEqual(await (await call("/health")).json(), { gflights: true, serpapi: true, jev: true, chat: true, sign_in: true, trips: false, user: null, guest: null });
+  assert.deepEqual(await (await call("/health")).json(), { gflights: true, serpapi: true, jev: true, chat: true, sign_in: true, trips: false, links: false, user: null, guest: null });
   assert.equal((await (await call("/health", { token: "t1" })).json()).user, "ilan@example.com");
   assert.equal((await call("/health", { env: {} }).then(r => r.json())).serpapi, false);
 });

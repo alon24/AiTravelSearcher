@@ -23,7 +23,7 @@ from .explore import ExploreResult, explore
 from .geo import airports_by_country, country_airports
 from .history import History
 from .itinerary import ItineraryCheck, analyse
-from .links import AIRLINE_SITES, BAG_NOTES, BAG_SHORT, KNOWN_AIRLINES
+from .links import AIRLINE_SEARCH_URLS, AIRLINE_SITES, BAG_NOTES, BAG_SHORT, KNOWN_AIRLINES
 from .models import LegView, SearchRequest, SearchResult
 from .polling import next_check_time
 from .report import render
@@ -151,7 +151,7 @@ async def _run_job(sid: str, req: SearchRequest) -> None:
 
 @app.get("/api/config")
 async def config() -> dict:
-    return {"provider": os.getenv("FLIGHTAGENT_PROVIDER", "mock"), "airline_sites": AIRLINE_SITES, "airlines": KNOWN_AIRLINES, "bag_notes": BAG_NOTES, "bag_short": BAG_SHORT}
+    return {"provider": os.getenv("FLIGHTAGENT_PROVIDER", "mock"), "airline_sites": AIRLINE_SITES, "airline_search_urls": AIRLINE_SEARCH_URLS, "airlines": KNOWN_AIRLINES, "bag_notes": BAG_NOTES, "bag_short": BAG_SHORT}
 
 
 # Typed decisions for the browser extension when it uses Jev: the OpenRouter key lives on this server, never in the

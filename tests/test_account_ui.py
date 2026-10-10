@@ -1,6 +1,7 @@
 """Google sign-in on the GitHub Pages build (web/local/account.js): signed in, searches use real fares through Skyhop's
 Cloudflare Worker (worker/). Google's script and the Worker are faked here; worker/test/ covers the Worker itself."""
 import json
+import re
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -38,7 +39,7 @@ def worker(page, base_url):
     """Point the page at a fake Worker and Google; `state` sets who the Worker accepts and records what it was asked."""
     if not base_url.endswith("/skyhop"):
         pytest.skip("sign-in exists only on the Pages build")
-    state = {"user": "ilan@example.com", "guest": None, "serpapi": True, "gflights": None, "asked": [], "revoked": []}
+    state = {"user": "ilan@example.com", "guest": None, "serpapi": True, "gflights": None, "links": None, "asked": [], "revoked": []}
 
     def answer(route):
         req = route.request
@@ -48,10 +49,12 @@ def worker(page, base_url):
         signed = req.headers.get("authorization") == "Bearer tok-1"
         state["asked"].append((url.path, signed))
         if url.path == "/health":
-            body = {"gflights": bool(state["gflights"]), "serpapi": state["serpapi"], "jev": True, "sign_in": True, "user": state["user"] if signed else None,
+            body = {"links": state["links"] is not None, "gflights": bool(state["gflights"]), "serpapi": state["serpapi"], "jev": True, "sign_in": True, "user": state["user"] if signed else None,
                     "guest": state["guest"] if signed else None}
         elif not (signed and state["user"]):
             return route.fulfill(status=401, headers=CORS, json={"error": "sign in"})
+        elif url.path == "/links":
+            body = state["links"]
         elif url.path == "/gflights":
             if state["gflights"] == "blocked":
                 return route.fulfill(status=502, headers=CORS, json={"error": "Google returned no result data (a robot check)"})
@@ -205,3 +208,15 @@ def test_the_airline_assist_extension_gets_the_worker_for_jev(page, worker):
     assert route["url"] == WORKER and route["token"] == "tok-1" and route["until"] > 0
     page.locator(".account-btn:visible").click()
     page.wait_for_function("routes.length && routes[routes.length - 1] === null")
+
+
+def test_search_links_learned_on_the_computer_work_on_the_phone(page, worker):
+    """The desktop extension shares the links it learns through the Worker; a phone uses them for "Search on <airline> site"."""
+    worker["links"] = {"ZZ": {"generic": "https://www.zed.example/search/{origin:l}-{destcity}/{date:DDMMYYYY}"}}
+    page.set_viewport_size({"width": 390, "height": 844})
+    _sign_in(page)
+    _fill(page, end="2026-11-04", nights=1)
+    page.click("#go")
+    btn = page.locator(".site-btn:visible", has_text="Search on Zed Air site").first
+    btn.wait_for(timeout=60000)
+    assert re.fullmatch(r"https://www\.zed\.example/search/tlv-ROM/0[2-4]112026", btn.get_attribute("href"))

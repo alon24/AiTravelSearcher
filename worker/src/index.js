@@ -6,9 +6,11 @@
      GET  /serpapi?origin&dest&...  one one-way Google Flights lookup through SerpApi (one credit)
      POST /decide                   a typed decision from Jev, as the Python service's /api/decide (decide.py)
      POST /chat                     one model turn for the page's AI chat, as the Python service's /api/chat/complete
-     /trips...                      shared trips: a group chat per trip (trips.js) */
+     /trips...                      shared trips: a group chat per trip (trips.js)
+     GET|POST /links                airline search links the desktop extension learned, for phones (links.js) */
 
 import { gflights } from "./gflights.js";
+import { SearchLinks, links } from "./links.js";
 import { SharedTrip, newTripId, tripStub, validTripId } from "./trips.js";
 
 const SERPAPI_URL = "https://serpapi.com/search.json";
@@ -99,7 +101,7 @@ async function mayspend(request, env, who, kind, n = 1) {
 async function health(request, env) {
   const who = await caller(request, env);
   return json({ gflights: true, serpapi: !!env.SERPAPI_API_KEY, jev: !!env.OPENROUTER_API_KEY, chat: !!env.OPENROUTER_API_KEY, sign_in: !!env.GOOGLE_CLIENT_ID,
-    trips: !!env.TRIPS, user: who && who.allowed ? who.email : null, guest: who && !who.allowed ? who.email : null });
+    trips: !!env.TRIPS, links: !!env.LINKS, user: who && who.allowed ? who.email : null, guest: who && !who.allowed ? who.email : null });
 }
 
 // ------------------------------------------------------------------------------------------------ shared trips
@@ -238,6 +240,7 @@ export default {
       if (url.pathname === "/health" && request.method === "GET") return await health(request, env);
       const who = await caller(request, env);
       if (!who) return error("sign in with Google", 401);
+      if (url.pathname === "/links") return await links(request, env, who, { json, error });
       if (url.pathname === "/trips" || url.pathname.startsWith("/trips/")) return await trips(request, env, url, who);
       if (url.pathname === "/gflights" && request.method === "GET") return (await mayspend(request, env, who, "gflights")) || await gflights(url, { json, error }, sleep);
       if (url.pathname === "/serpapi" && request.method === "GET") return (await mayspend(request, env, who, "serpapi")) || await serpapi(url, env);
@@ -251,5 +254,5 @@ export default {
   },
 };
 
-export { SharedTrip };
+export { SharedTrip, SearchLinks };
 export { serpapi as _serpapi, authCache as _authCache };

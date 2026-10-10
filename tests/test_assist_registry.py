@@ -176,3 +176,11 @@ def test_select_words(label, is_select):
     finally:
         b.close()
         p.stop()
+
+
+def test_phone_search_links_are_the_verified_templates():
+    """links.AIRLINE_SEARCH_URLS (what a phone opens without the extension) = the registry's verified url templates."""
+    from flightagent.links import AIRLINE_SEARCH_URLS
+
+    want = {c: a["url"] for key, a in REG.items() if a["mode"] == "url" and a["status"] == "verified" for c in [key, *a["aliases"]]}
+    assert AIRLINE_SEARCH_URLS == want

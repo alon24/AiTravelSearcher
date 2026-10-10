@@ -76,3 +76,36 @@ def test_the_badge_check_says_what_is_missing_on_the_worker():
 def test_a_worker_refusal_is_reported():
     r = run(route=live(), answer={"error": "sign in with an allowed Google account"}, status=403)
     assert r["error"] == "Jev via Skyhop's Worker: sign in with an allowed Google account"
+
+
+SHARE = """
+const job = JSON.parse(process.argv[1]), calls = [];
+globalThis.chrome = { storage: { session: { get: async () => ({ jevRoute: job.route }) } } };
+globalThis.fetch = async (url, init = {}) => { calls.push({ url: String(url), auth: init.headers.Authorization, body: JSON.parse(init.body) }); return new Response("{}"); };
+const getLearned = async () => job.learned, registry = async () => job.registry;
+%s
+shareLearned().then(() => process.stdout.write(JSON.stringify(calls)));
+"""
+
+
+def share(route, learned):
+    src = BACKGROUND.read_text()
+    code = src[src.index("const LAYA_URL"):src.index("// Until one is picked")]
+    code += src[src.index("// Learned search links"):src.index("// The web version's Worker route")]
+    job = {"route": route, "learned": learned, "registry": {"W6": {"aliases": ["W4"]}, "IZ": {"aliases": []}}}
+    out = subprocess.run(["node", "-e", SHARE % code, json.dumps(job)], capture_output=True, text=True, timeout=60, check=True)
+    return json.loads(out.stdout)
+
+
+def test_learned_search_links_are_shared_with_phones_through_the_worker():
+    learned = {"W6": {"generic": {"url": "https://wizz/{origin}/{dest}/{date}", "match": "m", "learnedAt": 1}},
+               "IZ": {"byDest": {"ATH": {"url": "https://arkia/{origin}/{dest}/{date}/7", "match": "m"}}},
+               "OLD": {"url": "https://old", "match": "m"}}
+    (call,) = share(live(), learned)
+    assert call["url"] == ROUTE["url"] + "/links" and call["auth"] == "Bearer tok-1"
+    assert call["body"] == {"W6": {"generic": "https://wizz/{origin}/{dest}/{date}"}, "W4": {"generic": "https://wizz/{origin}/{dest}/{date}"},
+                            "IZ": {"byDest": {"ATH": "https://arkia/{origin}/{dest}/{date}/7"}}}, "aliases too; pre-0.6.4 entries skipped"
+
+
+def test_nothing_is_shared_without_a_sign_in():
+    assert share(None, {"W6": {"generic": {"url": "https://wizz/{origin}/{dest}/{date}"}}}) == []

@@ -77,6 +77,13 @@ AIRLINE_SITES = {
 }
 
 
+# Airlines whose results page is a plain link (browser-extension/airlines.json, mode "url", status "verified"), by code and
+# alias: without the extension (phones) "Check on site" opens that search for the flight's route and date. Same
+# placeholders as the extension's templates; tests/test_assist_registry.py keeps this in step with airlines.json.
+_WIZZ = "https://www.wizzair.com/en-gb/booking/select-flight/{origin}/{dest}/{date}/null/1/0/0/null"
+AIRLINE_SEARCH_URLS = {"W6": _WIZZ, "W4": _WIZZ, "W9": _WIZZ}
+
+
 def google_flights_link(origin: str, dest: str, day: date, return_day: date | None = None) -> str:
     q = f"Flights from {origin} to {dest} on {day.isoformat()}"
     q += f" through {return_day.isoformat()}" if return_day else " one way"

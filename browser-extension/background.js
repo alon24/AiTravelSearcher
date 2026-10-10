@@ -182,12 +182,32 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;   // async response
 });
 
+// Learned search links in the Worker's format ({code: {generic, byDest: {DEST: url}}}), under the airline's code and its
+// aliases, so a phone (no extension) can open the same results page (worker/src/links.js).
+function linksPayload(learned, reg) {
+  const out = {};
+  for (const [key, l] of Object.entries(learned)) {
+    if (!l.generic && !l.byDest) continue;   // pre-0.6.4 entries
+    const entry = { ...(l.generic ? { generic: l.generic.url } : {}), ...(l.byDest ? { byDest: Object.fromEntries(Object.entries(l.byDest).map(([d, r]) => [d, r.url])) } : {}) };
+    for (const code of [key, ...((reg[key] || {}).aliases || [])]) out[code] = entry;
+  }
+  return out;
+}
+// Share what was learned through the web version's Worker. Signed-in only; a refusal is logged with its reason.
+async function shareLearned() {
+  const route = await jevRoute(), payload = linksPayload(await getLearned(), await registry());
+  if (!route || !Object.keys(payload).length) return;
+  const r = await fetch(route.url + "/links", { method: "POST", body: JSON.stringify(payload),
+    headers: { "Content-Type": "application/json", Authorization: "Bearer " + route.token } });
+  if (!r.ok) console.warn("Skyhop: couldn't share learned search links:", (await r.json().catch(() => ({}))).error || "HTTP " + r.status);
+}
+
 // The web version's Worker route for Jev (see jevRoute); null signs it out.
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type !== "set-jev-route") return false;
   const r = msg.route;
   chrome.storage.session.set({ jevRoute: r && typeof r.url === "string" && /^https:\/\//.test(r.url) ? { url: r.url, token: String(r.token), until: Number(r.until) } : null })
-    .then(() => sendResponse({ ok: true }));
+    .then(() => { sendResponse({ ok: true }); return shareLearned(); }).catch((e) => console.warn("Skyhop:", e.message));
   return true;
 });
 
@@ -373,6 +393,7 @@ async function discover(entry, details) {
       if (got.bound) (cur.byDest ||= {})[details.destination] = rec; else cur.generic = rec;
       learned[entry.key] = cur;
       await chrome.storage.local.set({ learned });
+      shareLearned().catch((e) => console.warn("Skyhop: couldn't share learned search links:", e.message));
       await tabBanner(tab.id, got.bound
         ? `learned ${entry.name} for ${place(details.destinationName, details.destination)} only (its address holds an id that differs per destination) -- other destinations ask you once each. Looking for your flight…`
         : `learned ${entry.name}'s results page -- from now on the button opens it directly. Looking for your flight…`);

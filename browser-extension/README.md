@@ -135,3 +135,8 @@ Jev's questions go to the Worker's `/decide` (new host permission `https://*.wor
 until the browser closes or the token expires (about an hour); sign in again on the page to renew it. Jev is the
 default on the web version until you pick Laya. **New host permissions: re-enable the extension in
 `chrome://extensions` if Chrome switches it off after the update.**
+
+**v0.8.1: learned links reach your phone.** When you're signed in on the web version, every results page the extension
+learns (and the ones it already knew) is also sent to the Worker (`POST /links`). Phones can't run the extension, so
+the site turns those links into **Search on <airline> site** buttons that open the airline's own results for the
+flight's route and day. You pick the flight and pay there.

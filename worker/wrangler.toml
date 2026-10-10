@@ -20,3 +20,12 @@ class_name = "SharedTrip"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["SharedTrip"]
+
+# Airline search links the desktop extension learned, shared with phones (src/links.js): one SQLite-backed object.
+[[durable_objects.bindings]]
+name = "LINKS"
+class_name = "SearchLinks"
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["SearchLinks"]

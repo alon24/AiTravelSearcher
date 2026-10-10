@@ -129,8 +129,16 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
    - **In the chat.** The map's link is kept with the conversation, or posted to a shared trip as a `map` message.
      The model is told to offer a map after results for a country or several cities.
 6. **Phones.** Real fares come from the Worker (above), so a phone needs nothing else. Extensions don't run in phone
-   browsers, so there is no Assist there: each flight's **Check on <airline> site** button opens the airline's own
-   website (looked up when Skyhop doesn't know it) and copies the flight to paste into its search.
+   browsers, so there is no Assist there. Instead:
+   - **Search links.** When an airline's results page is a known link, the button reads **Search on <airline> site**
+     and opens that page for the leg's route and day; the flight is copied for reference. Links come from the
+     registry's verified templates (`links.AIRLINE_SEARCH_URLS`, kept equal to `airlines.json` by a test; Wizz Air
+     only, 2026-10-10) and from templates the desktop extension learned, which it posts to the Worker's `/links`
+     (`worker/src/links.js`, one Durable Object, allowed accounts write, anyone signed in reads).
+   - **Otherwise** **Check on <airline> site** opens the airline's own website (looked up when Skyhop doesn't know it)
+     and copies the flight to paste into its search.
+   - **Why not an iframe** (asked 2026-10-10): a page can't script a frame from another site, and airline booking
+     pages generally refuse to be framed. A native app's own web view can, which is the Android option.
 
 The port found a real bug: Python subtracts two times of the *same* zone as wall-clock times, so a connection across a
 clock change (land FCO 01:00, leave CIA 03:00 on the night Rome springs forward) was reported as 2 h instead of 1 h.

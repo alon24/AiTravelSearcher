@@ -1021,18 +1021,40 @@ function lookupSite(code, name) {
 function flightNote(segments) {
   return segments.map(s => `${s.airline_code}${s.flight_number} ${s.origin} → ${s.destination}, ${fmtDay(day(s.departs))} ${fmtTime(day(s.departs))}`).join(" · ");
 }
-function copyFlightNote(name, segments) {
+function copyFlightNote(name, segments, searched) {
   const note = flightNote(segments);
-  const told = ok => toast(`Opening ${name}'s site. ${ok ? "Flight copied" : "Flight"}: ${note}. Search for it there.`);
+  const told = ok => toast(searched ? `Opening ${name}'s own search for this route and day. ${ok ? "Flight copied" : "Flight"}: ${note}. Pick it there, and check the passengers.`
+    : `Opening ${name}'s site. ${ok ? "Flight copied" : "Flight"}: ${note}. Search for it there.`);
   try { navigator.clipboard.writeText(`${name}: ${note}`).then(() => told(true), () => told(false)); } catch { told(false); }
+}
+// Without the extension (phones): an airline whose results page is a plain link opens already searched for this route and
+// day. Links are the registry's verified ones (config.airline_search_urls) and the ones the desktop extension learned,
+// shared through the Worker (sharedLinks, see loadSharedLinks). Filled like background.js fill().
+let sharedLinks = {};
+const fmtLinkDate = (iso, pat) => { const [Y, M, D] = iso.split("-"); return pat.replace("YYYY", Y).replace("YY", Y.slice(2)).replace("MM", M).replace("DD", D); };
+function searchLink(code, segments) {
+  const first = segments[0], dest = segments[segments.length - 1].destination, learned = sharedLinks[code] || {};
+  const tpl = (learned.byDest || {})[dest] || learned.generic || (config.airline_search_urls || {})[code];
+  if (!tpl) return null;
+  const d = { origin: first.origin, dest, destcity: placeInfo(dest).codes.find(c => c !== dest) || dest };
+  return tpl.replace(/\{(origin|dest|destcity)(?::(l))?\}/g, (_, k, l) => (l ? d[k].toLowerCase() : d[k]))
+    .replace(/\{date(?::([A-Za-z\-\/.]+))?\}/g, (_, pat) => fmtLinkDate(first.departs.slice(0, 10), pat || "YYYY-MM-DD"));
+}
+async function loadSharedLinks() {
+  const acct = SkyhopLocal.account;
+  if (!acct.configured() || !acct.signedIn() || !acct.has("links")) return;
+  try { sharedLinks = await acct.get("/links"); } catch (e) { toast(`Couldn't load the airline search links learned on your computer: ${e.message}`); }
 }
 function siteButton(code, name, segments) {
   const known = (config.airline_sites || {})[code];
-  const search = assistFor(code, segments);
+  const search = assistFor(code, segments), searched = !search && searchLink(code, segments);
   const link = url => h("a", { class: "site-btn", href: url, target: "_blank", rel: "noopener noreferrer", "data-assist": search ? "1" : null,
-    onclick: e => { e.stopPropagation(); if (search) { e.preventDefault(); search(); } else copyFlightNote(name, segments); },
-    title: search ? `Searches this flight on ${name}'s own site (opens a new tab)` : `Opens ${name}'s own site and copies this flight's details (${flightNote(segments)}) to paste into their search` },
-    `Check on ${name} site`, h("span", { class: "ext", "aria-hidden": "true" }, "↗"));
+    onclick: e => { e.stopPropagation(); if (search) { e.preventDefault(); search(); } else copyFlightNote(name, segments, !!searched); },
+    title: search ? `Searches this flight on ${name}'s own site (opens a new tab)`
+      : searched ? `Opens ${name}'s own results for ${segments[0].origin} → ${segments[segments.length - 1].destination} that day and copies this flight (${flightNote(segments)}); you pick it there`
+      : `Opens ${name}'s own site and copies this flight's details (${flightNote(segments)}) to paste into their search` },
+    searched ? `Search on ${name} site` : `Check on ${name} site`, h("span", { class: "ext", "aria-hidden": "true" }, "↗"));
+  if (searched) return link(searched);
   if (known || search) return link(known || "#");
   const el = h("span", { class: "site-btn checking", role: "status", title: `Looking for ${name}'s official website` }, `Looking for ${name}'s website…`);
   const settle = (node) => {
@@ -1204,7 +1226,7 @@ async function toggleAccount() {
 /** Demo or real fares can change with sign-in and with joining a shared trip (a guest's fares are billed to it). */
 async function refreshMode() {
   try { config = await api("/api/config"); } catch { /* keep */ }
-  showMode(); if (SkyhopLocal.account.configured()) { showAccount(); shareJevRoute(); } onFormChange();
+  showMode(); if (SkyhopLocal.account.configured()) { showAccount(); shareJevRoute(); await loadSharedLinks(); } onFormChange();
 }
 /** On the web version there is no local server for the Airline Assist extension to ask Jev through, so tell it to use
     the Worker with this sign-in (content-bridge.js relays it); null when signed out. */
@@ -1235,7 +1257,7 @@ async function init() {
   try { config = await api("/api/config"); } catch { /* keep defaults */ }
   showMode();
   if (SkyhopLocal.account.configured()) {
-    showAccount(); shareJevRoute();
+    showAccount(); shareJevRoute(); loadSharedLinks();
     $$(".account-btn").forEach(b => b.addEventListener("click", toggleAccount));
     window.addEventListener("skyhop-signed-out", async () => {
       toast("Your Google sign-in expired. Sign in again for real fares.");

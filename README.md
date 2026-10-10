@@ -16,7 +16,9 @@ so any provider that can price a one-way flight works.
 searches use real Google Flights fares, on phones too. A small Cloudflare Worker fetches them from Google Flights for
 free, and uses SerpApi credits only if Google refuses it. The Worker also holds the keys; set it up once as described
 in [`worker/README.md`](worker/README.md). With the Airline Assist extension on desktop, Jev works on the web version
-too, through the same Worker, so no local server is needed. One-time setup: Settings → Pages → Source: GitHub Actions. See
+too, through the same Worker, so no local server is needed. On a phone, airlines with a known results link get a
+**Search on <airline> site** button that opens their own search for that flight's route and day, including links your
+desktop extension learned. One-time setup: Settings → Pages → Source: GitHub Actions. See
 "Hosting on GitHub Pages" in [`docs/DESIGN.md`](docs/DESIGN.md).
 
 Docs: [`docs/DESIGN.md`](docs/DESIGN.md) architecture, provider contract and a price-verification proposal; [`docs/STITCH_BRIEF.md`](docs/STITCH_BRIEF.md) UI design brief for Google Stitch.

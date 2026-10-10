@@ -214,11 +214,12 @@ def test_airline_names_use_the_full_name_when_the_provider_abbreviates(page):
 
 
 def _button_names(loc):
-    """['Lufthansa', ...] from the labels 'Check on X site' / "Looking for X's website…" / "Couldn't find X's website" of the buttons in `loc`."""
+    """['Lufthansa', ...] from the labels 'Check on X site' / 'Search on X site' (a known search link) / "Looking for X's website…" /
+    "Couldn't find X's website" of the buttons in `loc`."""
     out = []
     for t in loc.all_inner_texts():
         t = t.replace("↗", "").strip()
-        m = re.fullmatch(r"Check on (.+) site|Looking for (.+)'s website…|Couldn't find (.+)'s website", t)
+        m = re.fullmatch(r"(?:Check|Search) on (.+) site|Looking for (.+)'s website…|Couldn't find (.+)'s website", t)
         assert m, t
         out.append(m.group(1) or m.group(2) or m.group(3))
     return out
@@ -397,3 +398,19 @@ def test_a_bespoke_driver_stays_limited_to_its_own_origin(results):
         return [!!assistFor('RO', [tlv]), !!assistFor('RO', [fco])];
     }""")
     assert got == [True, False]
+
+
+def test_without_the_extension_a_known_airline_link_opens_its_own_search_for_the_flight(results):
+    """Phones: Wizz Air's verified results link opens already searched for this flight's route and day."""
+    p = results
+    btn = p.locator(".site-btn", has_text="Search on Wizz Air site").first
+    btn.wait_for(state="attached")
+    href = btn.get_attribute("href")
+    m = re.fullmatch(r"https://www\.wizzair\.com/en-gb/booking/select-flight/([A-Z]{3})/([A-Z]{3})/(\d{4}-\d{2}-\d{2})/null/1/0/0/null", href)
+    assert m, href
+    origin, dest, day = m.groups()
+    assert origin != dest                                                 # Wizz Air's own part of the leg (it may change in a hub)
+    assert "2026-10-05" <= day <= "2026-10-31"
+    assert re.fullmatch(rf"Opens Wizz Air's own results for {origin} → {dest} that day and copies this flight \(W6\d+ .+\); you pick it there",
+                        btn.get_attribute("title"))
+    assert p.locator(".site-btn", has_text="Search on El Al site").count() == 0, "El Al has no search link: plain site link"
