@@ -62,6 +62,7 @@ const Trip = (() => {
     return trip.messages.map(m => m.kind === "user" ? { role: "user", content: `${short(m.author)}: ${m.text}` }
       : m.kind === "ai" ? { role: "assistant", content: m.text }
       : m.kind === "search" ? { role: "assistant", content: `(I searched ${JSON.stringify(m.data.args)} and found: ${JSON.stringify(m.data.out)})` }
+      : m.kind === "map" ? { role: "assistant", content: `(Put on a MyMaps AI map: ${m.data.title})` }
       : { role: "assistant", content: `(Trip brief saved: ${m.data.title}. ${m.data.summary})` });
   }
 

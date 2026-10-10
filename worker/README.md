@@ -35,8 +35,9 @@ Shared trips use a SQLite-backed Durable Object, which the Workers free plan inc
    - add your account id (shown on the Workers overview page) as the **variable** `CLOUDFLARE_ACCOUNT_ID`.
 2. **Google sign-in.** Reuse the OAuth client that mymaps-ai uses (Google Cloud Console → APIs & Services →
    Credentials). Its *Authorized JavaScript origins* must include `https://alon24.github.io`. Add its client ID as the
-   **variable** `SKYHOP_GOOGLE_CLIENT_ID`. For "Save to Drive", also enable the **Google Drive API** in that project
-   (APIs & Services → Library). If the consent screen is in testing mode, add your account as a test user.
+   **variable** `SKYHOP_GOOGLE_CLIENT_ID`. For "Save to Drive" and "Map it", also enable the **Google Drive API** in that
+   project (APIs & Services → Library). It must be the *same* client as mymaps-ai: Google only lets an app see the
+   Drive files its own client made, so "Map it" can add to your existing MyMaps AI maps only then. If the consent screen is in testing mode, add your account as a test user.
 3. **Deploy.** Push to `main`, or re-run the "Test and deploy to Pages" workflow. The Worker is published at
    `https://skyhop-worker.<your-subdomain>.workers.dev`.
 4. **Keys.** In Cloudflare, open Workers → skyhop-worker → Settings → Variables and Secrets:

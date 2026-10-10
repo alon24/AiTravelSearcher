@@ -159,7 +159,7 @@ cp .env.example .env            # FLIGHTAGENT_PROVIDER=mock works offline, no ke
 .venv/bin/uvicorn flightagent.api:app                 # POST /search, POST /search/report
 .venv/bin/pytest
 node src/flightagent/web/airport-search.test.js   # typo/alias airport search (buka -> Bucharest)
-python tools/build_airports.py                    # regenerate web/airports.json (OpenFlights + aliases)
+python tools/build_airports.py                    # regenerate web/airports.json and airport_coords.json (OpenFlights + aliases)
 python tools/build_pages.py _site                 # the server-less GitHub Pages build; serve _site/ with any static server
 ```
 
@@ -225,6 +225,13 @@ in late November, direct only, no Ryanair, 2 adults and a 6-year-old"*.
   - **Summarize** saves a brief that everyone in the trip sees.
   - Friends who aren't on `ALLOWED_EMAILS` use the AI and real fares only inside the trip, within a daily allowance
     (60 AI turns and 300 fare lookups per trip per day). A shared link can never run up your bill.
+- **🗺 Map it** (web version, signed in) puts a search on a [MyMaps AI](https://alon24.github.io/mymaps-ai/) map:
+  home, each destination with its best fare, and a line to each. After a search over a country or several cities,
+  Skyhop offers it.
+  - Choose a **new map**, or **add** the search as a new layer to a map you already have.
+  - Tick **Anyone with the link can view it** so others can open the map without signing in.
+  - The map is saved in the "MyMaps AI" folder of your Google Drive and opens in MyMaps AI. In a shared trip, the map
+    link is posted for everyone.
 
 The model call needs an OpenRouter key: `OPENROUTER_API_KEY` in `.env` for Docker, or the Worker's secret on the web
 version. The model is set with `FLIGHTAGENT_CHAT_MODEL` (Worker: `CHAT_MODEL`).

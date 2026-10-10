@@ -11,7 +11,7 @@ import pytest
 pytest.importorskip("playwright.sync_api")
 
 from test_account_ui import _fares  # noqa: E402
-from test_chat_ui import ASK, CORS, RUNTIME, WORKER, brain  # noqa: E402
+from test_chat_ui import ASK, CORS, MAPS_GIS, RUNTIME, WORKER, brain  # noqa: E402
 
 PEOPLE = {"tok-ilan": ("ilan@example.com", True), "tok-dana": ("dana@example.com", False)}
 GIS = """window.google = { accounts: { oauth2: { initTokenClient: c => ({ requestAccessToken: () => setTimeout(() =>
@@ -206,3 +206,20 @@ def test_a_shared_trip_fits_a_phone(ilan, dana):
         box = dana.locator(button).bounding_box()
         assert box and box["x"] >= 0 and box["x"] + box["width"] <= 360, f"{button} is off screen"
     assert dana.locator(".toast", has_text="invited accounts").count() == 0, "joining by invite doesn't talk about access lists"
+
+
+def test_a_map_made_in_a_trip_reaches_everyone(ilan, dana):
+    link = _share(ilan)
+    ilan.route("https://accounts.google.com/gsi/client", lambda r: r.fulfill(content_type="text/javascript", body=MAPS_GIS.replace("tok-1", "tok-ilan")))
+    ilan.route("https://www.googleapis.com/**", lambda r: r.fulfill(headers=CORS, json={"id": "map7", "files": []}))
+    ilan.get_by_role("button", name="🗺 Map it").click()
+    ilan.locator(".map-pick input[type=checkbox]").check()
+    ilan.get_by_role("button", name="Make map").click()
+    ilan.wait_for_selector(".msg.tool a:has-text('Open in MyMaps AI')")
+    (trip,) = ilan.worker.trips.values()
+    assert trip["messages"][-1]["kind"] == "map" and trip["messages"][-1]["data"]["url"].endswith("#/m/map7")
+    dana.goto(link)
+    dana.click("#chat-signin")
+    link = dana.locator(".msg a:has-text('Open in MyMaps AI')")
+    link.wait_for()
+    assert link.get_attribute("href") == "https://alon24.github.io/mymaps-ai/#/m/map7"

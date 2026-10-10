@@ -631,6 +631,10 @@ td.air-names { white-space: normal; min-width: 110px; }
 .msg.tool { justify-self: stretch; max-width: none; background: var(--accent-soft); border-radius: 12px; font-size: 13.5px; display: grid; gap: 6px; white-space: normal; }
 .msg.tool.busy { color: var(--ink-2); }
 .msg.tool .bad { color: var(--bad-ink); }
+.tool-foot .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.map-pick { display: grid; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line-2); }
+.map-pick select { font: inherit; font-size: 13.5px; padding: 7px 9px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--card); color: var(--ink); min-width: 0; }
+.map-pick label { display: flex; gap: 6px; align-items: center; font-size: 13px; }
 .tool-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 .msg.brief { justify-self: stretch; max-width: none; background: var(--card); border: 1.5px solid var(--accent); border-radius: 14px; white-space: normal; display: grid; gap: 6px; }
 .msg.brief p, .msg.brief ul { margin: 0; color: var(--ink-2); } .msg.brief ul { padding-left: 18px; }

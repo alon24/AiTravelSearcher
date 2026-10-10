@@ -4,7 +4,7 @@
    trip's daily allowance (spend()), which bounds what a shared link can cost its owner. */
 
 export const LIMITS = { messages: 1000, text: 4000, data: 12_000, title: 120, chat: 60, serpapi: 300 };  // chat/serpapi: per trip per UTC day
-const KINDS = new Set(["user", "ai", "search", "brief"]);
+const KINDS = new Set(["user", "ai", "search", "brief", "map"]);
 const ID_RE = /^[a-z0-9]{12}$/;
 
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });

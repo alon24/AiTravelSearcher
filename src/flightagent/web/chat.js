@@ -52,6 +52,7 @@ The user plans trips by talking to you. You search with the search_flights tool;
 - Keep every condition the user gave (stops, airlines, travel time, travellers, bags) across follow-ups: when they change one thing, send the rest again.
 - A budget is not a search field: search, then say which trips fit it.
 - If the tool answers needs_confirmation, ask whether to spend that many lookups, and only after a yes call again with confirmed_lookups.
+- After results for a country or several cities, offer once to put them on a map: the "🗺 Map it" button on the search card makes a MyMaps AI map (new, or added to one they have).
 - Skyhop never books or takes payment; booking happens on the airline's site from the buttons in the results.
 Answer in plain text, 2-5 short lines, no tables or headings: the best pick with price, dates and airline, and why; mention self-transfers or long layovers; if the digest says demo, say the prices are demo data.`;
   }
@@ -126,7 +127,7 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
   }
 
   /** The conversation as the model sees it: no brief cards or failed turns, no page-only fields. */
-  const forModel = ms => ms.filter(m => !m.briefId && !m.failed).map(({ hidden, card, failed, ...m }) => m);
+  const forModel = ms => ms.filter(m => !m.briefId && !m.map && !m.failed).map(({ hidden, card, failed, ...m }) => m);
 
   /** Ask the model until it answers in words, running its searches on the way. `history` is the conversation in the
       model's format; `step` gets each new assistant or tool message as it happens (tool messages carry a `card`). */
@@ -294,14 +295,63 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
     $("#results").scrollIntoView({ behavior: "smooth" });
   }
 
-  function toolCard({ args, out, request }, shared = false) {
+  // ---------------------------------------------------------------- MyMaps AI (local/mymaps.js)
+  const canMap = () => SkyhopLocal.account.configured() && SkyhopLocal.account.signedIn();
+
+  let picker = null;      // the map picker open under one search card: {card, title, token, maps, which, share, busy}
+
+  /** Open the picker under a search card: a new MyMaps AI map, or one the user already has. */
+  async function mapIt(card, title) {
+    try { picker = { card, title, token: await SkyhopLocal.account.driveToken(), maps: [], which: "", share: false }; } catch (e) { toast(e.message); return; }
+    render();
+    const p = picker;
+    p.maps = await SkyhopLocal.mymaps.list(p.token).catch(() => []);     // a new map still works without the list
+    if (picker === p) render();
+  }
+
+  async function makeMap(p) {
+    p.busy = true; render();
+    try {
+      const { args } = p.card, origin = args.origin || readForm().from[0] || "TLV";
+      const names = Object.fromEntries([origin, ...(args.destinations || [])].map(c => [c, (airport(c) || {}).city || c]));
+      const lyr = await SkyhopLocal.mymaps.layer(p.card, { origin, names, money: fmtMoney });
+      const done = p.which ? await SkyhopLocal.mymaps.addTo(p.token, p.which, lyr, { share: p.share })
+        : await SkyhopLocal.mymaps.create(p.token, p.title, lyr, { share: p.share });
+      const map = { title: p.which ? p.maps.find(m => m.id === p.which).name : p.title, url: done.url, shared: p.share };
+      picker = null;
+      if (Trip.active()) await Trip.post("map", map.title, map);
+      else { convo.messages.push({ role: "assistant", content: "", hidden: true, map }); await persist(); }
+    } catch (e) { toast(e.message); p.busy = false; }
+    render();
+  }
+
+  function pickerView(p) {
+    return h("div", { class: "map-pick" },
+      h("select", { "aria-label": "Which map", onchange: e => { p.which = e.target.value; } },
+        h("option", { value: "" }, `New map: ${p.title}`), p.maps.map(m => h("option", { value: m.id, selected: m.id === p.which }, `Add to: ${m.name}`))),
+      h("label", {}, h("input", { type: "checkbox", checked: p.share, onchange: e => { p.share = e.target.checked; } }), " Anyone with the link can view it"),
+      h("div", { class: "actions" }, h("button", { type: "button", class: "btn small accent", disabled: p.busy, onclick: () => makeMap(p) }, p.busy ? "Making the map…" : "Make map"),
+        h("button", { type: "button", class: "btn small ghost", onclick: () => { picker = null; render(); } }, "Cancel")));
+  }
+
+  function mapCard(m) {
+    return h("div", { class: "msg tool" }, h("div", {}, "🗺 ", h("b", {}, m.title), m.shared ? " · anyone with the link can view" : ""),
+      h("a", { class: "btn small", href: m.url, target: "_blank", rel: "noopener" }, "Open in MyMaps AI ↗"));
+  }
+
+  function toolCard(card, shared = false) {
+    const { args, out, request } = card;
     const prices = [...Object.values(out.cheapest_by_destination || {}), ...(out.trips || []).map(t => t.price)];
     const from = prices.length ? Math.min(...prices) : null;
     return h("div", { class: "msg tool" }, h("div", {}, h("b", {}, "🔎 "), routeLabel(args), when(args)),
       out.error ? h("div", { class: "bad" }, out.error)
         : out.needs_confirmation ? h("div", {}, `Needs ${out.lookups} paid lookups: say yes to go ahead.`)
         : h("div", { class: "tool-foot" }, from != null ? h("span", {}, "from ", h("b", {}, money(from, out.currency)), out.demo ? " · demo prices" : "") : "No trips found",
-          h("button", { type: "button", class: "btn small", onclick: () => showSearch(shared ? request : null) }, shared ? "Open results" : "Show results")));
+          h("span", { class: "actions" },
+            canMap() && (args.destinations || []).length && !(picker && picker.card === card) ? h("button", { type: "button", class: "btn small",
+              onclick: () => mapIt(card, Trip.active() ? Trip.current().title : (convo && convo.title) || `Trip to ${args.destinations.join(", ")}`) }, "🗺 Map it") : null,
+            h("button", { type: "button", class: "btn small", onclick: () => showSearch(shared ? request : null) }, shared ? "Open results" : "Show results"))),
+      picker && picker.card === card ? pickerView(picker) : null);
   }
 
   function briefCard(b, opts = {}) {
@@ -346,6 +396,7 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
     return [h("label", { class: "invite-link" }, "Invite link · anyone with it can join after signing in with Google",
       h("input", { readonly: true, value: url, "aria-label": "Invite link", onfocus: e => e.target.select() })), ...t.messages.map(m => m.kind === "search" ? toolCard(m.data, true)
       : m.kind === "brief" ? briefCard({ ...m.data, drive: null }, { full: true })
+      : m.kind === "map" ? mapCard(m.data)
       : h("div", { class: `msg ${m.author === me ? "me" : "ai"}${m.kind === "user" && m.author !== me ? " them" : ""}` },
         m.author === me ? null : h("span", { class: "who" }, Trip.name(m.author)), m.text))];
   }
@@ -381,6 +432,7 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
       const bs = new Map((await briefs.values()).map(b => [b.id, b]));
       kids = convo.messages.map(m => m.card ? toolCard(m.card)
         : m.briefId ? (bs.has(m.briefId) ? briefCard(bs.get(m.briefId), { full: true }) : null)
+        : m.map ? mapCard(m.map)
         : visible(m) ? h("div", { class: `msg ${m.role === "user" ? "me" : "ai"}${m.failed ? " bad" : ""}` }, m.content) : null);
     }
     if (seq !== renderSeq) return;

@@ -3,7 +3,7 @@ briefs that can be shared, saved to Google Drive and continued. The model is fak
 /api/chat/complete, on the Pages build the Worker's /chat (signed in with a stored Google token)."""
 import json
 import time
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 
@@ -214,3 +214,86 @@ def test_the_chat_fits_a_phone(page, chat):
     assert page.evaluate("document.querySelector('#chat-body').scrollWidth <= document.querySelector('#chat-body').clientWidth")
     send = page.locator("#chat-send").bounding_box()
     assert page.locator("#chat").bounding_box()["y"] == 0 and send["y"] + send["height"] <= 800, "the drawer stays put and Send stays on screen"
+
+
+MAPS_GIS = """window.google = { accounts: { oauth2: { initTokenClient: c => ({ requestAccessToken: () => setTimeout(() =>
+  c.callback({ access_token: "tok-1", expires_in: 3599, scope: c.scope }), 0) }) } } };"""
+EXISTING = {"schema": 1, "id": "x", "title": "Portugal", "description": "", "updatedAt": "2026-10-01T00:00:00Z",
+            "layers": [{"id": "l1", "name": "Lisbon sights", "visible": True, "color": "#1f6f5c", "style": "individual", "features": []}]}
+
+
+@pytest.fixture
+def maps(page, chat):
+    """Google Drive as MyMaps AI uses it: one existing map; records every call."""
+    if not chat["pages"]:
+        pytest.skip("MyMaps AI maps live in Google Drive: Pages build only")
+    calls = []
+
+    def drive(route):
+        req = route.request
+        calls.append((req.method, req.url, req.post_data or ""))
+        url = urlparse(req.url)
+        if url.path.startswith("/upload/"):
+            return route.fulfill(headers=CORS, json={"id": "m1" if req.method == "PATCH" else "newmap"})
+        if url.path.endswith("/permissions"):
+            return route.fulfill(headers=CORS, json={"id": "p1"})
+        if url.path.endswith("/files/m1"):
+            return route.fulfill(headers=CORS, content_type="application/json", body=json.dumps(EXISTING))
+        if req.method == "POST":
+            return route.fulfill(headers=CORS, json={"id": "folder9"})
+        q = parse_qs(url.query).get("q", [""])[0]
+        files = [{"id": "m1", "name": "Portugal.mymap.json"}] if "application/json" in q else []
+        route.fulfill(headers=CORS, json={"files": files})
+    page.route("https://accounts.google.com/gsi/client", lambda r: r.fulfill(content_type="text/javascript", body=MAPS_GIS))
+    page.route("https://www.googleapis.com/**", drive)
+    return calls
+
+
+def _multipart_json(body):
+    """The two JSON parts of a Drive multipart upload: metadata, content."""
+    return [json.loads(part.split("\r\n\r\n", 1)[1].rsplit("\r\n", 1)[0]) for part in body.split("--skyhop")[1:3]]
+
+
+def test_a_search_becomes_a_new_shared_mymaps_map(page, chat, maps):
+    _ask_rome(page)
+    page.get_by_role("button", name="🗺 Map it").click()
+    page.wait_for_selector(".map-pick option:has-text('Add to: Portugal')", state="attached")
+    page.locator(".map-pick input[type=checkbox]").check()
+    page.get_by_role("button", name="Make map").click()
+    link = page.locator(".msg.tool a:has-text('Open in MyMaps AI')")
+    link.wait_for()
+    assert link.get_attribute("href") == "https://alon24.github.io/mymaps-ai/#/m/newmap"
+    meta, doc = _multipart_json(next(c for c in maps if "/upload/" in c[1])[2])
+    assert meta["parents"] == ["folder9"] and meta["appProperties"] == {"app": "mymaps-ai"} and meta["name"].endswith(".mymap.json")
+    (layer,) = doc["layers"]
+    points = {f["properties"]["name"]: f for f in layer["features"] if f["geometry"]["type"] == "Point"}
+    assert points["Tel-aviv (home)"]["geometry"]["coordinates"] == [34.887, 32.011], "GeoJSON order: longitude, latitude"
+    rome = next(f for name, f in points.items() if name.startswith("Rom"))
+    assert rome["properties"]["description"].startswith("From ")
+    assert sum(f["geometry"]["type"] == "LineString" for f in layer["features"]) == 2
+    assert any(c[0] == "POST" and c[1].endswith("/permissions?supportsAllDrives=true") and '"anyone"' in c[2] for c in maps)
+
+
+def test_a_search_can_be_added_to_an_existing_map(page, chat, maps):
+    _ask_rome(page)
+    page.get_by_role("button", name="🗺 Map it").click()
+    page.wait_for_selector(".map-pick option:has-text('Add to: Portugal')", state="attached")
+    page.locator(".map-pick select").select_option(label="Add to: Portugal")
+    page.get_by_role("button", name="Make map").click()
+    page.wait_for_selector(".msg.tool a:has-text('Open in MyMaps AI')")
+    method, url, body = next(c for c in maps if "/upload/" in c[1])
+    assert method == "PATCH" and "/files/m1?uploadType=media" in url
+    doc = json.loads(body)
+    assert [l["name"] for l in doc["layers"]][0] == "Lisbon sights" and len(doc["layers"]) == 2
+    assert doc["layers"][1]["color"] != "#1f6f5c", "the new layer gets a colour the map doesn't use yet"
+    assert not any("/permissions" in c[1] for c in maps), "not shared unless asked"
+
+
+def test_the_map_picker_fits_a_phone(page, chat, maps):
+    page.set_viewport_size({"width": 360, "height": 800})
+    _ask_rome(page)
+    page.get_by_role("button", name="🗺 Map it").click()
+    page.wait_for_selector(".map-pick option:has-text('Add to: Portugal')", state="attached")
+    for part in (".map-pick select", ".map-pick input[type=checkbox]", ".map-pick button >> nth=0", ".map-pick button >> nth=1"):
+        box = page.locator(part).bounding_box()
+        assert box and box["x"] >= 0 and box["x"] + box["width"] <= 360, f"{part} is off screen"

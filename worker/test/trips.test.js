@@ -72,6 +72,8 @@ test("anyone signed in with the link joins, posts, and reads only what is new", 
   assert.equal(posted.author, "dana@example.com");
   const fresh = await (await call(`/trips/${id}?since=2`, "tok-ilan")).json();
   assert.deepEqual(fresh.messages.map(m => m.text), ["Porto too!"]);
+  const map = await call(`/trips/${id}/messages`, "tok-ilan", { method: "POST", body: { kind: "map", text: "", data: { id: "m1", title: "Portugal" } } });
+  assert.equal(map.status, 200, "a MyMaps AI map made from the trip is a message too");
   assert.equal(fresh.spent, undefined, "the allowance bookkeeping stays private");
   await call(`/trips/${id}`, "tok-dana", { method: "PATCH", body: { title: "Portugal + Porto", brief: { title: "b" } } });
   assert.equal((await (await call(`/trips/${id}`, "tok-ilan")).json()).title, "Portugal + Porto");
