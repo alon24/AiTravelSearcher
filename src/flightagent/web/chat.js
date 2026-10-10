@@ -4,12 +4,13 @@
    hands the model a short digest to talk about. Conversations are kept on this device (IndexedDB) and can be resumed.
    "Summarize" turns one into a trip brief (kept here, and in Google Drive when signed in on the web version); a brief
    can be continued later in a new chat, e.g. with new dates. The model call goes through /api/chat/complete (the
-   server's or, on GitHub Pages, the Worker's), which holds the key. */
+   server's or, on GitHub Pages, the Worker's), which holds the key. On the web version a conversation can also become a
+   shared trip (trip.js): a group chat where friends join by link and anyone can ask Skyhop. */
 const Chat = (() => {
   const chats = new SkyhopLocal.db.Store("chats"), briefs = new SkyhopLocal.db.Store("briefs");
   const LIVE_CONFIRM = 40;       // live searches needing more paid lookups than this are confirmed with the user first
   const MAX_TOOL_ROUNDS = 4;
-  let convo = null, opened = false, sending = false, els, driveBriefs = [];
+  let convo = null, opened = false, sending = false, els, driveBriefs = [], lastRequest = null, pendingTrip = null;
 
   const strs = { type: "array", items: { type: "string" } };
   const TOOLS = [{ type: "function", function: {
@@ -39,6 +40,8 @@ const Chat = (() => {
   const FIELDS = Object.keys(TOOLS[0].function.parameters.properties).filter(k => k !== "confirmed_lookups");
 
   // ---------------------------------------------------------------- the model
+  const GROUP = "\nThis is a group chat about one trip: several people plan it together and each message starts with who wrote it. "
+    + "Answer the latest request, keep everyone's conditions in mind, and name people when it helps.";
   function systemPrompt() {
     const f = readForm();
     return `You are Skyhop's trip-planning assistant, inside the Skyhop flight search app. Today is ${new Date().toISOString().slice(0, 10)}.
@@ -84,7 +87,7 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
       await sleep(600);
     }
     if (row.status !== "done") return { error: row.error || "The search did not finish." };
-    convo.request = row.request;
+    lastRequest = row.request;
     return { search_id: id, ...digest(row.result) };
   }
 
@@ -125,29 +128,87 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
   /** The conversation as the model sees it: no brief cards or failed turns, no page-only fields. */
   const forModel = ms => ms.filter(m => !m.briefId && !m.failed).map(({ hidden, card, failed, ...m }) => m);
 
+  /** Ask the model until it answers in words, running its searches on the way. `history` is the conversation in the
+      model's format; `step` gets each new assistant or tool message as it happens (tool messages carry a `card`). */
+  async function converse(history, step, group = false) {
+    const msgs = [...history];
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      const reply = await model([{ role: "system", content: systemPrompt() + (group ? GROUP : "") }, ...msgs], { tools: TOOLS });
+      const said = { role: "assistant", content: reply.content || "", ...(reply.tool_calls ? { tool_calls: reply.tool_calls } : {}) };
+      msgs.push(said); await step(said);
+      if (!reply.tool_calls || !reply.tool_calls.length) return;
+      for (const call of reply.tool_calls) {
+        let args = {}, out;
+        try { args = JSON.parse(call.function.arguments || "{}"); } catch { /* answered below */ }
+        lastRequest = null;
+        render(searchingCard(args));
+        try { out = call.function.name === "search_flights" ? await searchFlights(args) : { error: `unknown tool ${call.function.name}` }; } catch (e) { out = { error: e.message }; }
+        const result = { role: "tool", tool_call_id: call.id, content: JSON.stringify(out) };
+        msgs.push(result); await step({ ...result, card: { args, out, request: lastRequest } });
+      }
+    }
+  }
+
   async function send(text) {
     text = text.trim();
     if (!text || sending) return;
+    if (Trip.active()) return tripSend(text, false);
     if (!convo) start();
     convo.messages.push({ role: "user", content: text });
     sending = true; render(); persist();
     try {
-      for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-        const reply = await model([{ role: "system", content: systemPrompt() }, ...forModel(convo.messages)], { tools: TOOLS });
-        convo.messages.push({ role: "assistant", content: reply.content || "", ...(reply.tool_calls ? { tool_calls: reply.tool_calls } : {}) });
-        if (!reply.tool_calls || !reply.tool_calls.length) break;
-        for (const call of reply.tool_calls) {
-          let args = {}, out;
-          try { args = JSON.parse(call.function.arguments || "{}"); } catch { /* answered below */ }
-          render(searchingCard(args));
-          try { out = call.function.name === "search_flights" ? await searchFlights(args) : { error: `unknown tool ${call.function.name}` }; } catch (e) { out = { error: e.message }; }
-          convo.messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(out), card: { args, out } });
-          persist(); render();
-        }
-      }
+      await converse(forModel(convo.messages), async m => {
+        convo.messages.push(m);
+        if (m.card && m.card.request) convo.request = m.card.request;
+        await persist(); render();
+      });
     } catch (e) {
       convo.messages.push({ role: "assistant", content: `Sorry, I couldn't answer: ${e.message}`, failed: true });
     } finally { sending = false; persist(); render(); }
+  }
+
+  // ---------------------------------------------------------------- shared trips (trip.js)
+  /** Post to the group; with `ask`, Skyhop answers too (its searches and reply are posted for everyone). */
+  async function tripSend(text, ask) {
+    text = text.trim();
+    if ((!text && !ask) || sending) return;
+    sending = true; render();
+    try {
+      if (text) await Trip.post("user", text);
+      if (ask) {
+        await converse(Trip.history(), async m => {
+          if (m.card) await Trip.post("search", "", m.card);
+          else if (m.content) await Trip.post("ai", m.content);
+        }, true);
+      }
+    } catch (e) { toast(e.message); } finally { sending = false; render(); }
+  }
+
+  /** Turn this conversation into a shared trip and hand out its invite link. */
+  async function shareTrip() {
+    if (!convo || sending) return;
+    sending = true; render();
+    try {
+      const messages = convo.messages.flatMap(m => m.card ? [{ kind: "search", author: "ai", text: "", data: m.card }]
+        : visible(m) && !m.failed ? [{ kind: m.role === "user" ? "user" : "ai", author: m.role === "user" ? "" : "ai", text: m.content }] : []);
+      const t = await Trip.create({ title: convo.title || "Shared trip", messages, request: convo.request });
+      await invite(t.id);
+    } catch (e) { toast(e.message); } finally { sending = false; render(); }
+  }
+
+  async function invite(id) {
+    const url = Trip.link(id), text = "Plan this trip with me on Skyhop (sign in with Google to join):";
+    try {
+      if (navigator.share) await navigator.share({ title: "Skyhop trip", text, url });
+      else { await navigator.clipboard.writeText(`${text} ${url}`); toast("Invite link copied: anyone with it can join after signing in"); }
+    } catch { /* cancelled */ }
+  }
+
+  async function openTrip(id) {
+    pendingTrip = null;
+    if (!SkyhopLocal.account.signedIn()) { pendingTrip = id; open(); return; }
+    try { await Trip.join(id); } catch (e) { toast(`Couldn't open that trip: ${e.message}`); Trip.forget(id); }
+    open(); refreshMode();
   }
 
   // ---------------------------------------------------------------- briefs
@@ -159,9 +220,11 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
   }
 
   async function summarize() {
-    if (!convo || sending) return;
-    const transcript = convo.messages.filter(m => visible(m) || m.card).map(m => m.card
-      ? `[search ${JSON.stringify(m.card.args)} -> ${m.content.slice(0, 1500)}]` : `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n");
+    if (sending || !(Trip.active() || convo)) return;
+    const t = Trip.active() ? Trip.current() : null;
+    const transcript = t ? Trip.history().map(m => `${m.role === "user" ? "" : "Skyhop: "}${m.content}`).join("\n")
+      : convo.messages.filter(m => visible(m) || m.card).map(m => m.card
+        ? `[search ${JSON.stringify(m.card.args)} -> ${m.content.slice(0, 1500)}]` : `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n");
     sending = true; render();
     try {
       const reply = await model([{ role: "system", content: "Summarize this trip-planning conversation as a JSON object with keys: "
@@ -169,15 +232,18 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
         + "conditions (short strings: dates, nights, stops, airlines, budget...), best_options (short strings with price, dates, airline), "
         + "next_steps (0-3 short strings). Use only what the conversation says." }, { role: "user", content: transcript }], { json_mode: true });
       const j = JSON.parse(reply.content);
-      const brief = { id: newId(), created: Date.now(), chat: convo.id, title: String(j.title || convo.title || "Trip brief").slice(0, 80),
+      const request = t ? ([...t.messages].reverse().find(m => m.kind === "search" && m.data.request) || {}).data?.request || t.request : convo.request;
+      const brief = { id: newId(), created: Date.now(), chat: t ? `trip:${t.id}` : convo.id, title: String(j.title || (t || convo).title || "Trip brief").slice(0, 80),
         summary: String(j.summary || ""), conditions: [].concat(j.conditions || []).map(String), best_options: [].concat(j.best_options || []).map(String),
-        next_steps: [].concat(j.next_steps || []).map(String), request: convo.request || null, drive: null };
+        next_steps: [].concat(j.next_steps || []).map(String), request: request || null, drive: null };
       await briefs.put(brief.id, brief);
-      convo.messages.push({ role: "assistant", content: "", hidden: true, briefId: brief.id });
+      if (t) { await Trip.post("brief", brief.title, brief); await Trip.update({ brief, request: brief.request }); }
+      else convo.messages.push({ role: "assistant", content: "", hidden: true, briefId: brief.id });
       if (SkyhopLocal.account.hasDrive()) saveToDrive(brief, false);
     } catch (e) {
-      convo.messages.push({ role: "assistant", content: `Sorry, I couldn't summarize: ${e.message}`, failed: true });
-    } finally { sending = false; persist(); render(); }
+      if (t) toast(`Couldn't summarize: ${e.message}`);
+      else convo.messages.push({ role: "assistant", content: `Sorry, I couldn't summarize: ${e.message}`, failed: true });
+    } finally { sending = false; if (!t) persist(); render(); }
   }
 
   async function saveToDrive(brief, ask = true) {
@@ -221,14 +287,21 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
     + (a.min_nights ? ` · ${a.min_nights === a.max_nights ? plural(a.min_nights, "night") : `${a.min_nights}–${a.max_nights} nights`}` : "");
   function searchingCard(args) { return h("div", { class: "msg tool busy" }, h("b", {}, "🔎 Searching "), routeLabel(args), when(args), "…"); }
 
-  function toolCard({ args, out }) {
+  /** Fill the form with a search from the chat and run it (a shared trip's members each run it on their own page). */
+  function showSearch(request) {
+    close();
+    if (request) { writeForm(requestToForm(request)); onFormChange(); $("#form").requestSubmit(); }
+    $("#results").scrollIntoView({ behavior: "smooth" });
+  }
+
+  function toolCard({ args, out, request }, shared = false) {
     const prices = [...Object.values(out.cheapest_by_destination || {}), ...(out.trips || []).map(t => t.price)];
     const from = prices.length ? Math.min(...prices) : null;
     return h("div", { class: "msg tool" }, h("div", {}, h("b", {}, "🔎 "), routeLabel(args), when(args)),
       out.error ? h("div", { class: "bad" }, out.error)
         : out.needs_confirmation ? h("div", {}, `Needs ${out.lookups} paid lookups: say yes to go ahead.`)
         : h("div", { class: "tool-foot" }, from != null ? h("span", {}, "from ", h("b", {}, money(from, out.currency)), out.demo ? " · demo prices" : "") : "No trips found",
-          h("button", { type: "button", class: "btn small", onclick: () => { close(); $("#results").scrollIntoView({ behavior: "smooth" }); } }, "Show results")));
+          h("button", { type: "button", class: "btn small", onclick: () => showSearch(shared ? request : null) }, shared ? "Open results" : "Show results")));
   }
 
   function briefCard(b, opts = {}) {
@@ -259,23 +332,51 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
         h("p", {}, "Say where, when and what matters to you. I'll search, show the results beside this chat, and remember the conversation. Press Summarize to keep a trip brief you can continue later."),
         h("div", { class: "chat-examples" }, EXAMPLES.map(x => h("button", { type: "button", class: "chip-btn", onclick: () => send(x) }, x)))),
       bs.length ? h("div", { class: "side-title" }, "Trip briefs") : null, ...bs.map(b => briefCard(b)),
+      Trip.remembered().length && SkyhopLocal.account.trips() ? h("div", { class: "side-title" }, "Shared trips") : null,
+      ...(SkyhopLocal.account.trips() ? Trip.remembered() : []).map(t => h("button", { type: "button", class: "chat-recent", onclick: () => openTrip(t.id) },
+        h("span", {}, "👥 ", t.title), h("small", {}, ago(t.at / 1000)))),
       recent.length ? h("div", { class: "side-title" }, "Recent chats") : null,
       ...recent.map(c => h("button", { type: "button", class: "chat-recent", onclick: () => { convo = c; if (c.request) { writeForm(requestToForm(c.request)); onFormChange(); } render(); } },
         h("span", {}, c.title), h("small", {}, ago(c.updated / 1000)))),
     ];
   }
 
+  function tripView(t) {
+    const me = SkyhopLocal.account.email(), url = Trip.link(t.id);
+    return [h("label", { class: "invite-link" }, "Invite link · anyone with it can join after signing in with Google",
+      h("input", { readonly: true, value: url, "aria-label": "Invite link", onfocus: e => e.target.select() })), ...t.messages.map(m => m.kind === "search" ? toolCard(m.data, true)
+      : m.kind === "brief" ? briefCard({ ...m.data, drive: null }, { full: true })
+      : h("div", { class: `msg ${m.author === me ? "me" : "ai"}${m.kind === "user" && m.author !== me ? " them" : ""}` },
+        m.author === me ? null : h("span", { class: "who" }, Trip.name(m.author)), m.text))];
+  }
+
+  function header() {
+    const t = Trip.active() ? Trip.current() : null, canShare = SkyhopLocal.account.allowed() && SkyhopLocal.account.trips();
+    $("#chat-title").textContent = t ? `👥 ${t.title}` : pendingTrip ? "Join a shared trip" : "Ask Skyhop";
+    $("#chat-sub").textContent = t ? `With ${t.members.map(Trip.name).join(", ")}. Write to the group, or press ✨ to ask Skyhop.`
+      : "Tell me where, when and what matters. I search, show the results beside this chat, and remember it all.";
+    $("#chat-summarize").disabled = sending || !(t ? t.messages.length : convo && convo.messages.some(m => m.role === "user"));
+    $("#chat-new").hidden = !!t; $("#chat-new").disabled = sending || !convo;
+    $("#chat-share").hidden = !!t || !canShare; $("#chat-share").disabled = sending || !convo || !convo.messages.some(m => m.role === "user");
+    $("#chat-invite").hidden = $("#chat-leave").hidden = !t;
+    els.ask.hidden = !t;
+    els.input.placeholder = t ? "Message the group, or press ✨ to ask Skyhop" : "e.g. Portugal for a week in late November, direct only, under ₪2000";
+    els.signin.textContent = pendingTrip ? "Sign in with Google to join" : "Sign in with Google to chat";
+  }
+
   let renderSeq = 0;
   async function render(extra) {
     if (!els) return;
     const seq = ++renderSeq;
-    $("#chat-summarize").disabled = sending || !convo || !convo.messages.some(m => m.role === "user");
-    $("#chat-new").disabled = sending || !convo;
+    header();
     els.form.hidden = needsSignIn();
     els.signin.hidden = !needsSignIn();
-    els.send.disabled = sending;
+    els.send.disabled = els.ask.disabled = sending;
     let kids;
-    if (!convo || !convo.messages.some(visible)) kids = await home();
+    if (Trip.active()) kids = tripView(Trip.current());
+    else if (pendingTrip) kids = [h("div", { class: "tb-intro" }, h("h3", {}, "You're invited to plan a trip"),
+      h("p", {}, "Sign in with Google to join the group chat. Everyone in it sees the same conversation and searches, and anyone can ask Skyhop."))];
+    else if (!convo || !convo.messages.some(visible)) kids = await home();
     else {
       const bs = new Map((await briefs.values()).map(b => [b.id, b]));
       kids = convo.messages.map(m => m.card ? toolCard(m.card)
@@ -300,16 +401,27 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
   }
   function init() {
     if (SkyhopLocal.backend.enabled() && !SkyhopLocal.account.configured()) return;   // Pages without the Worker: no model to ask
-    els = { body: $("#chat-body"), form: $("#chat-form"), input: $("#chat-input"), send: $("#chat-send"), signin: $("#chat-signin") };
+    els = { body: $("#chat-body"), form: $("#chat-form"), input: $("#chat-input"), send: $("#chat-send"), ask: $("#chat-ask"), signin: $("#chat-signin") };
     $("#chat-launch").hidden = false;
     $("#chat-launch").addEventListener("click", () => (opened ? close() : open()));
     $("#chat-close").addEventListener("click", close); $("#chat-scrim").addEventListener("click", close);
     $("#chat-new").addEventListener("click", () => { convo = null; render(); els.input.focus(); });
     $("#chat-summarize").addEventListener("click", summarize);
-    els.signin.addEventListener("click", async () => { await toggleAccount(); render(); });
-    els.form.addEventListener("submit", e => { e.preventDefault(); const t = els.input.value; els.input.value = ""; send(t); });
+    $("#chat-share").addEventListener("click", shareTrip);
+    $("#chat-invite").addEventListener("click", () => invite(Trip.current().id));
+    $("#chat-leave").addEventListener("click", () => { Trip.leave(); convo = null; refreshMode(); render(); });
+    els.signin.addEventListener("click", async () => {
+      try { await SkyhopLocal.account.signIn(); } catch (e) { toast(e.message); return render(); }
+      if (pendingTrip) await openTrip(pendingTrip); else { await refreshMode(); render(); }
+    });
+    const take = () => { const t = els.input.value; els.input.value = ""; return t; };
+    els.form.addEventListener("submit", e => { e.preventDefault(); send(take()); });
+    els.ask.addEventListener("click", () => tripSend(take(), true));
     els.input.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); els.form.requestSubmit(); } });
     document.addEventListener("keydown", e => { if (e.key === "Escape" && opened) close(); });
+    Trip.watch(() => render(), () => opened);
+    const m = /^#trip=([a-z0-9]{12})$/.exec(location.hash);
+    if (m) { history.replaceState(null, "", location.pathname + location.search); openTrip(m[1]); }
   }
-  return { init, open, send, needsConfirm, shareLink };
+  return { init, open, send, needsConfirm, shareLink, openTrip };
 })();

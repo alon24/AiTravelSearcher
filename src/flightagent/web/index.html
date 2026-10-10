@@ -195,9 +195,12 @@
 <div class="tb-scrim" id="chat-scrim" hidden></div>
 <aside class="tb chat" id="chat" hidden role="dialog" aria-label="Ask Skyhop">
   <div class="tb-head">
-    <div><h2>Ask Skyhop</h2><p>Tell me where, when and what matters. I search, show the results beside this chat, and remember it all.</p></div>
+    <div><h2 id="chat-title">Ask Skyhop</h2><p id="chat-sub">Tell me where, when and what matters. I search, show the results beside this chat, and remember it all.</p></div>
     <div class="chat-tools">
       <button class="btn small" id="chat-summarize" type="button" title="Turn this conversation into a trip brief you can share and continue later">📝 Summarize</button>
+      <button class="btn small" id="chat-share" type="button" hidden title="Make this a shared trip: friends join by link and can ask Skyhop too">👥 Share</button>
+      <button class="btn small" id="chat-invite" type="button" hidden>🔗 Invite</button>
+      <button class="btn small" id="chat-leave" type="button" hidden>Leave</button>
       <button class="btn small" id="chat-new" type="button">＋ New</button>
       <button class="btn icon-btn" id="chat-close" type="button" aria-label="Close the chat">✕</button>
     </div>
@@ -207,6 +210,7 @@
     <form class="chat-form" id="chat-form">
       <textarea id="chat-input" rows="2" maxlength="2000" placeholder="e.g. Portugal for a week in late November, direct only, under ₪2000" aria-label="Message to Skyhop"></textarea>
       <button class="btn primary small-primary" id="chat-send" type="submit">Send</button>
+      <button class="btn small-primary chat-ask" id="chat-ask" type="button" hidden aria-label="Ask Skyhop">✨</button>
     </form>
     <button class="btn primary small-primary" id="chat-signin" type="button" hidden>Sign in with Google to chat</button>
   </div>
@@ -242,6 +246,7 @@
 <script src="finder.js" defer></script>
 <script src="mix.js" defer></script>
 <script src="compare.js" defer></script>
+<script src="trip.js" defer></script>
 <script src="chat.js" defer></script>
 </body>
 </html>

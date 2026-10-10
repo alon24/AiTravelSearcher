@@ -88,7 +88,21 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
    - **Drive.** Briefs go to Drive as Markdown with the brief's JSON in a trailing comment (`local/drive.js`, scope
      `drive.file`, asked for on the first "Save to Drive"). They are listed back from Drive on other devices.
    - **Sharing.** `#search=<base64url request>` links open Skyhop with the search filled in.
-4. **Real free fares:** fetched through the Chrome extension on desktop; on phones from a cloud fetcher if Google
+4. **Shared trips (`web/trip.js`, `worker/src/trips.js`).**
+   - **Storage.** Each trip is one Durable Object (SQLite-backed, so it works on the Workers free plan). It holds the
+     title, owner, members, brief, last search and numbered messages: people's words, Skyhop's answers, searches as
+     args, digest and request, and briefs.
+   - **Who can do what.** Only an `ALLOWED_EMAILS` account can start a trip. Any Google account with the link joins
+     by reading it.
+   - **Guest allowance.** The Worker now tells *allowed* accounts apart from *guests* (`/health` returns `user` or
+     `guest`). A guest's `/chat` and `/serpapi` calls are accepted only with an `X-Trip` header, and each one is
+     charged to that trip's daily allowance (`spend`: 60 chat turns and 300 lookups per UTC day). So a leaked link
+     costs at most that much.
+   - **Skyhop's turns.** A turn runs in the browser of whoever pressed ✨. It sees the trip's history with names
+     ("dana: …"), runs its searches there, and posts the search cards and the answer for everyone.
+   - **Syncing.** Other members pick up new messages by polling `GET /trips/:id?since=` every 4 s while the chat is
+     open. Polling was chosen over WebSockets as simpler, and fine for a few people.
+5. **Real free fares:** fetched through the Chrome extension on desktop; on phones from a cloud fetcher if Google
    answers data-centre IPs (`.github/workflows/gflights-probe.yml` measures that), else SerpApi through the Worker.
 
 The port found a real bug: Python subtracts two times of the *same* zone as wall-clock times, so a connection across a

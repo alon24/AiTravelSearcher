@@ -28,7 +28,7 @@ def worker(page, base_url):
     """Point the page at a fake Worker and Google; `state` sets who the Worker accepts and records what it was asked."""
     if not base_url.endswith("/skyhop"):
         pytest.skip("sign-in exists only on the Pages build")
-    state = {"user": "ilan@example.com", "serpapi": True, "asked": [], "revoked": []}
+    state = {"user": "ilan@example.com", "guest": None, "serpapi": True, "asked": [], "revoked": []}
 
     def answer(route):
         req = route.request
@@ -38,7 +38,8 @@ def worker(page, base_url):
         signed = req.headers.get("authorization") == "Bearer tok-1"
         state["asked"].append((url.path, signed))
         if url.path == "/health":
-            body = {"serpapi": state["serpapi"], "jev": True, "sign_in": True, "user": state["user"] if signed else None}
+            body = {"serpapi": state["serpapi"], "jev": True, "sign_in": True, "user": state["user"] if signed else None,
+                    "guest": state["guest"] if signed else None}
         elif not (signed and state["user"]):
             return route.fulfill(status=401, headers=CORS, json={"error": "sign in"})
         else:
@@ -99,9 +100,17 @@ def test_sign_in_survives_a_reload_and_sign_out_returns_to_demo(page, worker):
 def test_an_account_the_worker_refuses_stays_on_demo_fares(page, worker):
     worker["user"] = None
     page.locator(".account-btn:visible").click()
-    page.wait_for_selector(".toast:has-text(\"isn't allowed\")")
+    page.wait_for_selector(".toast:has-text(\"didn't confirm\")")
     assert page.inner_text("#mode-badge-desk") == "⚠ DEMO DATA"
     assert page.locator(".account-btn:visible").inner_text() == "Sign in"
+
+
+def test_an_account_not_on_the_list_is_a_guest_on_demo_fares(page, worker):
+    worker["user"], worker["guest"] = None, "dana@example.com"
+    page.locator(".account-btn:visible").click()
+    page.wait_for_selector(".toast:has-text('trips shared with you')")
+    assert page.inner_text("#mode-badge-desk") == "⚠ DEMO DATA", "a guest never spends the owner's credits outside a trip"
+    assert page.locator(".account-btn:visible").inner_text() == "Sign out"
 
 
 def test_signed_in_before_live_fares_are_set_up_says_so(page, worker):

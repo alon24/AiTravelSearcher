@@ -1193,11 +1193,17 @@ async function toggleAccount() {
     if (acct.email()) { acct.signOut(); toast("Signed out: back to demo fares"); }
     else {
       const email = await acct.signIn();
-      toast(acct.live() ? `Signed in as ${email}: fares are real now` : `Signed in as ${email}, but live fares aren't set up on Skyhop's server yet`);
+      toast(acct.live() ? `Signed in as ${email}: fares are real now`
+        : !acct.allowed() ? `Signed in as ${email}. Real fares are for invited accounts; trips shared with you still work.`
+        : `Signed in as ${email}, but live fares aren't set up on Skyhop's server yet`);
     }
   } catch (e) { toast(e.message); }
+  await refreshMode();
+}
+/** Demo or real fares can change with sign-in and with joining a shared trip (a guest's fares are billed to it). */
+async function refreshMode() {
   try { config = await api("/api/config"); } catch { /* keep */ }
-  showMode(); showAccount(); onFormChange();
+  showMode(); if (SkyhopLocal.account.configured()) showAccount(); onFormChange();
 }
 
 // A shared search link (chat.js shareLink): #search=<base64url JSON request> fills the form; the user presses Find flights.

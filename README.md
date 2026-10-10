@@ -216,6 +216,15 @@ in late November, direct only, no Ryanair, 2 adults and a 6-year-old"*.
   - On the web version, signed in, **Save to Drive**. It is saved to a "Skyhop trip briefs" folder in your Google
     Drive, so it reaches your other devices.
 - With real fares, a search that needs more than 40 paid lookups is confirmed with you first.
+- **👥 Share** (web version, signed in) turns the conversation into a **shared trip**: a group chat with an invite
+  link.
+  - Friends open the link and sign in with Google, any account. They see the whole conversation and its searches,
+    and can write to the group. Anyone can press **✨** to ask Skyhop, and its searches and answer are posted for
+    everyone.
+  - **Open results** on any search runs it on your own screen.
+  - **Summarize** saves a brief that everyone in the trip sees.
+  - Friends who aren't on `ALLOWED_EMAILS` use the AI and real fares only inside the trip, within a daily allowance
+    (60 AI turns and 300 fare lookups per trip per day). A shared link can never run up your bill.
 
 The model call needs an OpenRouter key: `OPENROUTER_API_KEY` in `.env` for Docker, or the Worker's secret on the web
 version. The model is set with `FLIGHTAGENT_CHAT_MODEL` (Worker: `CHAT_MODEL`).

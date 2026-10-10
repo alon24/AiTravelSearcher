@@ -29,7 +29,7 @@ fares. Skyhop never books or takes payment; it hands the user off to the airline
 | Natural-language chat via OpenRouter | `chat.py` (`POST /api/chat`, `flightagent-chat`); in-app "Ask Skyhop" is `web/chat.js` over `POST /api/chat/complete` |
 | Web UI: plain JS, no build step | `src/flightagent/web/` |
 | Server-less build for GitHub Pages: the engine ported to JS, `/api` answered in the page | `web/local/`, `tools/build_pages.py` |
-| Cloudflare Worker holding the API keys for Pages (Google sign-in, SerpApi, Jev) | `worker/` (see its README) |
+| Cloudflare Worker holding the API keys for Pages (Google sign-in, SerpApi, Jev, chat, shared trips) | `worker/` (see its README) |
 | Chrome extension that drives airline sites | `browser-extension/` (see its README) |
 | Architecture and decisions | `docs/DESIGN.md` (read before non-trivial changes) |
 

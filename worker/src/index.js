@@ -4,7 +4,10 @@
      GET  /health                   which services are configured, and whether the caller's token is accepted
      GET  /serpapi?origin&dest&...  one one-way Google Flights lookup through SerpApi (one credit)
      POST /decide                   a typed decision from Jev, as the Python service's /api/decide (decide.py)
-     POST /chat                     one model turn for the page's AI chat, as the Python service's /api/chat/complete */
+     POST /chat                     one model turn for the page's AI chat, as the Python service's /api/chat/complete
+     /trips...                      shared trips: a group chat per trip (trips.js) */
+
+import { SharedTrip, newTripId, tripStub, validTripId } from "./trips.js";
 
 const SERPAPI_URL = "https://serpapi.com/search.json";
 const JEV_URL = "https://openrouter.ai/api/alpha/decisions";
@@ -30,8 +33,8 @@ export const CITY_AIRPORTS = {
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-App-Token",
+  "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, X-App-Token, X-Trip",
   "Access-Control-Max-Age": "86400",
 };
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...CORS } });
@@ -47,39 +50,88 @@ async function tokenMatches(given, expected) {     // constant time: compare SHA
   return x.reduce((diff, v, i) => diff | (v ^ y[i]), 0) === 0;
 }
 
-const authCache = new Map();       // token -> {user, until}: one Google round trip per token every few minutes
+const authCache = new Map();       // token -> {who, until}: one Google round trip per token every few minutes
 const AUTH_TTL = 5 * 60_000;
 
-/** The signed-in Google account's email if Google issued this token to our client (and ALLOWED_EMAILS admits it), else null. */
+/** The Google account behind this token if Google issued it to our client: its email, and whether ALLOWED_EMAILS
+    lets it spend the keys (anyone verified may still join a shared trip they have the link to). */
 async function googleUser(token, env) {
   if (!token || !env.GOOGLE_CLIENT_ID) return null;
   const hit = authCache.get(token);
-  if (hit && hit.until > Date.now()) return hit.user;
-  let user = null, ttl = 60_000;
+  if (hit && hit.until > Date.now()) return hit.who;
+  let who = null, ttl = 60_000;
   const r = await fetch(`https://oauth2.googleapis.com/tokeninfo?access_token=${encodeURIComponent(token)}`);
   if (r.ok) {
     const t = await r.json();
     const email = String(t.email || "").toLowerCase();
     const allowed = (env.ALLOWED_EMAILS || "").split(",").map(e => e.trim().toLowerCase()).filter(Boolean);
     const ours = t.aud === env.GOOGLE_CLIENT_ID || t.azp === env.GOOGLE_CLIENT_ID;
-    if (ours && email && String(t.email_verified) === "true" && (!allowed.length || allowed.includes(email))) user = email;
+    if (ours && email && String(t.email_verified) === "true") who = { email, allowed: !allowed.length || allowed.includes(email) };
     ttl = Math.min(Math.max(Number(t.expires_in) || 0, 0) * 1000, AUTH_TTL);
   }
   if (authCache.size > 1000) authCache.clear();
-  authCache.set(token, { user, until: Date.now() + ttl });
-  return user;
+  authCache.set(token, { who, until: Date.now() + ttl });
+  return who;
 }
 
 const bearer = request => (/^Bearer\s+(.+)$/i.exec(request.headers.get("Authorization") || "") || [])[1]?.trim() || "";
 
+/** {email, allowed} for the caller, or null. */
 async function caller(request, env) {
-  if (await tokenMatches(request.headers.get("X-App-Token"), env.APP_TOKEN)) return "app-token";
+  if (await tokenMatches(request.headers.get("X-App-Token"), env.APP_TOKEN)) return { email: "app-token", allowed: true };
   return googleUser(bearer(request), env);
+}
+
+/** May this caller spend `n` of `kind` (chat turns, fare lookups)? Allowed accounts always; a guest only inside a
+    shared trip (X-Trip header) that still has some of today's allowance left. Returns an error Response or null. */
+async function mayspend(request, env, who, kind, n = 1) {
+  if (who.allowed) return null;
+  const trip = request.headers.get("X-Trip");
+  if (!validTripId(trip) || !env.TRIPS) return error("sign in with an allowed Google account", 403);
+  const r = await tripStub(env, trip)("/spend", { kind, n });
+  if (r.status === 404) return error("no such trip", 404);
+  return (await r.json()).ok ? null : error("this trip has used up today's allowance; try again tomorrow", 429);
 }
 
 // ------------------------------------------------------------------------------------------------ routes
 async function health(request, env) {
-  return json({ serpapi: !!env.SERPAPI_API_KEY, jev: !!env.OPENROUTER_API_KEY, chat: !!env.OPENROUTER_API_KEY, sign_in: !!env.GOOGLE_CLIENT_ID, user: await caller(request, env) });
+  const who = await caller(request, env);
+  return json({ serpapi: !!env.SERPAPI_API_KEY, jev: !!env.OPENROUTER_API_KEY, chat: !!env.OPENROUTER_API_KEY, sign_in: !!env.GOOGLE_CLIENT_ID,
+    trips: !!env.TRIPS, user: who && who.allowed ? who.email : null, guest: who && !who.allowed ? who.email : null });
+}
+
+// ------------------------------------------------------------------------------------------------ shared trips
+async function trips(request, env, url, who) {
+  if (!env.TRIPS) return error("shared trips are not set up on this Worker", 503);
+  const [, , id, sub] = url.pathname.split("/");
+  if (!id && request.method === "POST") {                // start one: allowed accounts only (it spends their keys)
+    if (!who.allowed) return error("only an allowed account can start a shared trip", 403);
+    const body = await readJson(request);
+    if (!body) return error("invalid JSON", 400);
+    const tripId = newTripId(), r = await tripStub(env, tripId)("/create", { ...body, owner: who.email });
+    return r.ok ? json({ id: tripId }, 201) : json(await r.json(), r.status);
+  }
+  if (!validTripId(id)) return error("not found", 404);
+  const call = tripStub(env, id);
+  let r;
+  if (!sub && request.method === "GET") {
+    r = await env.TRIPS.get(env.TRIPS.idFromName(id)).fetch(`https://trip/read?${new URLSearchParams({ who: who.email, since: url.searchParams.get("since") || "0" })}`);
+  } else if (sub === "messages" && request.method === "POST") {
+    const body = await readJson(request);
+    if (!body) return error("invalid JSON", 400);
+    r = await call("/post", { kind: body.kind, text: body.text, data: body.data, who: body.kind === "ai" ? "ai" : who.email });
+  } else if (!sub && request.method === "PATCH") {
+    const body = await readJson(request);
+    if (!body) return error("invalid JSON", 400);
+    r = await call("/update", { title: body.title, brief: body.brief, request: body.request, who: who.email });
+  } else return error("not found", 404);
+  return json(await r.json(), r.status);
+}
+
+async function readJson(request) {
+  const raw = await request.text();
+  if (raw.length > MAX_CHAT_CHARS + 4_000) return null;
+  try { return JSON.parse(raw); } catch { return null; }
 }
 
 /** The SerpApi query for one one-way lookup, or an error message. */
@@ -182,10 +234,13 @@ export default {
     const url = new URL(request.url);
     try {
       if (url.pathname === "/health" && request.method === "GET") return await health(request, env);
-      if (!(await caller(request, env))) return error("sign in with an allowed Google account", 401);
-      if (url.pathname === "/serpapi" && request.method === "GET") return await serpapi(url, env);
+      const who = await caller(request, env);
+      if (!who) return error("sign in with Google", 401);
+      if (url.pathname === "/trips" || url.pathname.startsWith("/trips/")) return await trips(request, env, url, who);
+      if (url.pathname === "/serpapi" && request.method === "GET") return (await mayspend(request, env, who, "serpapi")) || await serpapi(url, env);
+      if (url.pathname === "/chat" && request.method === "POST") return (await mayspend(request, env, who, "chat")) || await chat(request, env);
+      if (!who.allowed) return error("sign in with an allowed Google account", 403);
       if (url.pathname === "/decide" && request.method === "POST") return await decide(request, env);
-      if (url.pathname === "/chat" && request.method === "POST") return await chat(request, env);
     } catch {
       return error("upstream request failed", 502);
     }
@@ -193,4 +248,5 @@ export default {
   },
 };
 
+export { SharedTrip };
 export { serpapi as _serpapi, authCache as _authCache };

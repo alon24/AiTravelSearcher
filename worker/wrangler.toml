@@ -11,3 +11,12 @@ keep_vars = true
 [vars]
 JEV_MODEL = "typesafe/jev-1.13"
 CHAT_MODEL = "openai/gpt-4o-mini"
+
+# Shared trips (src/trips.js): one SQLite-backed Durable Object per trip; available on the Workers free plan.
+[[durable_objects.bindings]]
+name = "TRIPS"
+class_name = "SharedTrip"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SharedTrip"]

@@ -10,12 +10,22 @@ service for it. The Docker version doesn't need the Worker, because its Python s
 | `GET /serpapi?origin=TLV&dest=ROM&date=2026-11-02&currency=USD&adults=1&max_stops=1` | Runs one one-way Google Flights lookup through SerpApi, costing one credit. |
 | `POST /decide` | Asks Jev (via OpenRouter) for a typed decision, like the Python service's `/api/decide`. |
 | `POST /chat` | Runs one model turn for the in-app AI chat, like the Python service's `/api/chat/complete`. The model is the `CHAT_MODEL` variable. |
+| `POST /trips`, `GET /trips/:id?since=N`, `POST /trips/:id/messages`, `PATCH /trips/:id` | Shared trips: a group chat per trip, stored in a Durable Object (`src/trips.js`). |
 
 Every route except `/health` needs one of these:
 
 - A Google access token issued to Skyhop's OAuth client. If `ALLOWED_EMAILS` is set, the account must also be on that
   list.
 - `X-App-Token: <APP_TOKEN>`, for scripts.
+
+Any other verified Google account counts as a **guest**:
+- A guest can join shared trips it has the link to.
+- A guest can use `/chat` and `/serpapi` only inside such a trip (the `X-Trip` header), out of that trip's daily
+  allowance.
+- Only allowed accounts can start trips or use `/decide`.
+
+Shared trips use a SQLite-backed Durable Object, which the Workers free plan includes. The first deploy creates it from
+`wrangler.toml`, so there's nothing to set up by hand.
 
 ## One-time setup
 

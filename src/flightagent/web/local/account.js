@@ -13,7 +13,8 @@
   const configured = () => !!(rt().workerUrl && rt().googleClientId);
 
   let session = load();     // {token, until, email, scopes}
-  let health = null;        // the Worker's /health for this session: {serpapi, jev, sign_in, user}
+  let health = null;        // the Worker's /health for this session: {serpapi, chat, trips, user, guest}
+  let trip = null;          // the shared trip on screen (trip.js): a guest's AI and fares are billed to it
   let checked = null;
 
   function load() {
@@ -23,18 +24,21 @@
     session = s;
     try { s ? root.localStorage.setItem(KEY, JSON.stringify(s)) : root.localStorage.removeItem(KEY); } catch { /* private mode */ }
   }
-  const signedIn = () => !!(session && session.until > Date.now() && health && health.user);
+  const who = () => (session && session.until > Date.now() && health && (health.user || health.guest)) || null;
+  const signedIn = () => !!who();
+  const allowed = () => signedIn() && !!health.user;     // on ALLOWED_EMAILS: may spend the keys outside a shared trip
 
   /** The Worker's JSON for `path`, sent with the Google token; a refused token signs the page out. */
   async function get(path, opts = {}) {
     const headers = { ...(opts.headers || {}) };
     if (session) headers.Authorization = `Bearer ${session.token}`;
+    if (trip) headers["X-Trip"] = trip;
     const r = await fetch(rt().workerUrl.replace(/\/+$/, "") + path, { ...opts, headers });
     let j = null;
     try { j = await r.json(); } catch { /* not JSON */ }
     if (r.status === 401 && session) {        // the token expired or was revoked: tell the page once
       save(null);
-      if (health) health = { ...health, user: null };
+      if (health) health = { ...health, user: null, guest: null };
       root.dispatchEvent(new CustomEvent("skyhop-signed-out"));
     }
     if (!r.ok) throw new Error(r.status === 401 ? "Sign in again to keep getting live fares" : (j && j.error) || `Skyhop's server answered ${r.status}`);
@@ -47,7 +51,7 @@
     if (!checked || force) {
       checked = get("/health").catch(() => null).then(h => {
         health = h;
-        if (session && !(h && h.user)) save(null);        // expired or no longer allowed
+        if (session && !(h && (h.user || h.guest))) save(null);        // expired or revoked
         return h;
       });
     }
@@ -82,9 +86,9 @@
     save({ ...(await requestToken(SIGN_IN)), email: null });
     const h = await check(true);
     if (!h) { save(null); throw new Error("Couldn't reach Skyhop's server"); }
-    if (!h.user) throw new Error("This Google account isn't allowed to use Skyhop's live fares");
-    save({ ...session, email: h.user });
-    return h.user;
+    if (!h.user && !h.guest) { save(null); throw new Error("Google didn't confirm this account"); }
+    save({ ...session, email: h.user || h.guest });
+    return session.email;
   }
 
   /** A token that may also write Skyhop's own files in the user's Google Drive (drive.file: nothing else in their Drive).
@@ -103,12 +107,14 @@
   function signOut() {
     if (session) fetch(REVOKE, { method: "POST", mode: "no-cors", body: new URLSearchParams({ token: session.token }) }).catch(() => {});
     save(null);
-    if (health) health = { ...health, user: null };
+    if (health) health = { ...health, user: null, guest: null };
   }
 
   L.account = {
     configured, check, signIn, signOut, get, signedIn, driveToken, hasDrive,
-    email: () => (signedIn() ? session.email || health.user : null),
-    live: () => signedIn() && !!health.serpapi,          // real fares through SerpApi
+    allowed, email: who,
+    live: () => (allowed() || (signedIn() && !!trip)) && !!health.serpapi,          // real fares through SerpApi
+    trips: () => !!(health && health.trips),
+    setTrip: id => { trip = id || null; },
   };
 })(typeof window !== "undefined" ? window : globalThis);
