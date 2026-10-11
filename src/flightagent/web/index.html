@@ -63,15 +63,15 @@
     <div class="card step-panel" id="step-panel">
       <div id="step1-panel">
         <form class="search" id="form" autocomplete="off" novalidate>
-          <div class="row two">
+          <div class="row two" data-wstep="1">
             <div class="field"><label for="from-in">From</label><div class="ac" id="ac-from"></div></div>
             <div class="field"><label for="to-in">To <span class="hint">· add several to compare</span></label><div class="ac" id="ac-to"></div></div>
           </div>
 
           <div class="row dates">
-            <div class="field"><label for="start">Earliest departure</label><div class="input"><input type="date" id="start" required></div></div>
-            <div class="field"><label for="end">Latest return</label><div class="input"><input type="date" id="end" required></div></div>
-            <div class="field">
+            <div class="field" data-wstep="2"><label for="start">Earliest departure</label><div class="input"><input type="date" id="start" required></div></div>
+            <div class="field" data-wstep="2"><label for="end">Latest return</label><div class="input"><input type="date" id="end" required></div></div>
+            <div class="field" data-wstep="2">
               <div class="lbl-row"><span class="lbl">Trip length</span>
                 <div class="seg mini" role="radiogroup" aria-label="Count trip length in">
                   <label><input type="radio" name="unit" value="nights" checked>Nights</label>
@@ -98,7 +98,7 @@
               </div>
               <span class="hint" id="nights-hint" role="status"></span>
             </div>
-            <div class="field">
+            <div class="field" data-wstep="3">
               <span class="lbl">Stops (each way)</span>
               <div class="seg" role="radiogroup" aria-label="Stops">
                 <label><input type="radio" name="stops" value="0">Direct</label>
@@ -106,7 +106,7 @@
                 <label><input type="radio" name="stops" value="2">Up to 2</label>
               </div>
             </div>
-            <div class="field">
+            <div class="field" data-wstep="4">
               <span class="lbl">Currency</span>
               <div class="seg" role="radiogroup" aria-label="Currency">
                 <label><input type="radio" name="currency" value="ILS" checked>₪ ILS</label>
@@ -118,7 +118,7 @@
             </div>
           </div>
 
-          <div class="row pax">
+          <div class="row pax" data-wstep="3">
             <div class="field"><label for="adults">Adults</label>
               <div class="stepper"><button type="button" data-step="-1" data-for="adults" aria-label="Fewer travellers">−</button><input id="adults" type="number" min="1" max="9"><button type="button" data-step="1" data-for="adults" aria-label="More travellers">+</button></div></div>
             <div class="field kids-field">
@@ -128,7 +128,7 @@
             </div>
           </div>
 
-          <details class="more" id="more">
+          <details class="more" id="more" data-wstep="4">
             <summary>More options</summary>
             <div class="more-grid">
               <div class="field"><label for="back-in">Fly home from <span class="hint">· different airport (open-jaw)</span></label><div class="ac" id="ac-back"></div></div>
@@ -244,6 +244,7 @@
 <script src="local/backend.js" defer></script>
 <script src="airport-search.js" defer></script>
 <script src="hub.js" defer></script>
+<script src="mobile.js" defer></script>
 <script src="app.js" defer></script>
 <script src="builder.js" defer></script>
 <script src="finder.js" defer></script>

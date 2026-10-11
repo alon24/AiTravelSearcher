@@ -71,7 +71,7 @@ def chat(page, base_url):
 
 
 def _open(p):
-    p.click("#chat-launch")
+    p.click("#chat-launch:visible, .m-nav [data-nav=ask]:visible")   # a phone has it in the bottom bar
     p.wait_for_selector("#chat.open")
 
 
@@ -218,9 +218,11 @@ def test_a_brief_saves_to_google_drive(page, chat):
 
 def test_the_chat_fits_a_phone(page, chat):
     page.set_viewport_size({"width": 360, "height": 800})
-    chat_btn, builder_btn = page.locator("#chat-launch").bounding_box(), page.locator("#tb-launch").bounding_box()
-    assert chat_btn["y"] + chat_btn["height"] <= builder_btn["y"], "the two launchers must not overlap"
-    _open(page)
+    # On a phone the bottom bar carries Ask and Trip builder, side by side and never over each other
+    ask, trip = page.locator(".m-nav [data-nav=ask]").bounding_box(), page.locator(".m-nav [data-nav=trip]").bounding_box()
+    assert ask["x"] + ask["width"] <= trip["x"] and ask["y"] + ask["height"] <= 800, "the two launchers must not overlap"
+    page.click(".m-nav [data-nav=ask]")
+    page.wait_for_selector("#chat.open")
     box = page.locator("#chat").bounding_box()
     assert round(box["width"]) == 360 and page.locator("#chat-summarize").is_visible() and page.locator("#chat-new").is_visible()
     assert page.locator("#chat-input").bounding_box()["width"] > 200, "room to type on a phone"

@@ -207,6 +207,7 @@ function writeForm(f) {
   displayCurrency = f.currency;
   $("#vot").value = f.vot; $("#vot-out").textContent = money(f.vot, f.currency) + "/h"; $("#top").value = f.top; $("#maxcalls").value = f.maxcalls;
   renderActiveFilters(readForm());
+  Mobile.wizardReset();   // a whole new form (a past search, an edit, a link): a phone shows it ready to review
 }
 function toRequest(f) {
   const err = m => ({ error: m });
@@ -470,6 +471,7 @@ function showStep(n) {
   $("#step-panel").hidden = false;
   $("#step1-panel").hidden = n !== 1;
   $("#step2-panel").hidden = n !== 2;
+  if (n === 1) Mobile.wizardReset();
   $("#step-panel").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 function hideStepPanel() {
@@ -581,11 +583,16 @@ function renderResult(row, opts = {}) {
   const res = row.result, cur = q.currency, daily = res.daily;
   const nights = lenRange(q.min_nights, q.max_nights);
   const via = Object.entries(res.sources || {}).map(([k, n]) => `${k} ×${n}`).join(", ");
+  const phone = Mobile.isPhone();
+  const lookups = `${res.api_calls + res.cache_hits} lookups${via ? ` · ${via}` : ""}${res.cache_hits ? ` · ${res.cache_hits} cached` : ""}`;
+  const subLine = (...badges) => (phone   // a phone gets one line with the sources; the rest opens on tap
+    ? h("details", { class: "res-sub res-meta" }, h("summary", {}, `${fmtShort(day(q.window_start))} – ${fmtShort(day(q.window_end))} · ${nights} · ${lookups} · ${ago(row.created)}`), badges)
+    : h("div", { class: "res-sub" }, `${fmtShort(day(q.window_start))} – ${fmtShort(day(q.window_end))} · ${nights}`, badges));
   box.append(h("div", { class: "res-head" },
     h("div", {},
       h("h2", {}, `${q.origin} → ${q.destinations.join(", ")}`),
-      h("div", { class: "res-sub" }, `${fmtShort(day(q.window_start))} – ${fmtShort(day(q.window_end))} · ${nights}`,
-        h("span", { class: "badge ok" }, `${res.api_calls + res.cache_hits} lookups${via ? ` · ${via}` : ""}${res.cache_hits ? ` · ${res.cache_hits} cached` : ""}`),
+      subLine(
+        h("span", { class: "badge ok" }, lookups),
         paxCount(q) > 1 && h("span", { class: "badge run" }, `${paxLabel(q)} · totals`),
         (q.airlines_exclude || []).length || (q.airlines_include || []).length ? h("span", { class: "badge warn" }, `${(q.airlines_include || []).length ? "Only" : "Excluding"}: ${((q.airlines_include || []).length ? q.airlines_include : q.airlines_exclude).map(c => (config.airlines || {})[c] || c).join(", ")}`) : null,
         (q.carry_on_bags || q.checked_bags) ? h("span", { class: "badge run", title: "Google adds estimated bag fees only where it has them (mostly US and Europe)" }, `🧳 est. fees for ${[q.carry_on_bags ? "cabin bag" : "", q.checked_bags ? "checked bag" : ""].filter(Boolean).join(" + ")} included`) : null,
@@ -593,7 +600,7 @@ function renderResult(row, opts = {}) {
         h("span", { class: "badge run" }, `${res.elapsed_s}s`), h("span", {}, ago(row.created)),
         res.data_from && Date.now() / 1000 - res.data_from > 1800 ? h("span", { class: "badge warn", title: "Filtering reuses saved flights. Press Search again to fetch fresh prices." }, `Flight data from ${ago(res.data_from)} · Search again to refresh`) : null)),
     h("div", { class: "actions" },
-      h("button", { class: "btn", type: "button", onclick: () => { writeForm(requestToForm(q)); onFormChange(); showStep(1); } }, "Edit"),
+      h("button", { class: "btn res-edit", type: "button", onclick: () => { writeForm(requestToForm(q)); onFormChange(); showStep(1); } }, "Edit"),
       h("button", { class: "btn", type: "button", onclick: () => submitSearch(q) }, "Search again"))));
   res.warnings.forEach(w => box.append(h("div", { class: "note" }, w)));
   renderStepAirlines(res, q, cur, row);
@@ -642,7 +649,9 @@ function renderResult(row, opts = {}) {
   // With several destinations and/or trip lengths there is no single "cheapest trip": show the trip-length x destination matrix
   // and the grouped trips table (compare.js). One combination only (or a search saved before `cells` existed) keeps the three picks.
   const useCompare = (res.cells || []).length > 1;
-  if (useCompare) {
+  if (phone) {
+    // Mobile.results() below shows the picks and every trip as compact rows instead
+  } else if (useCompare) {
     const cmpHost = h("div", { class: "cmp" });
     box.append(cmpHost);
     Compare.render(cmpHost, { res, q, cur, pax: paxCount(q), state: (view.cmp ||= {}) });
@@ -681,26 +690,30 @@ function renderResult(row, opts = {}) {
     h("button", { type: "button", "data-t": t, "aria-pressed": String(view.tab === t), onclick: () => { view.tab = t; syncTabs(); redraw(); } }, label));
   const syncMetric = () => { metricBtns.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.m === view.metric))); redraw(); drawDetail(); };
   const syncTabs = () => tabBtns.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.t === view.tab)));
-  box.append(h("div", { class: "card panel" },
+  const chartPanel = h("div", { class: "card panel" },
     h("div", { class: "panel-head" },
-      h("div", {}, h("h3", {}, view.metric === "cheapest" ? "Price by departure day" : "Price by departure day"),
+      h("div", {}, h("h3", {}, "Price by departure day"),
         h("p", {}, "Each column is the trip leaving that day. Click one for details.")),
       h("div", { class: "actions" }, h("div", { class: "tabs", role: "group", "aria-label": "Metric" }, metricBtns), h("div", { class: "tabs", role: "group", "aria-label": "View" }, tabBtns))),
-    legendHost, chartHost, tableHost));
+    legendHost, chartHost, tableHost);
 
   const mixHost = h("div", { class: "mm" });
-  box.append(h("div", { class: "card panel" }, h("div", { class: "panel-head" }, h("div", {}, h("h3", {}, "Mix & match flights"),
-    h("p", {}, "Every flight for the day you picked on the chart. Choose any outbound with any return: the total and the time between them update.")))), mixHost);
+  const mixPanel = h("div", { class: "card panel" }, h("div", { class: "panel-head" }, h("div", {}, h("h3", {}, "Mix & match flights"),
+    h("p", {}, "Every flight for the day you picked on the chart. Choose any outbound with any return: the total and the time between them update."))));
   const detailHost = h("div", { class: "trips" });
-  box.append(h("div", {}, h("h3", { style: "margin:6px 0 12px;font-size:18px;letter-spacing:-.02em" }, "Selected day"), detailHost));
-  if (res.top.length) box.append(h("div", {}, h("h3", { style: "margin:6px 0 12px;font-size:18px;letter-spacing:-.02em" }, "Top picks overall"),
-    h("div", { class: "trips" }, res.top.map(t => tripCard(t, cur, paxCount(q))))));
+  const selectedDay = h("div", {}, h("h3", { class: "sec-h" }, "Selected day"), detailHost);
+  if (phone) Mobile.results(box, { res, q, cur, pax: paxCount(q), state: (view.mobile ||= {}), days: [chartPanel, selectedDay], mix: [mixPanel, mixHost] });
+  else {
+    box.append(chartPanel, mixPanel, mixHost, selectedDay);
+    if (res.top.length) box.append(h("div", {}, h("h3", { class: "sec-h" }, "Top picks overall"),
+      h("div", { class: "trips" }, res.top.map(t => tripCard(t, cur, paxCount(q))))));
+  }
 
   function select(date) { view.sel = date; if (view.pickOpen) { view.pickOpen = null; syncPicks(); } redraw(); drawDetail(); }
   function drawDetail() {
     const d = byDay.get(view.sel), trip = d && tripOf(d);
     const extra = trip ? (res.unpriced || []).filter(u => trip.legs.some(l => l.segments[0].departs.slice(0, 10) === u.date && l.origin === u.origin && l.destination === u.destination)) : [];
-    detailHost.replaceChildren(...[trip ? tripCard(trip, cur, paxCount(q)) : h("div", { class: "note" }, "Pick a day on the chart."),
+    detailHost.replaceChildren(...[trip ? (phone ? Mobile.card(trip, cur, paxCount(q)) : tripCard(trip, cur, paxCount(q))) : h("div", { class: "note" }, "Pick a day on the chart."),
       extra.length ? h("div", { class: "note" }, h("b", {}, "Also flying that day, but Google shows no price: "),
         extra.map(u => `${u.flights} ${u.airline} ${fmtTime(day(u.departs))}→${fmtTime(day(u.arrives))} (${u.origin}→${u.destination})`).join("  ·  ")) : null].filter(Boolean));
     MixMatch.render(mixHost, { row, q, res, trip, outDate: view.sel, days: [...byDay.keys()].sort(), onPickDay: date => select(date), paxLabel: paxLabel(q) });
@@ -1226,6 +1239,9 @@ function legCard(leg, title, cur) {
     return search ? h("button", { type: "button", class: "btn small accent", title: assistStatus(code) === "discover" ? "First time for this airline: opens its site and learns its results page from ONE search you do by hand; after that this button does the search for you" : "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
       onclick: search }, `✈ Select ${code}${segs[0].flight_number} on site ↗`) : null;
   }).filter(Boolean) : [];
+  const extra = [   // on a phone these fold under "More": the airline and Google Flights (where the price came from) stay in view
+    h("button", { type: "button", class: "btn small", title: "See every flight that day, including ones with no price", onclick: () => Builder.browse(leg.origin, leg.destination, leg.segments[0].departs.slice(0, 10)) }, "All flights that day"),
+    h("button", { type: "button", class: "btn small", onclick: () => Builder.addFlight(leg, { pax: paxLabel(resultsQuery), currency: cur }) }, "＋ Trip builder")];
   return h("div", { class: "leg" },
     h("div", { class: "leg-top" },
       h("div", { class: "leg-title" }, title, h("small", {}, [...seen.values()].join(" · "))),
@@ -1233,9 +1249,7 @@ function legCard(leg, title, cur) {
     leg.usual_price ? h("div", { class: "seg-meta usual", title: "Google Flights' price insight for this search" },
       `Google: this search usually costs ${money(leg.usual_price[0], cur)}–${money(leg.usual_price[1], cur)}`) : null,
     legTimes(leg),
-    rows, co2Note(leg), h("div", { class: "actions" }, autoSelect, links, direct,
-      h("button", { type: "button", class: "btn small", title: "See every flight that day, including ones with no price", onclick: () => Builder.browse(leg.origin, leg.destination, leg.segments[0].departs.slice(0, 10)) }, "All flights that day"),
-      h("button", { type: "button", class: "btn small", onclick: () => Builder.addFlight(leg, { pax: paxLabel(resultsQuery), currency: cur }) }, "＋ Trip builder")));
+    rows, co2Note(leg), h("div", { class: "actions" }, autoSelect, links, direct, Mobile.isPhone() ? h("details", { class: "more-acts" }, h("summary", {}, "More"), h("div", { class: "actions" }, extra)) : extra));
 }
 
 // ------------------------------------------------------------------ chrome: theme, sidebar, init
@@ -1482,7 +1496,7 @@ async function init() {
   $("#step-1").addEventListener("click", () => showStep(1));
   $("#step-2").addEventListener("click", () => showStep(2));
   $("#step-3").addEventListener("click", () => {
-    const picks = $(".picks");
+    const picks = $(".picks, .cmp, .m-results");
     if (picks) picks.scrollIntoView({ behavior: "smooth", block: "start" }); else toast("Run a search first.");
   });
   $("#form").addEventListener("submit", async e => {
@@ -1493,6 +1507,7 @@ async function init() {
     try { await submitSearch(req); } catch (err) { showFormError(err.message); }
   });
   Builder.init();
+  Mobile.init({ onLayoutChange: () => { if (currentRow && currentRow.id === current && currentRow.status === "done") renderResult(currentRow, { keepScroll: true }); } });
   Finder.init();
   Chat.init();
   openSharedSearch();

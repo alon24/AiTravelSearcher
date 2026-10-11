@@ -57,6 +57,11 @@ flowchart TD
 purchase happens on the airline's own website, in your own name, with your own payment details — Skyhop is
 never in that path.
 
+**On a phone** the form is a four-step wizard (Where, When, Who, Review), and results open on the top picks (cheapest,
+best value, fastest, cheapest direct) followed by every trip as a short card you can filter by destination, length and
+direct flights. Tap a card for its flights and booking buttons; Back returns to the list. The price chart and Mix &
+match are tabs, and a bar at the bottom holds Search, Trips, Days, Ask Skyhop and the Trip builder.
+
 ### 2. What happens when you click "Find flights"
 
 ```mermaid

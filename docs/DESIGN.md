@@ -542,7 +542,28 @@ Design: `docs/stitch/DESIGN.md` ("Results screen rules"). What changed in the ap
   drops to 3 then 2 columns on narrower windows. A fresh page in simple mode no longer shows the false "length was set to fit" note.
 - **Airline names**: one rule everywhere (`airlineName()` in app.js): the provider's label, unless our own list spells the same name out in full
   ("ITA" becomes "ITA Airways"; "Israir Airlines" stays).
-- Not done yet: mobile.
+- Mobile: see "Phone layout" below.
+
+### Phone layout (2026-10-11)
+
+ilan: "the ui is not usable on mobile, too many options, too many flights". Measured on a 390px-wide screen with demo fares, a
+two-city search was **25,300px tall** (about 30 screens): 16 fully expanded trip cards of ~1,100px each, the compare table
+clipped its price column, and the floating launchers covered the form. Under 720px, `web/mobile.js` now changes the page (desktop
+unchanged; turning the window wide or narrow re-renders the results):
+- **Search wizard:** Where → When → Who (stops, travellers) → Review (currency, More options, Find flights). Fields carry
+  `data-wstep`; CSS shows one step. Next validates with `toRequest()` and stops on the step an error belongs to. A form filled
+  as a whole (`writeForm()`: a past search, Edit, Travel Hub, the chat) opens on the review. "Search now" submits from any step.
+- **Results:** tabs Trips / Days (the price chart and the selected day) / Mix & match. Trips = top picks (cheapest, best value,
+  fastest, cheapest direct; one card per trip carrying every label it earned) and every distinct trip the search ranked
+  (`cells`, `daily` cheapest and best value, `top`, de-duplicated by flights) as two-line cards, 10 at a time, with destination,
+  length and Direct chips and a sort. The same search measures **2,700px**. The results header folds its badges (lookups,
+  sources, conversion, data age) into one line that opens on tap: nothing is dropped.
+- **A trip, full screen:** tapping a card opens the usual trip card in a sheet; Back (or the phone's Back) closes it. Each leg
+  keeps the airline buttons and Google Flights (where the price came from) in view; "All flights that day" and "＋ Trip
+  builder" fold under "More".
+- **Bottom bar:** Search, Trips, Days, Ask, Trip builder (with its count). It mirrors `#chat-launch` and `#tb-count`, which stay
+  the source of truth, and replaces those floating buttons on phones.
+- Tests: `tests/test_mobile_ui.py`.
 
 ### "Check on <airline> site" for every airline (Sept 2026)
 

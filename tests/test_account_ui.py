@@ -226,7 +226,8 @@ def test_search_links_learned_on_the_computer_work_on_the_phone(page, worker):
     _sign_in(page)
     _fill(page, end="2026-11-04", nights=1)
     page.click("#go")
-    btn = page.locator(".site-btn:visible", has_text="Search on Zed Air site").first
+    page.locator(".m-card").first.click()                          # a phone lists trips compactly: tap one for its flights
+    btn = page.locator(".m-sheet .site-btn:visible", has_text="Search on Zed Air site").first
     btn.wait_for(timeout=60000)
     assert re.fullmatch(r"https://www\.zed\.example/search/tlv-ROM/0[2-4]112026", btn.get_attribute("href"))
 
