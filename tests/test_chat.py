@@ -190,6 +190,15 @@ def test_system_prompt_forcefully_instructs_combining_multiple_destinations():
     assert "NEVER call the tool once per city" in p
 
 
+def test_system_prompt_searches_what_the_user_names_without_arguing():
+    """ilan, 2026-10-11: asked for Denmark after "somewhere warm", the model argued about the weather instead of
+    searching. Same rules as the in-app chat (web/chat.js)."""
+    p = chatmod.system_prompt()
+    assert "Never argue with or second-guess their choice" in p
+    assert "the latest wish wins: search it" in p and "never as a question" in p
+    assert "if they write Hebrew, answer in Hebrew" in p
+
+
 # ------------------------------------------------------------------ POST /api/chat/complete (the web app's chat)
 def _complete(body, header=True):
     return TestClient(app).post("/api/chat/complete", json=body, headers={"X-Skyhop": "1"} if header else {})

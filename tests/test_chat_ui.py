@@ -112,6 +112,18 @@ def test_a_question_without_a_search_is_just_answered(page, chat):
     assert page.locator(".msg.tool").count() == 0
 
 
+def test_the_model_is_told_to_search_what_the_user_names_without_arguing(page, chat):
+    """ilan, 2026-10-11: asked for Denmark after "somewhere warm", the model argued about the weather three times, in
+    English, instead of searching. The page's instructions now say the user's latest wish wins, in their language."""
+    _open(page)
+    _say(page, "דנמרק")
+    page.wait_for_selector(".msg.ai")
+    rules = chat["asked"][0]["messages"][0]["content"]
+    assert "Never argue with or second-guess their choice" in rules
+    assert "the latest wish wins: search it" in rules and "never as a question" in rules
+    assert "if they write Hebrew, answer in Hebrew" in rules
+
+
 def test_conversations_are_remembered_after_a_reload(page, chat):
     _ask_rome(page)
     page.reload()

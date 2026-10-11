@@ -96,6 +96,9 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
    - **Where things run.** The conversation and its one tool run in the page. Only the model call leaves it, through
      `POST /api/chat/complete` (`chat.complete`, server) or the Worker's `POST /chat` (Pages). Both add the key, fix
      the model and bound a call: at most 80 messages, 80k characters, 4 tools and 800 output tokens.
+   - **The user decides** (ilan, 2026-10-11, after the model argued three times that Denmark isn't warm in November).
+     The system prompt (here and in `chat.py`) says: search the place they name; the latest wish beats an earlier one
+     and a clash gets a few words, never a question; answer in the user's language.
    - **The `search_flights` tool.** It takes `SearchRequest` fields. It validates them with the JS port of the
      request model, estimates, and runs the search through the normal `/api/searches` route, so the form fills in and
      the results render as for a typed search. It then hands the model a digest: the top 5 trips (whole prices), the
