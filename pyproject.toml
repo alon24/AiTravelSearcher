@@ -6,7 +6,7 @@ requires-python = ">=3.10"
 dependencies = ["fastapi", "uvicorn[standard]", "pydantic>=2", "httpx", "python-dotenv", "primp>=2", "selectolax", "typing_extensions", "tzdata"]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = ["pytest", "pytest-xdist"]
 # On-demand El Al verification (providers/elal_verify.py) -- currently blocked by El Al's own
 # anti-bot vendor (see docs/DESIGN.md); kept in case that changes. Not a core dependency.
 verify = ["playwright"]

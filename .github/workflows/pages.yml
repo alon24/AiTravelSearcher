@@ -33,7 +33,7 @@ jobs:
           node-version: 22
       - run: pip install -e '.[dev,verify]'
       - run: python -m playwright install --with-deps chromium
-      - run: pytest -q -rs
+      - run: pytest -q -rs -n auto           # tests run in parallel; each worker starts its own servers
       - run: node src/flightagent/web/airport-search.test.js
       - run: node src/flightagent/web/hub.test.js
 
