@@ -294,6 +294,17 @@ def test_gflights_query_marks_each_place_as_an_airport():
     assert b"\x72\x07\x08\x01\x12\x03IST" in base64.b64decode(tfs("TLV", "IST", "2026-10-27"))
 
 
+def test_gflights_landing_page_is_an_error_not_no_flights():
+    """Google answers a query it can't read with its start page: that must fail loudly, not read as "no flights"."""
+    from flightagent.providers.gflights import parse_html
+
+    script = "<script class=\"ds:1\">AF_initDataCallback({key: 'ds:1', data:[null,null,null,null], sideChannel: {}});</script>"
+    with pytest.raises(RuntimeError, match="landing page"):
+        parse_html(f"<html><head><title>Find Cheap Flights Worldwide & Track Prices</title></head><body>{script}</body></html>",
+                   "TLV", "FCO", "USD")
+    assert parse_html(f"<html><head><title>Tel Aviv to Rome</title></head><body>{script}</body></html>", "TLV", "FCO", "USD") == []
+
+
 def test_fallback_provider_and_selection(monkeypatch):
     from flightagent.providers import FallbackProvider, get_provider
 

@@ -64,7 +64,10 @@ export function resultGroups(html) {
   const raw = script[1].slice(at + 5, script[1].lastIndexOf(","));
   if (at < 0 || raw.endsWith("errorHasStatus: true")) return [];
   const payload = JSON.parse(raw);
-  return [2, 3].flatMap(i => (payload[i] && payload[i][0]) || []);
+  const groups = [2, 3].flatMap(i => (payload[i] && payload[i][0]) || []);
+  if (!groups.length && /<title[^>]*>\s*Find Cheap Flights/.test(html))   // Google's start page (gflights.LANDING_TITLE)
+    throw new Error("Google returned its landing page instead of results (it did not understand the query)");
+  return groups;
 }
 
 /** GET /gflights: one lookup, tried twice. Answers {groups, url} for the page to parse: `url` is the Google Flights

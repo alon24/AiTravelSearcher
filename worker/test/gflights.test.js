@@ -43,6 +43,12 @@ test("a page without results says why, after one retry", async () => {
   assert.equal(google.length, 2);
 });
 
+test("Google's landing page is an error, not 'no flights'", () => {
+  const script = `<script class="ds:1">AF_initDataCallback({key: 'ds:1', data:[null,null,null,null], sideChannel: {}});</script>`;
+  assert.throws(() => resultGroups(`<html><head><title>Find Cheap Flights Worldwide & Track Prices</title></head><body>${script}</body></html>`), /landing page/);
+  assert.deepEqual(resultGroups(`<html><head><title>Tel Aviv to Rome</title></head><body>${script}</body></html>`), []);
+});
+
 test("Google's own 'no flights' answer is an empty list, not an error", () => {
   const html = `<script class="ds:1">AF_initDataCallback({key: 'ds:1', data:null, errorHasStatus: true, sideChannel: {}});</script>`;
   assert.deepEqual(resultGroups(html), []);

@@ -19,6 +19,7 @@ def _time(value: list[int | None] | None) -> tuple[int, int]:
 
 
 URL = "https://www.google.com/travel/flights"
+LANDING_TITLE = "Find Cheap Flights"   # Google's start page, seen 2026-10-11 for a query it could not read
 
 
 def _at(value, *path):
@@ -81,6 +82,9 @@ def parse_html(html: str, origin: str, dest: str, currency: str, link: str | Non
     for idx in (2, 3):
         if len(payload) > idx and payload[idx] and payload[idx][0]:
             groups += payload[idx][0]
+    title = tree.css_first("title")
+    if not groups and title is not None and title.text().startswith(LANDING_TITLE):
+        raise RuntimeError("Google returned its landing page instead of results (it did not understand the query)")
     return parse_groups(groups, origin, dest, currency, link)
 
 
