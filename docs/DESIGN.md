@@ -168,6 +168,18 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
      including Jev finding a flight in the airline tab.
    - **Unverified** (2026-10-10): the app on a real phone, and whether airline sites behave the same in a web view.
 
+8. **Travel Hub link (`web/hub.js`, added 2026-10-10).** [Travel Hub](https://github.com/alon24/travel-hub) keeps a whole
+   vacation as one Trip; Skyhop only supplies its flights.
+   - **In:** the hub opens `?from&to&back&start&end&nights&adults&children&trip&hub`. `SkyhopHub.fromParams` fills the
+     form (exact nights, expert mode), the query is removed so a reload starts clean, and `{trip, hub}` is kept in
+     `localStorage["skyhop.hub"]`. The Find flights button is scrolled to the middle and focused, so it is never hidden
+     under the floating Trip builder button.
+   - **Out:** **Save to Travel Hub** on a result card or in the Trip builder goes to `<hub>#/handoff/<base64url JSON>`
+     (`kind: "flights"`, v1). A leg's price is sent only when it is in the trip's currency, and is the total for every
+     traveller. `tests/fixtures/travel-hub-handoff.json` pins the JSON; the hub's own tests parse the same file.
+   - **`hub` is checked** (`safeHub`): https only, or http on localhost, so a link can't send flights elsewhere by
+     accident.
+
 The port found a real bug: Python subtracts two times of the *same* zone as wall-clock times, so a connection across a
 clock change (land FCO 01:00, leave CIA 03:00 on the night Rome springs forward) was reported as 2 h instead of 1 h.
 `itinerary._gap` now converts to UTC first.

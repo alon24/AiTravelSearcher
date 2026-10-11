@@ -53,6 +53,7 @@ cp .env.example .env                    # set FLIGHTAGENT_PROVIDER=mock to work 
 ```bash
 .venv/bin/pytest                                  # whole suite
 node src/flightagent/web/airport-search.test.js   # airport typo/alias search (run from repo root)
+node src/flightagent/web/hub.test.js              # Travel Hub link: search params in, handoff JSON out
 python3 tools/sync_assist_manifest.py --check     # extension manifest matches airlines.json
 (cd worker && node --test)                        # the Worker (also run by pytest)
 ```
@@ -69,6 +70,14 @@ python3 tools/sync_assist_manifest.py --check     # extension manifest matches a
   `pip install playwright` (in cloud containers pin `playwright==1.56.0` to match the preinstalled
   Chromium in `/opt/pw-browsers`; never run `playwright install` there).
 - UI changes need a Playwright test asserting the visible behaviour (layout, text, interaction).
+
+## Speed (learned 2026-10-10)
+
+- **While iterating, run only what you touched:** `pytest tests/test_<area>.py -k <name>`, and for UI tests one build
+  with `-k server` (the `[browser]` twin runs before the PR). The whole suite takes about 8 minutes: run it once, in the
+  background, before pushing.
+- Node checks (`node src/flightagent/web/*.test.js`, `cd worker && node --test`) take seconds; run them on every change
+  to those files.
 
 ## Conventions
 
