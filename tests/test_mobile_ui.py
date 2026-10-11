@@ -64,6 +64,14 @@ def test_a_filled_form_opens_on_the_review_and_searches_from_there(phone):
     assert phone.locator("#step-panel").is_hidden()
 
 
+def test_start_over_clears_the_form_and_returns_to_step_one(phone):
+    _fill(phone)
+    assert phone.locator(".wz-title").inner_text() == "Step 4 of 4 · Review"
+    phone.click(".wz-reset")
+    assert phone.locator(".wz-title").inner_text() == "Step 1 of 4 · Where"
+    assert phone.evaluate("readForm().to.length") == 0
+
+
 def test_search_now_skips_the_remaining_steps(phone):
     _fill(phone)
     phone.evaluate("Mobile.wizardTo(2)")

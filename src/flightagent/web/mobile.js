@@ -160,7 +160,8 @@ const Mobile = (() => {
     const when = `${fmtShort(day(f.start))} – ${fmtShort(day(f.end))} · ${lenMode === "any" ? "any length that fits" : lenRange(f.nmin, f.nmax)}`;
     const who = `${plural(f.adults, "adult")}${f.kids.length ? ` + ${plural(f.kids.length, "child")}` : ""} · ${f.stops === 0 ? "direct only" : `up to ${plural(f.stops, "stop")}`}`;
     wzReview.replaceChildren(...[[1, `${f.from[0] || "?"} → ${f.to.join(", ") || "?"}`], [2, when], [3, who]].map(([n, text]) =>
-      h("button", { type: "button", class: "wz-row", onclick: () => wizardTo(n) }, h("span", { class: "k" }, STEPS[n - 1]), h("span", { class: "v" }, text), h("span", { class: "c" }, "Change"))));
+      h("button", { type: "button", class: "wz-row", onclick: () => wizardTo(n) }, h("span", { class: "k" }, STEPS[n - 1]), h("span", { class: "v" }, text), h("span", { class: "c" }, "Change"))),
+      h("button", { type: "button", class: "btn ghost wz-reset", onclick: () => $("#new-search").click() }, "Start over"));
   }
   function initWizard() {
     const form = $("#form");
