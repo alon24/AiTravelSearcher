@@ -2,7 +2,7 @@ import { test, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import worker, { _authCache } from "../src/index.js";
-import { gflightsQuery, resultGroups } from "../src/gflights.js";
+import { gflightsQuery, readPage, resultGroups } from "../src/gflights.js";
 
 const FIXTURE = JSON.parse(readFileSync(new URL("../../tests/fixtures/gflights_tlv_fco_2026-10-05.json", import.meta.url), "utf8"));
 /** A Google Flights page as the scraper sees it: the results ride in the `ds:1` script. */
@@ -41,6 +41,12 @@ test("a page without results says why, after one retry", async () => {
   assert.equal(r.status, 502);
   assert.match((await r.json()).error, /robot check/);
   assert.equal(google.length, 2);
+});
+
+test("the page's price insight gives the range Google says the search usually costs", () => {
+  const insight = [5, [null, 124], [null, 66], [null, -59], [null, 60], [null, 110]];
+  assert.deepEqual(readPage(page([null, null, [FIXTURE.best], [FIXTURE.other], null, insight])).usual, [60, 110]);
+  assert.equal(readPage(page(PAYLOAD)).usual, null);
 });
 
 test("Google's landing page is an error, not 'no flights'", () => {

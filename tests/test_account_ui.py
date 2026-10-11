@@ -33,7 +33,8 @@ def _google(q):
     seg[3], seg[6], seg[8], seg[10], seg[11], seg[20], seg[21] = o, d, [9], [12], 180, ymd, ymd
     seg[14], seg[17], seg[22] = "29 in", "Airbus A320", ["GG", "7", None, "Gee Air"]
     flight = [None, None, [seg]] + [None] * 19 + [[None, None, -10, None, None, 1, 1, 180000, 200000]]
-    return {"groups": [[flight, [[None, 77]]]], "url": f"https://www.google.com/travel/flights?tfs={o}{d}{day}&curr=EUR"}
+    return {"groups": [[flight, [[None, 77]]]], "url": f"https://www.google.com/travel/flights?tfs={o}{d}{day}&curr=EUR",
+            "usual": [60, 110]}
 
 
 @pytest.fixture
@@ -116,6 +117,7 @@ def test_free_google_flights_fares_come_first(page, worker):
     # what Google shows per flight, and a link back to the exact Google search that priced it
     leg = page.locator(".leg").first
     assert "Airbus A320 · 29 in legroom" in leg.inner_text() and "180 kg CO₂ · 10% below typical" in leg.inner_text()
+    assert re.search(r"Google: this search usually costs \D*60\D*–\D*110", leg.inner_text())
     href = leg.get_by_role("link", name="Google Flights ↗").get_attribute("href")
     assert href.startswith("https://www.google.com/travel/flights?tfs=") and href.endswith("&curr=EUR")
     assert not [p for p, _ in worker["asked"] if p == "/serpapi"], "no SerpApi credits spent while Google answers"

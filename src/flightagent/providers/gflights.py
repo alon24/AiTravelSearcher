@@ -31,8 +31,10 @@ def _at(value, *path):
     return value
 
 
-def parse_groups(groups: list[list], origin: str, dest: str, currency: str, link: str | None = None) -> list[Offer]:
-    """`link` is the Google Flights page the fares came from, so "Google Flights" opens the very same search."""
+def parse_groups(groups: list[list], origin: str, dest: str, currency: str, link: str | None = None,
+                 usual: list[float] | None = None) -> list[Offer]:
+    """`link` is the Google Flights page the fares came from, so "Google Flights" opens the very same search;
+    `usual` is that page's "usually costs between" range."""
     offers = []
     for entry in groups:
         flight = entry[0]
@@ -57,9 +59,16 @@ def parse_groups(groups: list[list], origin: str, dest: str, currency: str, link
             origin=segs[0].origin, destination=segs[-1].destination, price=float(price or 0),
             currency=currency, segments=segs, provider="gflights", priced=priced,
             deep_links=[link or google_flights_link(origin, dest, segs[0].departs.date())],
-            co2_g=co2, co2_typical_g=typical if co2 is not None else None,
+            co2_g=co2, co2_typical_g=typical if co2 is not None else None, usual_price=usual,
         ))
     return offers
+
+
+def usual_range(payload: list) -> list[float] | None:
+    """Google's price insight, payload[5] (read 2026-10-11): [level, [_, current], _, _, [_, low], [_, high], ...];
+    low-high is the range Google says the search usually costs."""
+    low, high = _at(payload, 5, 4, 1), _at(payload, 5, 5, 1)
+    return [float(low), float(high)] if isinstance(low, (int, float)) and isinstance(high, (int, float)) else None
 
 
 def parse_html(html: str, origin: str, dest: str, currency: str, link: str | None = None) -> list[Offer]:
@@ -85,7 +94,7 @@ def parse_html(html: str, origin: str, dest: str, currency: str, link: str | Non
     title = tree.css_first("title")
     if not groups and title is not None and title.text().startswith(LANDING_TITLE):
         raise RuntimeError("Google returned its landing page instead of results (it did not understand the query)")
-    return parse_groups(groups, origin, dest, currency, link)
+    return parse_groups(groups, origin, dest, currency, link, usual_range(payload))
 
 
 # ------------------------------------------------------------------------------- the `tfs` query (a protobuf)

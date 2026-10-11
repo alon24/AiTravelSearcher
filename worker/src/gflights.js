@@ -52,9 +52,10 @@ export function gflightsQuery(q) {
   return { url: `${URL_BASE}?${new URLSearchParams({ tfs: tfs(query), hl: "en-US", curr: currency })}` };
 }
 
-/** Google's result groups from the page (gflights.parse_html): "best flights" then "other flights". Throws with a
-    reason when the page holds no results, e.g. a consent wall or a robot check. */
-export function resultGroups(html) {
+/** Google's result groups from the page (gflights.parse_html): "best flights" then "other flights", and the range
+    Google says the search usually costs (gflights.usual_range). Throws with a reason when the page holds no results,
+    e.g. a consent wall or a robot check. */
+export function readPage(html) {
   const script = /<script[^>]*class="ds:1"[^>]*>([\s\S]*?)<\/script>/.exec(html);
   if (!script) {
     const why = /unusual traffic|recaptcha/i.test(html) ? "a robot check" : /consent\.google|before you continue/i.test(html) ? "a cookie wall" : "an unexpected page";
@@ -62,13 +63,16 @@ export function resultGroups(html) {
   }
   const at = script[1].indexOf("data:");
   const raw = script[1].slice(at + 5, script[1].lastIndexOf(","));
-  if (at < 0 || raw.endsWith("errorHasStatus: true")) return [];
+  if (at < 0 || raw.endsWith("errorHasStatus: true")) return { groups: [], usual: null };
   const payload = JSON.parse(raw);
   const groups = [2, 3].flatMap(i => (payload[i] && payload[i][0]) || []);
   if (!groups.length && /<title[^>]*>\s*Find Cheap Flights/.test(html))   // Google's start page (gflights.LANDING_TITLE)
     throw new Error("Google returned its landing page instead of results (it did not understand the query)");
-  return groups;
+  const insight = Array.isArray(payload[5]) ? payload[5] : [];
+  const low = insight[4]?.[1], high = insight[5]?.[1];
+  return { groups, usual: typeof low === "number" && typeof high === "number" ? [low, high] : null };
 }
+export const resultGroups = html => readPage(html).groups;
 
 /** GET /gflights: one lookup, tried twice. Answers {groups, url} for the page to parse: `url` is the Google Flights
     page the fares came from, so the page's "Google Flights" link opens that very search. */
@@ -81,7 +85,7 @@ export async function gflights(url, { json, error }, wait) {
     try {
       const r = await fetch(target, { headers: HEADERS });
       if (!r.ok) throw new Error(`Google Flights answered ${r.status}`);
-      return json({ groups: resultGroups(await r.text()), url: target });
+      return json({ ...readPage(await r.text()), url: target });
     } catch (e) { last = e; }
   }
   return error(last.message, 502);

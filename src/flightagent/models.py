@@ -137,6 +137,7 @@ class Offer(BaseModel):
     hub: str | None = None  # where the tickets of a self-transfer bundle meet
     co2_g: int | None = None          # Google's CO2 estimate for the itinerary, grams per passenger
     co2_typical_g: int | None = None  # Google's typical figure for the route, which its "+20% emissions" compares to
+    usual_price: list[float] | None = None  # Google's "usually costs between" [low, high] for the search that found it
 
     @property
     def departs(self) -> datetime:
@@ -191,6 +192,7 @@ class LegView(BaseModel):
     priced: bool = True
     co2_g: int | None = None
     co2_typical_g: int | None = None
+    usual_price: list[float] | None = None
 
 
 class Trip(BaseModel):

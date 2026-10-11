@@ -168,7 +168,7 @@ def test_google_flights_results_parse_the_same():
     groups = fx["best"] + fx["other"]
     groups[1] = [groups[1][0], []]                                  # a flight Google lists without a fare
     link = "https://www.google.com/travel/flights?tfs=GhoSCjIwMjYtMTAtMDU%3D&hl=en-US&curr=EUR"
-    py = [json.loads(o.model_dump_json()) for o in parse_groups(groups, "TLV", "FCO", "EUR", link)]
-    assert js({"op": "gflights_parse", "groups": groups, "args": ["TLV", "FCO", "EUR", link]}) == py
+    py = [json.loads(o.model_dump_json()) for o in parse_groups(groups, "TLV", "FCO", "EUR", link, [60.0, 110.0])]
+    assert js({"op": "gflights_parse", "groups": groups, "args": ["TLV", "FCO", "EUR", link, [60, 110]]}) == py
     assert {o["deep_links"][0] for o in py} == {link}
     assert [o["priced"] for o in py].count(False) == 1

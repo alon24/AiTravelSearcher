@@ -261,6 +261,14 @@ protobuf holds the price in cents (16017 USD for the fare Google shows as $161):
 value rounded **up**. Skyhop keeps the display price so it matches the Google page the user opens. Flight `[24]`
 links the airline's special-assistance page, not its baggage rules.
 
+The rest of the page payload, read from live pages captured 2026-10-11 (TLV-Rome, 27-31 Oct): `payload[5]` is the
+price insight, `[level, [_, current], _, _, [_, low], [_, high], ..., [[epoch_ms, price], ...]]` with about 60 days of
+price history; Skyhop shows low-high as "usually costs" (the level code is not mapped yet: 4 came with a price inside
+the range, 5 with one above it). `payload[6]` holds cheaper nearby dates, `payload[7]` the price filter bounds and the
+airlines. A round-trip search lists outbound flights priced as the **whole round trip** (cheapest $186 vs $124 for the
+cheapest one-way out); return flights appear only after one is picked, so Skyhop links to that search
+(`googleRoundTripUrl` in app.js) instead of scraping it.
+
 Composition: `FallbackProvider(primary, backup)` uses the backup only when the primary **raises**.
 `FLIGHTAGENT_PROVIDER=gflights,serpapi` builds that chain. Results carry `.source` so reports show which provider
 served each lookup.

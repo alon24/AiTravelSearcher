@@ -14,8 +14,8 @@
   const stamp = (ymd, hm) => `${ymd[0]}-${pad(ymd[1])}-${pad(ymd[2])}T${time(hm)}`;
 
   /** gflights.parse_groups: one Offer per group; a flight Google lists without a fare is kept, marked unpriced.
-      `link` is the Google Flights page the fares came from (the Worker's `url`). */
-  function parse(groups, origin, dest, currency, link) {
+      `link` is the Google Flights page the fares came from (the Worker's `url`), `usual` its "usually costs" range. */
+  function parse(groups, origin, dest, currency, link, usual) {
     return groups.map(entry => {
       const flight = entry[0];
       let price = null;
@@ -29,7 +29,7 @@
       return L.models.offer({ origin: segments[0].origin, destination: segments[segments.length - 1].destination, price: Number(price || 0),
         currency, segments, provider: "gflights", priced: !!price,
         deep_links: [link || L.mock.googleFlightsLink(origin, dest, segments[0].departs.slice(0, 10))],
-        co2_g: co2, co2_typical_g: co2 == null ? null : typical });
+        co2_g: co2, co2_typical_g: co2 == null ? null : typical, usual_price: usual || null });
     });
   }
 
@@ -46,7 +46,7 @@
     async function oneWay(origin, dest, day, { currency, adults, maxStops, children = 0, infants = 0, carryOnBags = 0, checkedBags = 0 }) {
       const q = new URLSearchParams({ origin, dest, date: day, currency, adults, max_stops: maxStops, children, infants,
         carry_on_bags: carryOnBags, checked_bags: checkedBags });
-      const once = async () => { const r = await get(`/gflights?${q}`); return parse(r.groups, origin, dest, currency, r.url); };
+      const once = async () => { const r = await get(`/gflights?${q}`); return parse(r.groups, origin, dest, currency, r.url, r.usual); };
       let offers = await once();
       // Google sometimes omits a fare it shows on the next request: ask again for unpriced flights (as gflights.py).
       for (let i = 0; i < retryUnpriced && !offers.every(o => o.priced); i++) { await wait(1000); offers = merge(offers, await once()); }

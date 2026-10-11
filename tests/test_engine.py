@@ -305,6 +305,21 @@ def test_gflights_landing_page_is_an_error_not_no_flights():
     assert parse_html(f"<html><head><title>Tel Aviv to Rome</title></head><body>{script}</body></html>", "TLV", "FCO", "USD") == []
 
 
+def test_gflights_reads_googles_usual_price_range():
+    """payload[5] is Google's price insight (shape read from a live page on 2026-10-11): [level, current, _, _, low, high, ...]."""
+    import json
+    from pathlib import Path
+    from flightagent.providers.gflights import parse_html, usual_range
+
+    insight = [5, [None, 124], [None, 66], [None, -59], [None, 60], [None, 110], 1, None, None, None, [[1786320000000, 139]]]
+    assert usual_range([None] * 5 + [insight]) == [60.0, 110.0]
+    assert usual_range([None, None, [], []]) is None and usual_range([None] * 5 + [[4, [None, 186]]]) is None
+    fx = json.loads((Path(__file__).parent / "fixtures" / "gflights_tlv_fco_2026-10-05.json").read_text())
+    payload = [None, None, [fx["best"]], [fx["other"]], None, insight]
+    html = f"<script class=\"ds:1\">AF_initDataCallback({{key: 'ds:1', data:{json.dumps(payload)}, sideChannel: {{}}}});</script>"
+    assert {tuple(o.usual_price) for o in parse_html(html, "TLV", "FCO", "USD")} == {(60.0, 110.0)}
+
+
 def test_fallback_provider_and_selection(monkeypatch):
     from flightagent.providers import FallbackProvider, get_provider
 

@@ -1151,8 +1151,40 @@ function tripCard(t, cur, pax = 1) {
       return h("div", { class: "warn" + (bad ? "" : " info") }, h("span", { "aria-hidden": "true" }, bad ? "⚠" : "ℹ"), w);
     })) : null,
     h("div", { class: "actions" }, h("button", { type: "button", class: "btn small", onclick: () => Builder.addTrip(t, { pax: paxLabel(resultsQuery), currency: cur }) }, "＋ Add all flights to Trip builder"),
+      roundTripButton(t, resultsQuery),
       h("button", { type: "button", class: "btn small accent hub-save", title: "Put these flights on your trip in Travel Hub, next to its hotels and day-by-day map", onclick: () => saveToHub(t.legs.map(l => ({ ...l, currency: resultsQuery.currency }))) }, hubLabel())));
 }
+// ------------------------------------------------------------------ Google's own round trip
+/* Skyhop prices a trip as two one-way tickets, but an airline may sell the same dates as a cheaper return ticket.
+   This opens Google Flights' round-trip search for the trip: the `tfs` query providers/gflights.py builds for one way,
+   with both legs and trip type 1 (the shape of Google's own links, decoded 2026-10-11). */
+const pbVarint = n => { const out = []; do { let b = n & 0x7f; n >>>= 7; if (n) b |= 0x80; out.push(b); } while (n); return out; };
+const pbInt = (field, v) => [...pbVarint(field << 3), ...pbVarint(v)];
+const pbBytes = (field, b) => [...pbVarint((field << 3) | 2), ...pbVarint(b.length), ...b];
+const pbStr = (field, s) => pbBytes(field, [...new TextEncoder().encode(s)]);
+
+function googleRoundTripUrl(out, back, q) {
+  const place = code => [...pbInt(1, 1), ...pbStr(2, code)];   // 1 = airport
+  const leg = (from, to, day) => pbBytes(3, [...pbStr(2, day), ...(q.max_stops_per_leg < 3 ? pbInt(5, q.max_stops_per_leg) : []),
+    ...pbBytes(13, place(from)), ...pbBytes(14, place(to))]);
+  const ages = q.children_ages || [];
+  const pax = [...Array(q.adults + ages.filter(a => a >= 12).length).fill(1), ...Array(ages.filter(a => a >= 2 && a < 12).length).fill(2),
+    ...Array(ages.filter(a => a < 2).length).fill(3)];
+  const bags = q.carry_on_bags || q.checked_bags ? pbBytes(13, [...pbInt(2, q.carry_on_bags || 0), ...pbInt(3, q.checked_bags || 0)]) : [];
+  const info = [...leg(out.origin, out.destination, out.segments[0].departs.slice(0, 10)), ...leg(back.origin, back.destination, back.segments[0].departs.slice(0, 10)),
+    ...pbBytes(8, pax.flatMap(pbVarint)), ...pbInt(9, 1), ...bags, ...pbInt(19, 1)];
+  return `https://www.google.com/travel/flights?${new URLSearchParams({ tfs: btoa(String.fromCharCode(...info)), hl: "en-US", curr: q.currency })}`;
+}
+
+/** Only for there-and-back trips: open-jaw and multi-city trips have no single return ticket to compare with. */
+function roundTripButton(t, q) {
+  const [out, back] = t.legs;
+  if (!q || t.legs.length !== 2 || back.origin !== out.destination || back.destination !== out.origin) return null;
+  return h("a", { class: "btn small", href: googleRoundTripUrl(out, back, q), target: "_blank", rel: "noopener noreferrer",
+    title: "Skyhop adds up two one-way tickets; the same dates as one return ticket can cost less. Check Google's price." },
+    "Compare with a round-trip ticket ↗");
+}
+
 function legTimes(leg) {
   const e = legEnds(leg), sh = dayShift(e.dep, e.arr);
   return h("div", { class: "leg-times" },
@@ -1198,6 +1230,8 @@ function legCard(leg, title, cur) {
     h("div", { class: "leg-top" },
       h("div", { class: "leg-title" }, title, h("small", {}, [...seen.values()].join(" · "))),
       h("strong", { title: isConverted(cur) ? `Originally ${fmtMoney(leg.price, cur)}` : null }, money(leg.price, cur))),
+    leg.usual_price ? h("div", { class: "seg-meta usual", title: "Google Flights' price insight for this search" },
+      `Google: this search usually costs ${money(leg.usual_price[0], cur)}–${money(leg.usual_price[1], cur)}`) : null,
     legTimes(leg),
     rows, co2Note(leg), h("div", { class: "actions" }, autoSelect, links, direct,
       h("button", { type: "button", class: "btn small", title: "See every flight that day, including ones with no price", onclick: () => Builder.browse(leg.origin, leg.destination, leg.segments[0].departs.slice(0, 10)) }, "All flights that day"),
