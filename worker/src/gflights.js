@@ -10,7 +10,7 @@ const CODE_RE = /^[A-Z]{3}$/;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 // Passenger wire values as gflights.tfs sends them (3 is what Google prices as a lap infant).
 const ADULT = 1, CHILD = 2, LAP_INFANT = 3;
-const ECONOMY = 1, ONE_WAY = 2, AIRPORT = 1;
+const ECONOMY = 1, ROUND_TRIP = 1, ONE_WAY = 2, AIRPORT = 1;
 const HEADERS = {
   "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -30,23 +30,26 @@ const place = code => [...(isCityOnly(code) ? [] : int(1, AIRPORT)), ...str(2, c
 /** The `tfs` query for one one-way search, byte for byte what gflights.tfs encodes (tested from pytest). An airport
     carries its type (1): Google answers a bare airport code with its landing page (measured 2026-10-11). City codes
     (ROM) stay bare as before: how Google wants them typed is not measured yet. */
-export function tfs({ origin, dest, day, adults = 1, children = 0, infants = 0, maxStops = 1, carryOn = 0, checked = 0 }) {
-  const flight = [...str(2, day), ...(maxStops < 3 ? int(5, maxStops) : []), ...bytes(13, place(origin)), ...bytes(14, place(dest))];
+export function tfs({ origin, dest, day, adults = 1, children = 0, infants = 0, maxStops = 1, carryOn = 0, checked = 0, returnDay = null }) {
+  const leg = (a, b, d) => bytes(3, [...str(2, d), ...(maxStops < 3 ? int(5, maxStops) : []), ...bytes(13, place(a)), ...bytes(14, place(b))]);
   const pax = [...Array(adults).fill(ADULT), ...Array(children).fill(CHILD), ...Array(infants).fill(LAP_INFANT)];
-  const info = [...bytes(3, flight), ...bytes(8, pax.flatMap(varint)), ...int(9, ECONOMY),
-    ...(carryOn || checked ? bytes(13, [...int(2, carryOn), ...int(3, checked)]) : []), ...int(19, ONE_WAY)];
+  const info = [...leg(origin, dest, day), ...(returnDay ? leg(dest, origin, returnDay) : []), ...bytes(8, pax.flatMap(varint)), ...int(9, ECONOMY),
+    ...(carryOn || checked ? bytes(13, [...int(2, carryOn), ...int(3, checked)]) : []), ...int(19, returnDay ? ROUND_TRIP : ONE_WAY)];
   return btoa(String.fromCharCode(...info));
 }
 
-/** The query from the page's parameters (same names as /serpapi, plus bags), or an error message. */
+/** The query from the page's parameters (same names as /serpapi, plus bags and an optional return_date, which asks
+    for Google's round-trip page: each outbound flight priced as the whole return ticket), or an error message. */
 export function gflightsQuery(q) {
   const origin = (q.get("origin") || "").toUpperCase(), dest = (q.get("dest") || "").toUpperCase(), day = q.get("date") || "";
   const num = (k, def, lo, hi) => { const v = q.has(k) ? Number(q.get(k)) : def; return Number.isInteger(v) && v >= lo && v <= hi ? v : NaN; };
   const query = { origin, dest, day, adults: num("adults", 1, 1, 9), children: num("children", 0, 0, 8), infants: num("infants", 0, 0, 8),
     maxStops: num("max_stops", 1, 0, 3), carryOn: num("carry_on_bags", 0, 0, 2), checked: num("checked_bags", 0, 0, 4) };
-  const currency = (q.get("currency") || "USD").toUpperCase();
+  const currency = (q.get("currency") || "USD").toUpperCase(), returnDay = q.get("return_date") || null;
   if (!CODE_RE.test(origin) || !CODE_RE.test(dest)) return { error: "origin and dest must be 3-letter codes" };
   if (!DAY_RE.test(day)) return { error: "date must be YYYY-MM-DD" };
+  if (returnDay && !(DAY_RE.test(returnDay) && returnDay >= day)) return { error: "return_date must be YYYY-MM-DD, on or after date" };
+  query.returnDay = returnDay;
   if (!CODE_RE.test(currency)) return { error: "currency must be a 3-letter code" };
   if (Object.values(query).some(v => Number.isNaN(v))) return { error: "passengers, max_stops or bags out of range" };
   return { url: `${URL_BASE}?${new URLSearchParams({ tfs: tfs(query), hl: "en-US", curr: currency })}` };

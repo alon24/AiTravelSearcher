@@ -279,7 +279,11 @@ price history; Skyhop shows low-high as "usually costs" (the level code is not m
 the range, 5 with one above it). `payload[6]` holds cheaper nearby dates, `payload[7]` the price filter bounds and the
 airlines. A round-trip search lists outbound flights priced as the **whole round trip** (cheapest $186 vs $124 for the
 cheapest one-way out); return flights appear only after one is picked, so Skyhop links to that search
-(`googleRoundTripUrl` in app.js) instead of scraping it.
+(`googleRoundTripUrl` in app.js) instead of scraping it. Its first page is still enough for one number: the lowest
+price on it is the cheapest return ticket on those dates (any flights). **Check round-trip price** on a there-and-back
+trip asks for it on demand (`POST /api/roundtrip`: `GoogleFlightsScraper.round_trip`, or the Worker's `/gflights` with
+`return_date` on Pages; free, no SerpApi) and says whether it beats the two one-ways, with the link to that Google page.
+Without Google Flights in the chain (mock, SerpApi only) it says so instead. The daily probe fetches one round trip.
 
 Composition: `FallbackProvider(primary, backup)` uses the backup only when the primary **raises**.
 `FLIGHTAGENT_PROVIDER=gflights,serpapi` builds that chain. Results carry `.source` so reports show which provider

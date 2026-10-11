@@ -24,13 +24,13 @@ def test_worker_expands_city_codes_like_the_python_provider():
     assert json.loads(out.stdout) == CITY_AIRPORTS
 
 
-@pytest.mark.parametrize("pax, stops, bags, dest", [((1, 0, 0), 1, (0, 0), "FCO"), ((2, 1, 1), 0, (0, 1), "ROM"),
-                                                    ((3, 2, 0), 3, (1, 2), "IST")])
-def test_worker_builds_the_same_google_flights_query_as_the_python_provider(pax, stops, bags, dest):
+@pytest.mark.parametrize("pax, stops, bags, dest, back", [((1, 0, 0), 1, (0, 0), "FCO", None), ((2, 1, 1), 0, (0, 1), "ROM", None),
+                                                          ((3, 2, 0), 3, (1, 2), "IST", None), ((2, 1, 0), 1, (0, 1), "FCO", "2026-11-09")])
+def test_worker_builds_the_same_google_flights_query_as_the_python_provider(pax, stops, bags, dest, back):
     from flightagent.providers.gflights import tfs
 
     args = {"origin": "TLV", "dest": dest, "day": "2026-11-02", "adults": pax[0], "children": pax[1], "infants": pax[2],
-            "maxStops": stops, "carryOn": bags[0], "checked": bags[1]}
+            "maxStops": stops, "carryOn": bags[0], "checked": bags[1], "returnDay": back}
     src = f"import('./src/gflights.js').then(m => process.stdout.write(m.tfs({json.dumps(args)})))"
     out = subprocess.run(["node", "--input-type=module", "-e", src], cwd=WORKER, capture_output=True, text=True, timeout=60, check=True)
-    assert out.stdout == tfs("TLV", dest, "2026-11-02", *pax, stops, *bags)
+    assert out.stdout == tfs("TLV", dest, "2026-11-02", *pax, stops, *bags, return_day=back)

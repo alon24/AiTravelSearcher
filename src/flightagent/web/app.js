@@ -1213,9 +1213,29 @@ function googleRoundTripUrl(out, back, q) {
 function roundTripButton(t, q) {
   const [out, back] = t.legs;
   if (!q || t.legs.length !== 2 || back.origin !== out.destination || back.destination !== out.origin) return null;
-  return h("a", { class: "btn small", href: googleRoundTripUrl(out, back, q), target: "_blank", rel: "noopener noreferrer",
+  const check = h("button", { type: "button", class: "btn small rt-check", title: "Asks Google Flights for its cheapest return ticket on these dates (free)",
+    onclick: () => checkRoundTrip(t, q, check) }, "Check round-trip price");
+  return [h("a", { class: "btn small", href: googleRoundTripUrl(out, back, q), target: "_blank", rel: "noopener noreferrer",
     title: "Skyhop adds up two one-way tickets; the same dates as one return ticket can cost less. Check Google's price." },
-    "Compare with a round-trip ticket ↗");
+    "Compare with a round-trip ticket ↗"), check];
+}
+/** Puts Google's cheapest return ticket for the trip's dates next to Skyhop's two one-ways, or says why it can't. */
+async function checkRoundTrip(t, q, btn) {
+  const [out, back] = t.legs, cur = q.currency;
+  btn.disabled = true; btn.textContent = "Asking Google…";
+  let r;
+  try {
+    r = await post("/api/roundtrip", { request: q, origin: out.origin, dest: out.destination,
+      date: out.segments[0].departs.slice(0, 10), return_date: back.segments[0].departs.slice(0, 10) });
+  } catch (e) {
+    btn.replaceWith(h("span", { class: "rt-result bad" }, `Couldn't get a round-trip price: ${e.message}`));
+    return;
+  }
+  const said = r.price == null ? "Google showed no round-trip price for these dates"
+    : `Google's cheapest return ticket on these dates: ${money(r.price, cur)} (any flights), `
+      + (r.price < t.price ? `${money(t.price - r.price, cur)} less than these two one-way tickets` : "so these two one-way tickets are cheaper");
+  btn.replaceWith(h("span", { class: "rt-result" + (r.price != null && r.price < t.price ? " cheaper" : "") }, said, " ",
+    h("a", { href: r.url, target: "_blank", rel: "noopener noreferrer" }, "See it on Google ↗")));
 }
 
 function legTimes(leg) {

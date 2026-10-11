@@ -62,7 +62,11 @@ def worker(page, base_url):
         elif url.path == "/gflights":
             if state["gflights"] == "blocked":
                 return route.fulfill(status=502, headers=CORS, json={"error": "Google returned no result data (a robot check)"})
-            body = {**_google(parse_qs(url.query)), **({"fetched_at": state["fetched_at"]} if state.get("fetched_at") else {})}
+            q = parse_qs(url.query)
+            body = {**_google(q), **({"fetched_at": state["fetched_at"]} if state.get("fetched_at") else {})}
+            if "return_date" in q:                # Google's round-trip page: each outbound priced as the return ticket
+                state["round_trip_asked"] = q
+                body["groups"][0][1][0][1] = state["round_trip_price"]
         elif state.get("serpapi_down"):
             return route.fulfill(status=502, headers=CORS, json={"error": "SerpApi: Invalid API key"})
         else:
@@ -131,6 +135,24 @@ def test_fares_the_worker_shared_from_its_cache_show_their_age(page, worker):
     page.click("#go")
     page.wait_for_selector("text=gflights ×4", timeout=60000)
     assert page.locator(".res-head .badge:has-text('Flight data from 2h ago')").count() == 1
+
+
+def test_a_round_trip_ticket_is_priced_by_google_next_to_the_two_one_ways(page, worker):
+    worker["gflights"], worker["round_trip_price"] = "ok", 120
+    _sign_in(page)
+    _fill(page)
+    page.evaluate("() => { const f = readForm(); f.currency = 'USD'; writeForm(f); onFormChange(); }")
+    page.click("#go")
+    btn = page.locator("article.trip .rt-check").first
+    btn.wait_for(timeout=60000)
+    btn.click()
+    said = page.locator("article.trip .rt-result").first
+    said.wait_for()
+    assert said.inner_text().startswith("Google's cheapest return ticket on these dates: $120 (any flights), $34 less than these two one-way tickets")
+    assert "cheaper" in said.get_attribute("class")
+    asked = worker["round_trip_asked"]
+    assert asked["origin"] == ["TLV"] and asked["dest"] == ["ROM"] and asked["return_date"][0] > asked["date"][0]
+    assert said.get_by_role("link", name="See it on Google ↗").get_attribute("href").startswith("https://www.google.com/travel/flights?tfs=")
 
 
 def test_serpapi_answers_when_google_refuses_the_worker(page, worker):

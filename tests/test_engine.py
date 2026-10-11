@@ -277,6 +277,39 @@ def test_gflights_links_each_fare_to_the_exact_google_page_it_came_from(monkeypa
     assert {o.deep_links[0] for o in offers} == {offers[0].deep_links[0]}
 
 
+def test_roundtrip_asks_google_for_both_legs_and_answers_its_cheapest_return_ticket(monkeypatch, tmp_path):
+    """POST /api/roundtrip: Google's round-trip page (both legs, trip type 1) prices each outbound as the whole return
+    ticket, so its lowest price is the cheapest return ticket on those dates. Without Google in the chain it says so."""
+    import base64
+    import json
+    from pathlib import Path
+    from urllib.parse import parse_qs, urlsplit
+    from fastapi.testclient import TestClient
+    import flightagent.api as api
+    from flightagent.providers import FallbackProvider, GoogleFlightsScraper, MockProvider
+
+    fx = json.loads((Path(__file__).parent / "fixtures" / "gflights_tlv_fco_2026-10-05.json").read_text())
+    payload = [None, None, [fx["best"]], [fx["other"]]]
+    html = f"<script class=\"ds:1\">AF_initDataCallback({{key: 'ds:1', data:{json.dumps(payload)}, sideChannel: {{}}}});</script>"
+    fetched = []
+    monkeypatch.setattr(GoogleFlightsScraper, "_fetch", staticmethod(lambda url, what: fetched.append(url) or html))
+    monkeypatch.setenv("FLIGHTAGENT_CACHE_DB", str(tmp_path / "c.sqlite"))
+    chain = FallbackProvider(GoogleFlightsScraper(delay=(0, 0)), MockProvider())
+    monkeypatch.setattr(api, "build_engine", lambda: FlightSearchEngine(chain))
+    body = {"request": {"destinations": ["FCO"], "window_start": "2026-10-05", "window_end": "2026-10-12", "min_nights": 5,
+                        "max_nights": 5, "currency": "EUR", "adults": 2}, "origin": "TLV", "dest": "FCO",
+            "date": "2026-10-05", "return_date": "2026-10-10"}
+    with TestClient(api.app) as c:
+        r = c.post("/api/roundtrip", json=body).json()
+        assert r == {"price": 161.0, "flights": 9, "url": fetched[0]}
+        q = parse_qs(urlsplit(fetched[0]).query)
+        tfs = base64.b64decode(q["tfs"][0])
+        assert q["curr"] == ["EUR"] and b"2026-10-05" in tfs and b"2026-10-10" in tfs and tfs.endswith(b"\x98\x01\x01")  # trip type 1
+        monkeypatch.setattr(api, "build_engine", lambda: FlightSearchEngine(MockProvider()))
+        no = c.post("/api/roundtrip", json=body)
+        assert no.status_code == 409 and "round-trip prices come from Google Flights" in no.json()["detail"]
+
+
 def test_gflights_query_marks_each_place_as_an_airport():
     """Measured 2026-10-11: Google answers a bare airport code (fast-flights' encoding) with its landing page and no
     results; the same query with the place typed as an airport, {1: 1, 2: "TLV"}, returns the flights."""

@@ -26,6 +26,7 @@ from .itinerary import ItineraryCheck, analyse
 from .links import AIRLINE_SEARCH_URLS, AIRLINE_SITES, BAG_NOTES, BAG_SHORT, KNOWN_AIRLINES
 from .models import LegView, SearchRequest, SearchResult
 from .polling import next_check_time
+from .providers import FallbackProvider, GoogleFlightsScraper
 from .report import render
 from .simple import SimpleSearch, build_engine, run_simple_search, to_request
 
@@ -319,6 +320,36 @@ async def flights(origin: str, dest: str, day: date = Query(alias="date"), adult
     views = sorted((leg_view(o) for o in offers), key=lambda v: (not v.priced, v.price, v.duration_min))[:40]
     return {"origin": req.origin, "dest": req.destinations[0], "date": day.isoformat(), "travellers": req.pax_label,
             "currency": currency, "flights": [v.model_dump(mode="json") for v in views]}
+
+
+class RoundTripBody(BaseModel):
+    request: SearchRequest        # the search the trip came from: travellers, currency, stops, bags
+    origin: str
+    dest: str
+    date: date
+    return_date: date
+
+
+def _scraper(p) -> GoogleFlightsScraper | None:
+    """The Google Flights scraper in the provider chain, if there is one."""
+    if isinstance(p, GoogleFlightsScraper):
+        return p
+    return (_scraper(p.primary) or _scraper(p.backup)) if isinstance(p, FallbackProvider) else None
+
+
+@app.post("/api/roundtrip")
+async def roundtrip(b: RoundTripBody) -> dict:
+    """Google's cheapest return ticket for a there-and-back trip's dates, to compare with Skyhop's two one-ways."""
+    scraper = _scraper(build_engine().provider)
+    if scraper is None:
+        raise HTTPException(409, f"round-trip prices come from Google Flights, and this server uses {os.getenv('FLIGHTAGENT_PROVIDER', 'mock')}")
+    q = b.request
+    try:
+        return await scraper.round_trip(b.origin, b.dest, b.date, b.return_date, currency=q.currency, adults=q.pax_adults,
+                                        max_stops=q.max_stops_per_leg, children=q.pax_children, infants=q.pax_infants,
+                                        carry_on_bags=q.carry_on_bags, checked_bags=q.checked_bags)
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
 
 
 _RATES: dict = {"at": 0.0, "data": None}

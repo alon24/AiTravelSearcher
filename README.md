@@ -219,8 +219,9 @@ implemented. Add a provider by implementing `FlightProvider.one_way` (`providers
 ## Limits worth knowing
 - Prices are sums of one-way fares; a genuine round-trip fare from one airline can be cheaper. Each there-and-back
   trip has a "Compare with a round-trip ticket" link that opens Google Flights' round-trip search for the same dates
-  and travellers, and with the free Google Flights source each flight shows the range Google says that search
-  usually costs.
+  and travellers, and **Check round-trip price**, which asks Google for its cheapest return ticket on those dates and
+  says how it compares with the two one-ways. With the free Google Flights source each flight also shows the range
+  Google says that search usually costs.
 - Times shown are local. Durations use the provider's real flight times (mock data ignores time zones).
 - "Google Flights" deep links open the exact Google Flights search that priced the fare (same passengers, bags,
   stops and currency); with the free Google Flights source, each flight also shows its aircraft, legroom and

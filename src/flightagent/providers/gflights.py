@@ -101,7 +101,7 @@ def parse_html(html: str, origin: str, dest: str, currency: str, link: str | Non
 # Passenger wire values: 3 is what Google prices as a lap infant (fare = adult-only fare), although fast-flights'
 # schema names it INFANT_IN_SEAT; 4 is priced as an infant with its own seat (roughly a second full fare).
 ADULT, CHILD, LAP_INFANT = 1, 2, 3
-ECONOMY, ONE_WAY, AIRPORT = 1, 2, 1
+ECONOMY, ROUND_TRIP, ONE_WAY, AIRPORT = 1, 1, 2, 1
 
 
 def _varint(n: int) -> bytes:
@@ -122,23 +122,31 @@ def _bytes(field: int, b: bytes) -> bytes:
 
 
 def tfs(origin: str, dest: str, day: str, adults: int = 1, children: int = 0, infants: int = 0, max_stops: int = 1,
-        carry_on: int = 0, checked: int = 0) -> str:
-    """The `tfs` query for one one-way search; worker/src/gflights.js builds the same bytes. An airport carries its
-    type (1): measured 2026-10-11, Google answers a bare airport code, as fast-flights sends it, with its landing page.
-    City codes (ROM) stay bare as before: how Google wants them typed is not measured yet."""
+        carry_on: int = 0, checked: int = 0, return_day: str | None = None) -> str:
+    """The `tfs` query for one one-way search, or a round trip with `return_day`; worker/src/gflights.js builds the
+    same bytes. An airport carries its type (1): measured 2026-10-11, Google answers a bare airport code, as
+    fast-flights sends it, with its landing page. City codes (ROM) stay bare as before: how Google wants them typed is
+    not measured yet. A round trip is both legs and trip type 1, the shape of Google's own links (decoded 2026-10-11)."""
     place = lambda code: (b"" if is_city_only(code) else _int(1, AIRPORT)) + _bytes(2, code.encode())  # noqa: E731
-    flight = (_bytes(2, day.encode()) + (_int(5, max_stops) if max_stops < 3 else b"")
-              + _bytes(13, place(origin)) + _bytes(14, place(dest)))
+    leg = lambda a, b, d: _bytes(3, _bytes(2, d.encode()) + (_int(5, max_stops) if max_stops < 3 else b"")  # noqa: E731
+                                 + _bytes(13, place(a)) + _bytes(14, place(b)))
     pax = b"".join(_varint(p) for p in [ADULT] * adults + [CHILD] * children + [LAP_INFANT] * infants)
     bags = _bytes(13, _int(2, carry_on) + _int(3, checked)) if carry_on or checked else b""
-    info = _bytes(3, flight) + _bytes(8, pax) + _int(9, ECONOMY) + bags + _int(19, ONE_WAY)
+    legs = leg(origin, dest, day) + (leg(dest, origin, return_day) if return_day else b"")
+    info = legs + _bytes(8, pax) + _int(9, ECONOMY) + bags + _int(19, ROUND_TRIP if return_day else ONE_WAY)
     return base64.b64encode(info).decode()
 
 
 def search_url(origin: str, dest: str, day: date, currency: str, adults: int, max_stops: int, children: int = 0,
-               infants: int = 0, carry_on_bags: int = 0, checked_bags: int = 0) -> str:
-    q = tfs(origin, dest, day.isoformat(), adults, children, infants, max_stops, carry_on_bags, checked_bags)
+               infants: int = 0, carry_on_bags: int = 0, checked_bags: int = 0, return_day: date | None = None) -> str:
+    q = tfs(origin, dest, day.isoformat(), adults, children, infants, max_stops, carry_on_bags, checked_bags,
+            return_day.isoformat() if return_day else None)
     return f"{URL}?{urlencode({'tfs': q, 'hl': 'en-US', 'curr': currency})}"
+
+
+def round_trip_answer(prices: list[float], flights: int, url: str) -> dict:
+    """What /api/roundtrip answers: the lowest round-trip price Google showed, with the page it came from."""
+    return {"price": min(prices) if prices else None, "flights": flights, "url": url}
 
 
 def _merge(old: list[Offer], new: list[Offer]) -> list[Offer]:
@@ -184,6 +192,18 @@ class GoogleFlightsScraper:
             await asyncio.sleep(random.uniform(*self.delay))
             html = await asyncio.to_thread(self._fetch, url, f"{origin}->{dest} {day}")
         return parse_html(html, origin, dest, currency, link=url)
+
+    async def round_trip(
+        self, origin: str, dest: str, day: date, return_day: date, *, currency: str, adults: int, max_stops: int,
+        children: int = 0, infants: int = 0, carry_on_bags: int = 0, checked_bags: int = 0,
+    ) -> dict:
+        """Google's cheapest return ticket for these dates, any flights: on its round-trip page each outbound flight
+        is priced as the whole return ticket. {price, url, flights}; price None when Google priced none."""
+        url = search_url(origin, dest, day, currency, adults, max_stops, children, infants, carry_on_bags, checked_bags, return_day)
+        async with self.sem:
+            html = await asyncio.to_thread(self._fetch, url, f"{origin}<->{dest} {day}/{return_day}")
+        offers = parse_html(html, origin, dest, currency, link=url)
+        return round_trip_answer([o.price for o in offers if o.priced], len(offers), url)
 
     @staticmethod
     def _fetch(url: str, what: str) -> str:

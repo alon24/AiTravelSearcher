@@ -67,6 +67,7 @@
     ["GET", /^\/api\/searches\/(\w+)\/bagfees$/, bagFees],
     ["GET", /^\/api\/flights$/, flights],
     ["POST", /^\/api\/itinerary\/check$/, checkItinerary],
+    ["POST", /^\/api\/roundtrip$/, roundTrip],
     ["POST", /^\/api\/explore$/, explore],
     ["POST", /^\/api\/chat\/complete$/, chatTurn],
   ];
@@ -180,6 +181,19 @@
     if (!body.legs || !body.legs.length || body.legs.some(l => !l.segments || !l.segments.length)) fail("every leg needs at least one flight segment");
     await zones();
     return L.itinerary.analyse(body.legs, body.currency || "USD");
+  }
+
+  /** api.py roundtrip: Google's cheapest return ticket for the trip's dates, through the Worker's free /gflights. */
+  async function roundTrip({ body }) {
+    const a = L.account;
+    if (!(a && a.live() && a.has("gflights"))) fail("round-trip prices come from Google Flights: sign in for real fares");
+    const req = request(body.request), p = L.models.pax(req);
+    const q = new URLSearchParams({ origin: body.origin, dest: body.dest, date: body.date, return_date: body.return_date, currency: req.currency,
+      adults: p.adults, children: p.children, infants: p.infants, max_stops: req.max_stops_per_leg, carry_on_bags: req.carry_on_bags, checked_bags: req.checked_bags });
+    let r;
+    try { r = await a.get(`/gflights?${q}`); } catch (e) { fail(e.message); }
+    const prices = L.gflights.parse(r.groups, body.origin, body.dest, req.currency, r.url).filter(o => o.priced).map(o => o.price);
+    return { price: prices.length ? Math.min(...prices) : null, flights: r.groups.length, url: r.url };
   }
 
   /** One model turn for the AI chat (chat.js), through the Worker: it holds the OpenRouter key. */

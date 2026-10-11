@@ -56,3 +56,17 @@ def test_round_trip_link_opens_googles_return_ticket_search(page):
     assert "TLV" in out and "ATH" in back
     rest = dict((f, v) for f, v in info if f != 3)
     assert list(rest[8]) == [1, 1, 2] and rest[9] == 1 and rest[19] == 1   # 2 adults + a child, economy, round trip
+
+
+def test_round_trip_price_without_google_flights_says_why(page):
+    """Demo fares (mock provider) have no round-trip prices to compare with: the button says so instead of guessing."""
+    page.evaluate("""() => { const f = readForm(); f.to = ['ATH']; f.start = '2026-11-02'; f.end = '2026-11-04';
+                             f.lenMode = 'range'; f.nmin = 3; f.nmax = 3; writeForm(f); onFormChange(); }""")
+    page.wait_for_function("!document.querySelector('#go').disabled")
+    page.click("#go")
+    btn = page.locator("article.trip .rt-check").first
+    btn.wait_for(timeout=60000)
+    btn.click()
+    said = page.locator("article.trip .rt-result.bad").first
+    said.wait_for()
+    assert said.inner_text().startswith("Couldn't get a round-trip price: round-trip prices come from Google Flights")

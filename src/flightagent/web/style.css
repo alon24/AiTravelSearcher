@@ -759,3 +759,5 @@ td.air-names { white-space: normal; min-width: 110px; }
   .m-nav button b { font-size: 11px; margin-left: 3px; }
   .m-nav .lbl-n { display: inline-flex; align-items: baseline; }
 }
+.rt-result { align-self: center; font-size: 14px; color: var(--ink-2); } .rt-result.cheaper { color: var(--ok-ink); font-weight: 700; }
+.rt-result.bad { color: var(--bad-ink); }
