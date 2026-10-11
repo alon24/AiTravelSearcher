@@ -1,5 +1,8 @@
 # Skyhop: design brief for Google Stitch
 
+> **Palette superseded (2026-10-11):** the colours and font below are the original brief. The live palette is the suite's
+> green, see `docs/stitch/DESIGN.md`.
+
 Use this to generate or redesign the Skyhop UI in [Google Stitch](https://stitch.withgoogle.com).
 Stitch takes a text prompt (and optionally an image) and can generate several screens at once. It exports
 to Figma or to front-end code (HTML/CSS, Tailwind and others).

@@ -7,21 +7,26 @@ but trustworthy. Money and dates must be instantly scannable. One primary action
 
 | Role | Light | Dark |
 |---|---|---|
-| Background | `#f6f4ff` | `#0d0c1b` |
-| Card | `#ffffff` | `#171532` |
-| Ink (text) | `#1a1633` | `#f5f3ff` |
-| Secondary text | `#57537a` | `#bdb9dc` |
-| Hairlines | `#e9e6f7` | `#2b2850` |
-| Accent (solid) | `#6d4aff` | `#9a83ff` |
+| Background | `#eef3f1` | `#101a17` |
+| Card | `#ffffff` | `#15211e` |
+| Ink (text) | `#17302a` | `#e4ece9` |
+| Secondary text | `#3e554e` | `#b9c7c2` |
+| Hairlines | `#d9e2df` | `#2c3d38` |
+| Accent (solid) | `#1f6f5c` | `#4fb397` |
+| Text on solid accent | `#ffffff` | `#0d1a16` |
+| Small highlight (e.g. "+1" day) | `#9a5b00` | `#e7b04e` |
 
-- **Accent gradient** (main call to action and the "cheapest" highlight only, used sparingly): `#6d4aff` -> `#c44cff` -> `#ff4f9a`, 120deg.
+- **The suite palette (2026-10-11):** Skyhop shares its forest green and pale green-grey with MyMaps AI and Travel Hub, so the three
+  apps read as one product. The old violet-to-pink gradient is gone.
+- **Accent fill** (main call to action and the "cheapest" highlight only): `#1f6f5c` -> `#2a7d68`, 120deg, white text, in both themes.
+- Every text/background token pair is at least 4.5:1 in both themes (`tests/test_theme_ui.py`).
 - **Status:** warning amber (`#fff3d6` background, `#8a4b00` text), success green, error red. Always paired with an icon and text, never colour alone.
 - **Chart series** (data marks only, in this order): `#2a78d6`, `#eb6834`, `#1baf7a`, `#eda100`, `#e87ba4`, `#008300`, `#4a3aa7`, `#e34948`.
   Dark mode: `#3987e5`, `#d95926`, `#199e70`, `#c98500`, `#d55181`, `#008300`, `#9085e9`, `#e66767`.
 
 ## Typography
 
-Plus Jakarta Sans, weights 400-800. Headings 800 with tight tracking. Prices bold. Labels are small uppercase (12px, 0.05em).
+Assistant, weights 400-800 (it also covers Hebrew); the wordmark and page headline use Secular One, as in MyMaps AI. Prices bold. Labels are small uppercase (12px, 0.05em).
 Numbers in prices and times use tabular figures.
 
 ## Shape and spacing
