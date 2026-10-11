@@ -761,3 +761,11 @@ td.air-names { white-space: normal; min-width: 110px; }
 }
 .rt-result { align-self: center; font-size: 14px; color: var(--ink-2); } .rt-result.cheaper { color: var(--ok-ink); font-weight: 700; }
 .rt-result.bad { color: var(--bad-ink); }
+/* Touch: every control a finger can hit (40px, as the site buttons), and nothing that only appears on hover. The small
+   × buttons keep their look and get a larger invisible hit area. */
+@media (max-width: 720px) {
+  .wz-dots button, .ab-name, .ab-solo, .air-sticky .ab-name, .air-sticky .ab-solo { min-height: 40px; }
+  .chip button, .kid button { position: relative; }
+  .chip button::after, .kid button::after, .hi-del::after { content: ""; position: absolute; inset: -10px; }
+}
+@media (hover: none) { .hi-del { opacity: 1; } }

@@ -180,3 +180,41 @@ def test_turning_to_desktop_width_brings_back_the_desktop_results(results):
     p.set_viewport_size({"width": 1400, "height": 900})
     p.wait_for_selector(".cmp-table")
     assert p.locator(".m-results").count() == 0 and p.locator("#tb-launch").is_visible()
+
+
+# ---------------------------------------------------------------------------- touch
+def _hit_from(p, sel, dx):
+    """Does a tap `dx` px right of the control's centre still land on it?"""
+    return p.locator(sel).first.evaluate("""(e, dx) => { const r = e.getBoundingClientRect();
+        const at = document.elementFromPoint(r.x + r.width / 2 + dx, r.y + r.height / 2); return at === e || e.contains(at); }""", dx)
+
+
+def test_airline_bar_buttons_are_big_enough_for_a_finger(results):
+    heights = results.locator(".ab-name:visible, .ab-solo:visible").evaluate_all("els => els.map(e => e.getBoundingClientRect().height)")
+    assert heights and min(heights) >= 40
+
+
+def test_wizard_steps_and_remove_buttons_are_easy_to_tap(phone):
+    p = phone
+    heights = p.locator(".wz-dots button").evaluate_all("els => els.map(e => e.getBoundingClientRect().height)")
+    assert min(heights) >= 40
+    _fill(p)
+    p.locator(".wz-dots button").first.click()
+    chip_x = "#ac-to .chip button"
+    p.locator(chip_x).first.wait_for()
+    assert _hit_from(p, chip_x, 13), "a tap just beside the × still removes the destination"
+
+
+def test_on_a_touch_screen_delete_is_shown_without_hovering(base_url):
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        p = b.new_context(viewport=PHONE, is_mobile=True, has_touch=True).new_page()
+        p.goto(base_url + "/")
+        p.wait_for_function("typeof readForm === 'function' && !!ac.from")
+        assert p.evaluate("matchMedia('(hover: none)').matches")
+        _fill(p)
+        p.wait_for_function("!document.querySelector('#go').disabled")
+        p.click("#go")
+        p.wait_for_function("(e => e && getComputedStyle(e).opacity === '1')(document.querySelector('.hist-item .hi-del'))", timeout=60000)
+        b.close()
