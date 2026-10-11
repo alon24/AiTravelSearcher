@@ -12,6 +12,7 @@
 import { gflights } from "./gflights.js";
 import { SearchLinks, links } from "./links.js";
 import { SharedTrip, newTripId, tripStub, validTripId } from "./trips.js";
+import { audit, isAllowed } from "./users.js";
 
 const SERPAPI_URL = "https://serpapi.com/search.json";
 const JEV_URL = "https://openrouter.ai/api/alpha/decisions";
@@ -57,8 +58,8 @@ async function tokenMatches(given, expected) {     // constant time: compare SHA
 const authCache = new Map();       // token -> {who, until}: one Google round trip per token every few minutes
 const AUTH_TTL = 5 * 60_000;
 
-/** The Google account behind this token if Google issued it to our client: its email, and whether ALLOWED_EMAILS
-    lets it spend the keys (anyone verified may still join a shared trip they have the link to). */
+/** The Google account behind this token if Google issued it to our client: { email }. Whether it may spend the keys
+    is decided per request by caller() from the shared user list (anyone verified may still join a shared trip). */
 async function googleUser(token, env) {
   if (!token || !env.GOOGLE_CLIENT_ID) return null;
   const hit = authCache.get(token);
@@ -68,9 +69,8 @@ async function googleUser(token, env) {
   if (r.ok) {
     const t = await r.json();
     const email = String(t.email || "").toLowerCase();
-    const allowed = (env.ALLOWED_EMAILS || "").split(",").map(e => e.trim().toLowerCase()).filter(Boolean);
     const ours = t.aud === env.GOOGLE_CLIENT_ID || t.azp === env.GOOGLE_CLIENT_ID;
-    if (ours && email && String(t.email_verified) === "true") who = { email, allowed: !allowed.length || allowed.includes(email) };
+    if (ours && email && String(t.email_verified) === "true") who = { email };
     ttl = Math.min(Math.max(Number(t.expires_in) || 0, 0) * 1000, AUTH_TTL);
   }
   if (authCache.size > 1000) authCache.clear();
@@ -80,10 +80,12 @@ async function googleUser(token, env) {
 
 const bearer = request => (/^Bearer\s+(.+)$/i.exec(request.headers.get("Authorization") || "") || [])[1]?.trim() || "";
 
-/** {email, allowed} for the caller, or null. */
+/** {email, allowed} for the caller, or null. `allowed` is read fresh from the shared user list on every request,
+    so adding or removing someone on the Travel Hub admin page applies at once. */
 async function caller(request, env) {
   if (await tokenMatches(request.headers.get("X-App-Token"), env.APP_TOKEN)) return { email: "app-token", allowed: true };
-  return googleUser(bearer(request), env);
+  const who = await googleUser(bearer(request), env);
+  return who && { email: who.email, allowed: await isAllowed(who.email, env) };
 }
 
 /** May this caller spend `n` of `kind` (chat turns, fare lookups)? Allowed accounts always; a guest only inside a
@@ -217,7 +219,7 @@ export function chatRequest(body, model) {
   return { request };
 }
 
-async function chat(request, env) {
+async function chat(request, env, who) {
   if (!env.OPENROUTER_API_KEY) return error("OPENROUTER_API_KEY is not configured", 503);
   const raw = await request.text();
   if (raw.length > MAX_CHAT_CHARS + 4_000) return error("body too large", 413);
@@ -228,8 +230,22 @@ async function chat(request, env) {
   const r = await fetch(CHAT_URL, { method: "POST", body: JSON.stringify(out),
     headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json", "X-Title": "Skyhop chat" } });
   if (!r.ok) return error(`chat model answered ${r.status}`, 502);
-  const message = ((await r.json()).choices || [])[0]?.message;
-  return message ? json({ message }) : error("unexpected answer from the chat model", 502);
+  const data = await r.json();
+  const message = (data.choices || [])[0]?.message;
+  if (!message) return error("unexpected answer from the chat model", 502);
+  const tokens = Number((data.usage || {}).total_tokens);
+  await audit(env, { email: who.email, action: "chat", detail: out.model, tokens: Number.isFinite(tokens) ? tokens : null });
+  return json({ message });
+}
+
+/** "TLV→FCO 2026-11-18" for the audit log */
+const route = url => `${url.searchParams.get("origin") || "?"}→${url.searchParams.get("dest") || "?"} ${url.searchParams.get("date") || ""}`.trim();
+
+/** Logs a successful lookup in the shared audit log (usage per person on the Travel Hub admin page). */
+async function logged(env, who, action, detail, pending) {
+  const res = await pending;
+  if (res.ok) await audit(env, { email: who.email, action, detail });
+  return res;
 }
 
 export default {
@@ -242,11 +258,11 @@ export default {
       if (!who) return error("sign in with Google", 401);
       if (url.pathname === "/links") return await links(request, env, who, { json, error });
       if (url.pathname === "/trips" || url.pathname.startsWith("/trips/")) return await trips(request, env, url, who);
-      if (url.pathname === "/gflights" && request.method === "GET") return (await mayspend(request, env, who, "gflights")) || await gflights(url, { json, error }, sleep);
-      if (url.pathname === "/serpapi" && request.method === "GET") return (await mayspend(request, env, who, "serpapi")) || await serpapi(url, env);
-      if (url.pathname === "/chat" && request.method === "POST") return (await mayspend(request, env, who, "chat")) || await chat(request, env);
+      if (url.pathname === "/gflights" && request.method === "GET") return (await mayspend(request, env, who, "gflights")) || await logged(env, who, "search", route(url), gflights(url, { json, error }, sleep));
+      if (url.pathname === "/serpapi" && request.method === "GET") return (await mayspend(request, env, who, "serpapi")) || await logged(env, who, "serpapi", route(url), serpapi(url, env));
+      if (url.pathname === "/chat" && request.method === "POST") return (await mayspend(request, env, who, "chat")) || await chat(request, env, who);
       if (!who.allowed) return error("sign in with an allowed Google account", 403);
-      if (url.pathname === "/decide" && request.method === "POST") return await decide(request, env);
+      if (url.pathname === "/decide" && request.method === "POST") return await logged(env, who, "decide", null, decide(request, env));
     } catch (e) {          // name the failure: an unexplained error is no help to someone deciding on a fare
       return error(`upstream request failed: ${e && e.message ? e.message : e}`, 502);
     }

@@ -9,6 +9,8 @@ compatibility_date = "2026-09-01"
 keep_vars = true
 
 [vars]
+# Always allowed (the owner); everyone else comes from the shared user list below, managed on the Travel Hub admin page.
+ADMIN_EMAILS = "sha256:bb92649b6d5241648bc0d2cba48ea79ea61f022fef80dc20ab6e0d1e0b7d038d"
 JEV_MODEL = "typesafe/jev-1.13"
 CHAT_MODEL = "openai/gpt-4o-mini"
 
@@ -29,3 +31,10 @@ class_name = "SearchLinks"
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["SearchLinks"]
+
+# One user list + usage log for Travel Hub, MyMaps AI and Skyhop (src/users.js), shared with the MyMaps AI Worker.
+# Tables are created on first use.
+[[d1_databases]]
+binding = "DB"
+database_name = "travel-hub-users"
+database_id = "64412ffb-2944-493b-be05-24b5151c8f06"
