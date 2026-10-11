@@ -206,6 +206,7 @@ def test_complete_relays_one_turn_with_the_page_s_tools(monkeypatch):
     r = _complete({"messages": [{"role": "system", "content": "s"}, {"role": "user", "content": "Rome"}], "tools": tools})
     assert r.status_code == 200 and r.json()["message"]["tool_calls"][0]["id"] == "c1"
     assert seen["json"]["tools"] == tools and seen["auth"] == "Bearer k" and "response_format" not in seen["json"]
+    assert seen["json"]["max_tokens"] == chatmod.MAX_RELAY_OUTPUT_TOKENS == 800, "the page's chat can't run up a long answer"
 
 
 def test_complete_can_ask_for_json_without_tools(monkeypatch):

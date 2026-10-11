@@ -148,6 +148,7 @@ test("chat requests are bounded like the Python relay", () => {
   const user = { role: "user", content: "x" };
   assert.equal(chatRequest({ messages: [user], json_mode: true }, "m").request.response_format.type, "json_object");
   assert.equal(chatRequest({ messages: [user] }, "m").request.tools, undefined);
+  assert.equal(chatRequest({ messages: [user] }, "m").request.max_tokens, 800, "answers are short; the cap bounds what one call can spend");
   for (const bad of [{}, { messages: [] }, { messages: [{ role: "boss" }] }, { messages: Array(81).fill(user) },
     { messages: [{ role: "user", content: "x".repeat(80_001) }] }, { messages: [user], tools: Array(5).fill({}) }]) {
     assert.ok(chatRequest(bad, "m").error, JSON.stringify(bad).slice(0, 60));

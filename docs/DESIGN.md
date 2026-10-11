@@ -95,11 +95,15 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
 3. **Ask Skyhop, the AI chat (`web/chat.js`).**
    - **Where things run.** The conversation and its one tool run in the page. Only the model call leaves it, through
      `POST /api/chat/complete` (`chat.complete`, server) or the Worker's `POST /chat` (Pages). Both add the key, fix
-     the model and bound a call: at most 80 messages, 80k characters and 4 tools.
+     the model and bound a call: at most 80 messages, 80k characters, 4 tools and 800 output tokens.
    - **The `search_flights` tool.** It takes `SearchRequest` fields. It validates them with the JS port of the
      request model, estimates, and runs the search through the normal `/api/searches` route, so the form fills in and
-     the results render as for a typed search. It then hands the model a digest: the top 5 trips, the cheapest per
-     destination, and warnings.
+     the results render as for a typed search. It then hands the model a digest: the top 5 trips (whole prices), the
+     cheapest per destination, and warnings, each written once with the trips it fits.
+   - **Tokens** (measured 2026-10-10, mock fares). Every turn resends the system prompt, the tool schema (about 3.7k
+     characters together) and the conversation. So only the latest search is sent in full (about 1.2k characters);
+     an older one shrinks to its best trip and cheapest prices (about 250). A 4-search chat went from 65k to 50k
+     characters sent in total, and each extra search adds about 0.65k instead of 2k. Shared trips do the same.
    - **Asking before spending.** A live search needing more than 40 lookups returns `needs_confirmation`. The model
      must ask, then pass `confirmed_lookups`.
    - **Storage.** Conversations and briefs are kept in IndexedDB (stores `chats` and `briefs`, DB v2).

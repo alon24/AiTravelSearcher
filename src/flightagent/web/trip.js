@@ -59,9 +59,10 @@ const Trip = (() => {
 
   /** The trip's conversation in the model's format: who said what, Skyhop's answers, and what its searches found. */
   function history() {
-    return trip.messages.map(m => m.kind === "user" ? { role: "user", content: `${short(m.author)}: ${m.text}` }
+    const last = trip.messages.map(m => m.kind).lastIndexOf("search");   // older searches shrink, as in chat.js
+    return trip.messages.map((m, i) => m.kind === "user" ? { role: "user", content: `${short(m.author)}: ${m.text}` }
       : m.kind === "ai" ? { role: "assistant", content: m.text }
-      : m.kind === "search" ? { role: "assistant", content: `(I searched ${JSON.stringify(m.data.args)} and found: ${JSON.stringify(m.data.out)})` }
+      : m.kind === "search" ? { role: "assistant", content: `(I searched ${JSON.stringify(m.data.args)} and found: ${JSON.stringify(i === last ? m.data.out : Chat.earlier(m.data.out))})` }
       : m.kind === "map" ? { role: "assistant", content: `(Put on a MyMaps AI map: ${m.data.title})` }
       : { role: "assistant", content: `(Trip brief saved: ${m.data.title}. ${m.data.summary})` });
   }

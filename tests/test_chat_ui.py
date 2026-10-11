@@ -125,6 +125,23 @@ def test_conversations_are_remembered_after_a_reload(page, chat):
     assert ASK in sent, "the model sees the earlier conversation"
 
 
+def test_the_model_reads_each_search_in_full_only_once(page, chat):
+    """Every turn resends the conversation, so an older search shrinks to its best trip and the cheapest prices."""
+    _ask_rome(page)
+    _say(page, "Same in December?")
+    page.wait_for_selector(".msg.tool:has-text('1 Dec')", timeout=60000)
+    page.wait_for_function("[...document.querySelectorAll('.msg.ai')].filter(m => m.textContent.includes('Cheapest is')).length >= 2")
+    tools = [m for m in chat["asked"][-1]["messages"] if m["role"] == "tool"]
+    old, new = json.loads(tools[0]["content"]), json.loads(tools[1]["content"])
+    assert old["earlier_search"] and "trips" not in old and len(tools[0]["content"]) < 400, old
+    assert old["best"]["destination"] in ("ROM", "ATH") and old["cheapest_by_destination"]
+    assert len(new["trips"]) == 5 and new["trips"][0]["depart"].startswith("2026-12")
+    # The full digest is compact: whole prices, no ids the model can't use, and a warning written once for every trip it fits
+    assert "search_id" not in new and all(isinstance(t["price"], int) and "warnings" not in t for t in new["trips"])
+    assert all(isinstance(text, str) and set(nums) <= {1, 2, 3, 4, 5} for text, nums in new["trip_warnings"].items())
+    assert len(tools[1]["content"]) < 1400
+
+
 def test_summarize_keeps_a_brief_that_a_new_chat_can_continue(page, chat):
     _ask_rome(page)
     page.click("#chat-summarize")

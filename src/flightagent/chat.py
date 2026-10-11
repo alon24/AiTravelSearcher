@@ -115,8 +115,11 @@ def _save_history(session_id: str, messages: list[dict]) -> None:
         _sessions[session_id] = messages
 
 
-def _call_model(messages: list[dict], key: str, model: str, tools: list[dict] | None = TOOL_SPEC, json_mode: bool = False) -> dict:
+def _call_model(messages: list[dict], key: str, model: str, tools: list[dict] | None = TOOL_SPEC, json_mode: bool = False,
+                max_tokens: int | None = None) -> dict:
     body = {"model": model, "messages": messages, "temperature": 0}
+    if max_tokens:
+        body["max_tokens"] = max_tokens
     if tools:
         body["tools"] = tools
     if json_mode:
@@ -180,6 +183,7 @@ async def chat(message: str, session_id: str | None = None) -> dict:
 MAX_RELAY_MESSAGES = 80
 MAX_RELAY_CHARS = 80_000       # the whole request as JSON: bounds what one call can spend
 MAX_RELAY_TOOLS = 4
+MAX_RELAY_OUTPUT_TOKENS = 800  # the page asks for 2-5 lines (a trip brief is a bit longer); this bounds the rest
 ROLES = {"system", "user", "assistant", "tool"}
 
 
@@ -197,4 +201,4 @@ def complete(messages: list[dict], tools: list[dict] | None = None, json_mode: b
     key = openrouter_key()
     if not key:
         raise ChatError("no OpenRouter key: set OPENROUTER_API_KEY (or OPENROUTER_KEY) in .env and restart")
-    return _call_model(messages, key, os.environ.get("FLIGHTAGENT_CHAT_MODEL", DEFAULT_MODEL), tools, json_mode)
+    return _call_model(messages, key, os.environ.get("FLIGHTAGENT_CHAT_MODEL", DEFAULT_MODEL), tools, json_mode, MAX_RELAY_OUTPUT_TOKENS)

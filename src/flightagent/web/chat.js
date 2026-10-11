@@ -89,7 +89,7 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
     }
     if (row.status !== "done") return { error: row.error || "The search did not finish." };
     lastRequest = row.request;
-    return { search_id: id, ...digest(row.result) };
+    return digest(row.result);
   }
 
   /** What the model needs to talk about a result, small enough to keep in the conversation. */
@@ -98,13 +98,32 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
     for (const c of r.cells || []) {
       if (!(c.destination in cheapest) || c.cheapest.price < cheapest[c.destination]) cheapest[c.destination] = c.cheapest.price;
     }
+    for (const k in cheapest) cheapest[k] = Math.round(cheapest[k]);
+    const top = r.top.slice(0, 5), tripWarnings = {};   // a warning that fits several trips is written once
+    top.forEach((t, i) => t.warnings.slice(0, 2).forEach(w => (tripWarnings[w] = tripWarnings[w] || []).push(i + 1)));
     return {
       demo: !live(), currency: r.request.currency, lookups: r.api_calls + r.cache_hits,
-      trips: r.top.slice(0, 5).map(t => ({ destination: t.destination, depart: t.depart_date, return: t.return_date, nights: t.nights,
-        price: t.price, airlines: t.airlines.map(c => (config.airlines || {})[c] || c), stops: t.stops,
-        travel_hours: Math.round(t.total_travel_min / 6) / 10, self_transfer: t.self_transfer, warnings: t.warnings.slice(0, 2) })),
-      cheapest_by_destination: cheapest, no_price: (r.unpriced || []).length, warnings: (r.warnings || []).slice(0, 3),
+      trips: top.map(t => ({ destination: t.destination, depart: t.depart_date, return: t.return_date, nights: t.nights,
+        price: Math.round(t.price), airlines: t.airlines.map(c => (config.airlines || {})[c] || c), stops: t.stops,
+        travel_hours: Math.round(t.total_travel_min / 6) / 10, self_transfer: t.self_transfer })),
+      trip_warnings: tripWarnings, cheapest_by_destination: cheapest, no_price: (r.unpriced || []).length, warnings: (r.warnings || []).slice(0, 3),
     };
+  }
+
+  /** An older search as the model sees it: every turn resends the whole conversation, so only the latest search is
+      kept in full. The best trip and the cheapest price per destination are enough to compare against. */
+  function earlier(out) {
+    if (!out || !out.trips) return out;
+    const b = out.trips[0];
+    return { earlier_search: true, currency: out.currency, demo: out.demo, cheapest_by_destination: out.cheapest_by_destination,
+      best: b && { destination: b.destination, depart: b.depart, return: b.return, price: b.price, airlines: b.airlines } };
+  }
+  function shrinkOlderSearches(msgs) {
+    const last = msgs.map(m => m.role).lastIndexOf("tool");
+    return msgs.map((m, i) => {
+      if (m.role !== "tool" || i === last) return m;
+      try { return { ...m, content: JSON.stringify(earlier(JSON.parse(m.content))) }; } catch { return m; }
+    });
   }
 
   // ---------------------------------------------------------------- conversations
@@ -134,7 +153,7 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
   async function converse(history, step, group = false) {
     const msgs = [...history];
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-      const reply = await model([{ role: "system", content: systemPrompt() + (group ? GROUP : "") }, ...msgs], { tools: TOOLS });
+      const reply = await model([{ role: "system", content: systemPrompt() + (group ? GROUP : "") }, ...shrinkOlderSearches(msgs)], { tools: TOOLS });
       const said = { role: "assistant", content: reply.content || "", ...(reply.tool_calls ? { tool_calls: reply.tool_calls } : {}) };
       msgs.push(said); await step(said);
       if (!reply.tool_calls || !reply.tool_calls.length) return;
@@ -475,5 +494,5 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
     const m = /^#trip=([a-z0-9]{12})$/.exec(location.hash);
     if (m) { history.replaceState(null, "", location.pathname + location.search); openTrip(m[1]); }
   }
-  return { init, open, send, needsConfirm, shareLink, openTrip };
+  return { init, open, send, needsConfirm, shareLink, openTrip, earlier };
 })();
