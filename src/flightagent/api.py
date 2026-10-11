@@ -135,7 +135,8 @@ async def health() -> dict[str, str]:
 
 # ---------------------------------------------------------------- web UI API
 
-_jobs: set[asyncio.Task] = set()  # strong refs so running searches are not garbage collected
+_jobs: dict[str, asyncio.Task] = {}  # running searches by id: strong refs (not garbage collected) and for Cancel
+CANCELLED = "Cancelled. Fares fetched before you stopped are saved, so searching again reuses them."
 
 
 async def _run_job(sid: str, req: SearchRequest) -> None:
@@ -145,6 +146,8 @@ async def _run_job(sid: str, req: SearchRequest) -> None:
         best = min((d.cheapest.price for d in result.daily), default=None)
         hist.finish(sid, result.model_dump_json(), best,
                     next_check_time([u.date for u in result.unpriced], 0, time.time()))
+    except asyncio.CancelledError:      # the Cancel button: each finished lookup is already in the cache
+        hist.fail(sid, CANCELLED)
     except Exception as e:  # recorded for the UI instead of vanishing in a background task
         hist.fail(sid, str(e) or type(e).__name__)
 
@@ -205,9 +208,19 @@ async def create_search(req: SearchRequest) -> dict[str, str]:
     sid = uuid.uuid4().hex[:12]
     history().create(sid, req)
     task = asyncio.create_task(_run_job(sid, req))
-    _jobs.add(task)
-    task.add_done_callback(_jobs.discard)
+    _jobs[sid] = task
+    task.add_done_callback(lambda _t: _jobs.pop(sid, None))
     return {"id": sid}
+
+
+@app.post("/api/searches/{sid}/cancel")
+async def cancel_search(sid: str) -> dict[str, bool]:
+    """Stop a running search: lookups in flight are dropped, the ones already made stay cached."""
+    task = _jobs.get(sid)
+    if not task:
+        raise HTTPException(409, "this search isn't running")
+    task.cancel()
+    return {"cancelled": True}
 
 
 _rechecking: set[str] = set()
@@ -309,13 +322,13 @@ async def flights(origin: str, dest: str, day: date = Query(alias="date"), adult
 
 
 _RATES: dict = {"at": 0.0, "data": None}
-FALLBACK_RATES = {"USD": 1.0, "ILS": 3.0, "GBP": 0.75, "EUR": 0.87}     # rough, measured against Google's own prices
 
 
 @app.get("/api/rates")
 async def rates() -> dict:
-    """USD-based rates used to convert prices already on screen. ECB rates via frankfurter.dev, cached for 6 h;
-    an approximate fallback (retried after 10 min) if the lookup fails."""
+    """USD-based rates used to convert prices already on screen. ECB rates via frankfurter.dev, cached for 6 h.
+    If the lookup fails there are no rates and the reason (retried after 10 min): a guessed rate would show a price
+    nobody quoted, so the page keeps prices in the currency they were searched in."""
     now = time.time()
     if _RATES["data"] and now - _RATES["at"] < 6 * 3600:
         return _RATES["data"]
@@ -326,8 +339,8 @@ async def rates() -> dict:
             j = r.json()
         data = {"base": "USD", "rates": {"USD": 1.0, **j["rates"]}, "date": j.get("date"), "source": "ECB via frankfurter.dev"}
         _RATES.update(at=now, data=data)
-    except Exception:
-        data = {"base": "USD", "rates": FALLBACK_RATES, "date": None, "source": "approximate fallback"}
+    except Exception as e:
+        data = {"base": "USD", "rates": {}, "date": None, "source": None, "error": f"live exchange rates unavailable: {e}"}
         _RATES.update(at=now - 6 * 3600 + 600, data=data)
     return data
 

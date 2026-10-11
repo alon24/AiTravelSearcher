@@ -2,6 +2,7 @@
 Cloudflare Worker (worker/). Google's script and the Worker are faked here; worker/test/ covers the Worker itself."""
 import json
 import re
+import time
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -61,7 +62,7 @@ def worker(page, base_url):
         elif url.path == "/gflights":
             if state["gflights"] == "blocked":
                 return route.fulfill(status=502, headers=CORS, json={"error": "Google returned no result data (a robot check)"})
-            body = _google(parse_qs(url.query))
+            body = {**_google(parse_qs(url.query)), **({"fetched_at": state["fetched_at"]} if state.get("fetched_at") else {})}
         elif state.get("serpapi_down"):
             return route.fulfill(status=502, headers=CORS, json={"error": "SerpApi: Invalid API key"})
         else:
@@ -121,6 +122,15 @@ def test_free_google_flights_fares_come_first(page, worker):
     href = leg.get_by_role("link", name="Google Flights ↗").get_attribute("href")
     assert href.startswith("https://www.google.com/travel/flights?tfs=") and href.endswith("&curr=EUR")
     assert not [p for p, _ in worker["asked"] if p == "/serpapi"], "no SerpApi credits spent while Google answers"
+
+
+def test_fares_the_worker_shared_from_its_cache_show_their_age(page, worker):
+    worker["gflights"], worker["fetched_at"] = "ok", int(time.time()) - 2 * 3600
+    _sign_in(page)
+    _fill(page)
+    page.click("#go")
+    page.wait_for_selector("text=gflights ×4", timeout=60000)
+    assert page.locator(".res-head .badge:has-text('Flight data from 2h ago')").count() == 1
 
 
 def test_serpapi_answers_when_google_refuses_the_worker(page, worker):
@@ -186,6 +196,18 @@ def test_signed_in_before_live_fares_are_set_up_says_so(page, worker):
     page.wait_for_selector(".toast:has-text(\"aren't set up\")")
     assert page.inner_text("#mode-badge-desk") == "⚠ DEMO DATA"
     assert page.locator(".account-btn:visible").inner_text() == "Sign out"
+
+
+def test_an_unreachable_worker_says_why_and_keeps_the_sign_in(page, worker):
+    _sign_in(page)
+    page.route(f"{WORKER}/health", lambda r: r.abort("internetdisconnected"))
+    page.reload()
+    page.wait_for_selector(".toast:has-text(\"Couldn't reach Skyhop's server: Failed to fetch\")")
+    assert page.inner_text("#mode-badge-desk") == "⚠ DEMO DATA"
+    assert page.evaluate("JSON.parse(localStorage.getItem('skyhop.google')).token") == "tok-1", "a network blip is not a sign-out"
+    page.unroute(f"{WORKER}/health")
+    page.reload()
+    page.wait_for_function("document.querySelector('#mode-badge-desk').textContent === 'LIVE'")
 
 
 def test_a_token_that_expires_mid_session_signs_out(page, worker):

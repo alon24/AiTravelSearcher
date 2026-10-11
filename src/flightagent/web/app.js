@@ -42,8 +42,9 @@ const dayShift = (dep, arr) => Math.round((new Date(arr.getFullYear(), arr.getMo
 const tmLine = leg => { const e = legEnds(leg), sh = dayShift(e.dep, e.arr); return `${fmtTime(e.dep)} ${e.from} → ${fmtTime(e.arr)} ${e.to}${sh > 0 ? ` +${sh}` : ""}`; };
 const tmShort = leg => { const e = legEnds(leg), sh = dayShift(e.dep, e.arr); return `${fmtTime(e.dep)}→${fmtTime(e.arr)}${sh > 0 ? `+${sh}` : ""}`; };
 // Money. Prices come in the currency they were searched in; everything on screen is converted to the currency button's
-// choice with today's rate (see /api/rates). `money` is the one place that does it.
-let rates = { USD: 1, ILS: 3, GBP: 0.75, EUR: 0.87 }, ratesInfo = { source: "approximate", date: null }, displayCurrency = "ILS", showOriginal = false;
+// choice with today's rate (see /api/rates). `money` is the one place that does it. Without live rates nothing is
+// converted: a guessed rate would show a price nobody quoted.
+let rates = {}, ratesInfo = { source: null, date: null, error: null }, displayCurrency = "ILS", showOriginal = false;
 const fmtMoney = (v, cur) => new Intl.NumberFormat("en-US", { style: "currency", currency: cur || "USD", maximumFractionDigits: 0 }).format(v);
 const shownCur = cur => (showOriginal ? cur || "USD" : rates[cur] && rates[displayCurrency] ? displayCurrency : cur || "USD");
 const isConverted = cur => shownCur(cur) !== (cur || "USD");
@@ -56,6 +57,17 @@ function setShowOriginal(on) {
   rerenderCurrency();
 }
 const money = (v, cur) => fmtMoney(toShown(v, cur), shownCur(cur));
+/** The results badge for a search made in another currency: the rate and its source in plain sight (phones can't
+    hover), or why prices are not converted. */
+function currencyBadge(cur) {
+  if (!rates[cur] || !rates[displayCurrency]) {
+    return h("span", { class: "badge warn conv-off" }, `Prices in ${cur}, as searched · ${ratesInfo.error || `no exchange rate for ${displayCurrency}`}`);
+  }
+  const rate = `1 ${cur} = ${(rates[displayCurrency] / rates[cur]).toFixed(3)} ${displayCurrency}, ${ratesInfo.source}${ratesInfo.date ? ` ${ratesInfo.date}` : ""}`;
+  return h("button", { type: "button", class: "badge warn conv-toggle", onclick: () => setShowOriginal(!showOriginal),
+    title: "The airline's own price in that currency may differ a little." },
+    showOriginal ? `Showing original ${cur} · tap to convert to ${displayCurrency}` : `≈ Converted from ${cur} (${rate}) · tap for the original`);
+}
 const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
 function ago(ts) {
   const m = Math.round((Date.now() / 1000 - ts) / 60);
@@ -87,9 +99,9 @@ const tripLen = n => (unit === "days" ? `${plural(n + 1, "day")} (${plural(n, "n
 const lenRange = (a, b) => (a === b ? tripLen(a) : unit === "days" ? `${a + 1}–${b + 1} days (${a}–${b} nights)` : `${a}–${b} nights (${a + 1}–${b + 1} days)`);
 let recheckTimer = 0, currentRow = null;
 const viewStore = new Map();
-function toast(msg) {
+function toast(msg, ms = 3200) {
   const t = h("div", { class: "toast", role: "status" }, msg); document.body.append(t); setTimeout(() => t.classList.add("show"), 10);
-  setTimeout(() => { t.classList.remove("show"); setTimeout(() => t.remove(), 300); }, 3200);
+  setTimeout(() => { t.classList.remove("show"); setTimeout(() => t.remove(), 300); }, ms);
 }
 let resultsQuery = null;   // the request behind the results on screen (used by the trip builder buttons)
 let config = { provider: "mock", airline_sites: {}, airlines: {} };
@@ -427,8 +439,8 @@ function showFormError(msg) { const el = $("#form-error"); el.textContent = msg 
 let current = null, pollTimer = 0;
 async function refreshHistory() {
   let rows = [];
-  try { rows = await api("/api/searches"); } catch { return; }
   const box = $("#history");
+  try { rows = await api("/api/searches"); } catch (e) { box.replaceChildren(h("div", { class: "note bad" }, `Couldn't load your searches: ${e.message}`)); return; }
   box.replaceChildren(...(rows.length ? rows.map(histItem) : [h("div", { class: "empty-hist" }, "Your searches will show up here.")]));
 }
 function histItem(r) {
@@ -566,7 +578,14 @@ function renderProgress(row) {
     h("div", { class: "plane", "aria-hidden": "true" }, "✈️"),
     h("div", { class: "txt" }, total ? `Checking flights… ${done} of ${total}` : "Warming up…"),
     h("div", { class: "bar-track", role: "progressbar", "aria-valuenow": total ? done : null, "aria-valuemax": total || null }, fill),
-    h("div", { class: "sub" }, `${q.origin} → ${q.destinations.join(", ")} · every day from ${fmtShort(day(q.window_start))} to ${fmtShort(day(q.window_end))}`)));
+    h("div", { class: "sub" }, `${q.origin} → ${q.destinations.join(", ")} · every day from ${fmtShort(day(q.window_start))} to ${fmtShort(day(q.window_end))}`),
+    h("button", { type: "button", class: "btn cancel-search", disabled: cancelling.has(row.id), onclick: () => cancelSearch(row) },
+      cancelling.has(row.id) ? "Cancelling…" : "Cancel")));
+}
+const cancelling = new Set();     // ids whose Cancel was pressed: the progress card is redrawn on every poll
+async function cancelSearch(row) {
+  cancelling.add(row.id); renderProgress(row);
+  try { await post(`/api/searches/${row.id}/cancel`, {}); } catch (e) { cancelling.delete(row.id); toast(`Couldn't cancel: ${e.message}`); }
 }
 
 function renderResult(row, opts = {}) {
@@ -576,8 +595,9 @@ function renderResult(row, opts = {}) {
   resultsQuery = q;
   box.replaceChildren();
   if (row.status === "failed") {
-    box.append(h("div", { class: "note bad" }, `This search failed: ${row.error}`),
-      h("div", {}, h("button", { class: "btn", onclick: () => submitSearch(q) }, "Try again")));
+    const cancelled = /^Cancelled\./.test(row.error || "");
+    box.append(h("div", { class: cancelled ? "note" : "note bad" }, cancelled ? row.error : `This search failed: ${row.error}`),
+      h("div", {}, h("button", { class: "btn", onclick: () => submitSearch(q) }, cancelled ? "Search again" : "Try again")));
     return;
   }
   const res = row.result, cur = q.currency, daily = res.daily;
@@ -596,7 +616,7 @@ function renderResult(row, opts = {}) {
         paxCount(q) > 1 && h("span", { class: "badge run" }, `${paxLabel(q)} · totals`),
         (q.airlines_exclude || []).length || (q.airlines_include || []).length ? h("span", { class: "badge warn" }, `${(q.airlines_include || []).length ? "Only" : "Excluding"}: ${((q.airlines_include || []).length ? q.airlines_include : q.airlines_exclude).map(c => (config.airlines || {})[c] || c).join(", ")}`) : null,
         (q.carry_on_bags || q.checked_bags) ? h("span", { class: "badge run", title: "Google adds estimated bag fees only where it has them (mostly US and Europe)" }, `🧳 est. fees for ${[q.carry_on_bags ? "cabin bag" : "", q.checked_bags ? "checked bag" : ""].filter(Boolean).join(" + ")} included`) : null,
-        q.currency !== displayCurrency ? h("button", { type: "button", class: "badge warn conv-toggle", onclick: () => setShowOriginal(!showOriginal), title: `Searched in ${q.currency}. Shown in ${shownCur(q.currency)} at 1 ${shownCur(q.currency)} = ${(rates[q.currency] / rates[shownCur(q.currency)]).toFixed(3)} ${q.currency} (${ratesInfo.source}${ratesInfo.date ? `, ${ratesInfo.date}` : ""}). The airline's own price in that currency may differ a little.` }, showOriginal ? `Showing original ${q.currency} · click to convert to ${displayCurrency}` : `≈ Converted from ${q.currency} · click to see the original`) : null,
+        q.currency !== displayCurrency ? currencyBadge(q.currency) : null,
         h("span", { class: "badge run" }, `${res.elapsed_s}s`), h("span", {}, ago(row.created)),
         res.data_from && Date.now() / 1000 - res.data_from > 1800 ? h("span", { class: "badge warn", title: "Filtering reuses saved flights. Press Search again to fetch fresh prices." }, `Flight data from ${ago(res.data_from)} · Search again to refresh`) : null)),
     h("div", { class: "actions" },
@@ -1360,9 +1380,11 @@ async function init() {
   }));
   $("#menu").addEventListener("click", () => { $("#sidebar").classList.add("open"); $("#scrim").hidden = false; });
   $("#scrim").addEventListener("click", closeSidebar);
-  try { config = await api("/api/config"); } catch { /* keep defaults */ }
+  try { config = await api("/api/config"); } catch (e) { toast(`Couldn't load Skyhop's settings: ${e.message}`); }
   showMode();
   if (SkyhopLocal.account.configured()) {
+    const down = SkyhopLocal.account.unreachable();
+    if (down) toast(`${down}. These are demo fares until it answers; reload to try again.`, 12000);
     showAccount(); shareJevRoute(); loadSharedLinks();
     $$(".account-btn").forEach(b => b.addEventListener("click", toggleAccount));
     window.addEventListener("skyhop-signed-out", async () => {
@@ -1438,7 +1460,7 @@ async function init() {
   syncExtBadge(); setTimeout(syncExtBadge, 1500); // the content script can attach just after load
   syncDecider(); setTimeout(syncDecider, 500); setTimeout(syncDecider, 1500);
   setTimeout(() => { if (extensionAvailable()) checkDecider(true); }, 1200);   // on load / refresh: is the chosen one running?
-  try { ratesInfo = await api("/api/rates"); rates = ratesInfo.rates; } catch { /* keep the approximate defaults */ }
+  try { ratesInfo = await api("/api/rates"); rates = ratesInfo.rates; } catch (e) { ratesInfo.error = `couldn't load exchange rates: ${e.message}`; }
   showOriginal = !!store.get("skyhop.showOriginal");
   $("#orig-toggle").checked = showOriginal;
   $("#orig-toggle").addEventListener("change", e => setShowOriginal(e.target.checked));

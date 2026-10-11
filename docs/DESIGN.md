@@ -84,8 +84,17 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
      (2026-10-10); the GitHub Actions probe got 10/10 answers from a cloud address on 2026-10-09.
    - **SerpApi (`GET /serpapi`).** Parsed exactly like `SerpApiProvider.parse` (parity-tested); one credit a lookup.
    - Offer-cache keys include the provider, so demo and real fares never mix.
+   - **Shared fare cache (Oct 2026, `worker/src/farecache.js`).** `/gflights` and `/serpapi` answers are kept in
+     Cloudflare's edge cache, keyed by the sorted query, so the same route and day costs one lookup for everyone:
+     15 min within 2 days of departure, 1 h within 14 days, else 3 h. Only full answers are shared (no "no flights",
+     no Google answer with an unpriced flight, since the page asks again for those). Every answer carries `fetched_at`;
+     the page keeps it as the offer-cache time, so "Flight data from 2h ago" stays true. A hit still needs a signed-in
+     caller but spends nothing from a guest's trip allowance. `worker/tools/probe.js` runs the Worker's scraper daily
+     (`gflights-probe.yml`, with the Python one) and opens a "gflights broken" issue when either fails.
    - The token is kept in localStorage until it expires (about 1 h), so a reload or a phone doesn't ask again. A 401
-     from the Worker signs the page out and says so.
+     from the Worker signs the page out and says so. A `/health` that can't be reached is not a verdict on the token:
+     the sign-in is kept and the page says "Couldn't reach Skyhop's server: <reason>" (before Oct 2026 it silently
+     signed out).
    - **Jev for the extension.** On the web version the page hands the Airline Assist extension its Worker URL and
      Google token (`skyhop-jev-route` event, `content-bridge.js`), which `background.js` keeps in session storage until
      the token expires and uses for `POST /decide`. Without it, Jev goes to the local server as before. Jev is the
@@ -328,7 +337,10 @@ served each lookup.
 ### Currency display
 - A search runs in one currency (the button's value at that time) and results are stored in it. The currency button
   changes the whole screen at once by **converting displayed prices** with `GET /api/rates` (ECB via frankfurter.dev,
-  cached 6 h, approximate fallback), so nothing is re-fetched. `money()` in `app.js` is the single place that converts.
+  cached 6 h), so nothing is re-fetched. `money()` in `app.js` is the single place that converts.
+- **No guessed rates (Oct 2026).** If the rates lookup fails, nothing is converted: prices stay in the searched currency and a
+  "Prices in USD, as searched · <reason>" badge says why. The old hard-coded fallback (1 USD = 3 ILS) showed prices nobody
+  quoted. The converted badge carries the rate, its source and date as visible text, since phones can't hover.
 - Whenever a price is converted it is labelled: a "Converted from ILS" badge, an "originally ₪194" line on pick cards, trip
   and builder prices, and a **Show original currency** switch. Original amounts are what Google quoted for that search; we cannot
   know the currency an airline itself sells in, so search in a currency to see Google's price for it.
@@ -640,6 +652,7 @@ FlightAPI.io, Skyscanner via RapidAPI. Not viable: Amadeus Self-Service (shut do
 | `POST /api/estimate` | Lookup count and cache state for a request. |
 | `POST /api/searches` | Start a background search, returns `{id}`. 422 if over budget. |
 | `GET /api/searches`, `/api/searches/{id}` | History list (light), or one search with progress, request and full result. |
+| `POST /api/searches/{id}/cancel` | Stop a running search; 409 if it isn't running. Lookups already made stay cached. |
 | `DELETE /api/searches/{id}` | Remove from history. |
 | `GET /api/config`, `/health` | Active provider chain and airline booking links; liveness. |
 

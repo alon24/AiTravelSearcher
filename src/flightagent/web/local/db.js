@@ -55,7 +55,8 @@
       const e = await this.offers.get(key);
       return e && (stale || this.fresh(e)) ? { offers: e.offers, ts: e.ts } : null;
     }
-    async put(key, offers, ttl = null) { const t = now(); await this.offers.put(key, { ts: t, offers, expires: t + (ttl ?? this.ttl) }); }
+    /** `ts`: when the fares were fetched, if earlier than now (the Worker's shared cache), so their age stays true. */
+    async put(key, offers, ttl = null, ts = null) { const t = ts ?? now(); await this.offers.put(key, { ts: t, offers, expires: t + (ttl ?? this.ttl) }); }
     async rememberFares(fares) { const t = now(); for (const [k, price] of Object.entries(fares)) await this.fares.put(k, { price, ts: t }); }
     async recallFare(key) { return (await this.fares.get(key)) || null; }
   }

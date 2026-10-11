@@ -20,6 +20,7 @@
   let health = null;        // the Worker's /health for this session: {gflights, serpapi, chat, trips, user, guest}
   let trip = null;          // the shared trip on screen (trip.js): a guest's AI and fares are billed to it
   let checked = null;
+  let unreachable = null;   // why the last /health failed (network, DNS, the Worker down), shown instead of a silent demo
 
   function load() {
     try { const s = JSON.parse(root.localStorage.getItem(KEY)); if (s && s.until > Date.now()) return s; } catch { /* below */ }
@@ -71,11 +72,13 @@
   function check(force = false) {
     if (!configured()) return Promise.resolve(null);
     if (!checked || force) {
-      checked = get("/health").catch(() => null).then(h => {
-        health = h;
-        if (session && h && !(h.user || h.guest)) dropFromHub(session.token);     // expired or revoked
-        if (session && !(h && (h.user || h.guest))) save(null);
+      checked = get("/health").then(h => {
+        health = h; unreachable = null;
+        if (session && !(h.user || h.guest)) { dropFromHub(session.token); save(null); }    // expired or revoked
         return h;
+      }, e => {       // not a verdict on the token: keep the sign-in, say why, and ask again next time
+        unreachable = `Couldn't reach Skyhop's server: ${e.message}`; checked = null;
+        return null;
       });
     }
     return checked;
@@ -133,7 +136,7 @@
   async function signIn() {
     save({ ...(await requestToken(SIGN_IN)), email: null });
     const h = await check(true);
-    if (!h) { save(null); throw new Error("Couldn't reach Skyhop's server"); }
+    if (!h) { save(null); throw new Error(unreachable); }
     if (!h.user && !h.guest) { save(null); throw new Error("Google didn't confirm this account"); }
     save({ ...session, email: h.user || h.guest });
     shareWithHub(session);
@@ -165,6 +168,7 @@
   L.account = {
     configured, check, signIn, signOut, get, signedIn, driveToken, hasDrive,
     allowed, email: who, appSignIn,
+    unreachable: () => unreachable,
     live: () => (allowed() || (signedIn() && !!trip)) && !!(health.gflights || health.serpapi),   // real fares through the Worker
     has: service => !!(health && health[service]),
     /** Where the Airline Assist extension sends Jev's questions on the web version: this Worker with this token. */

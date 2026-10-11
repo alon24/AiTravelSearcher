@@ -153,7 +153,7 @@ def test_recheck_endpoint_and_due_schedule(monkeypatch, tmp_path):
         assert h.due(time.time()) == []
 
 
-def test_rates_endpoint_uses_ecb_then_falls_back(monkeypatch):
+def test_rates_endpoint_uses_ecb_and_names_its_failure_instead_of_guessing(monkeypatch):
     import flightagent.api as api
     from fastapi.testclient import TestClient
 
@@ -179,7 +179,8 @@ def test_rates_endpoint_uses_ecb_then_falls_back(monkeypatch):
         api._RATES.update(at=0.0, data=None)
         monkeypatch.setattr(api.httpx, "AsyncClient", Down)
         fb = c.get("/api/rates").json()
-        assert fb["source"] == "approximate fallback" and set(fb["rates"]) == {"USD", "ILS", "GBP", "EUR"}
+        assert fb["rates"] == {} and fb["source"] is None        # no made-up rates: prices stay as searched
+        assert fb["error"] == "live exchange rates unavailable: offline"
     api._RATES.update(at=0.0, data=None)
 
 

@@ -8,6 +8,8 @@
   const LONG_LAYOVER_MIN = 8 * 60;
   const MAX_CELLS = 300;           // 10 destinations x 30 trip lengths
 
+  const CANCELLED = "Cancelled. Fares fetched before you stopped are saved, so searching again reuses them.";   // as api.py
+
   class BudgetExceeded extends Error {
     constructor(needed, budget) {
       super(`Search needs ${needed} uncached provider calls but max_api_calls=${budget}. `
@@ -27,9 +29,12 @@
   class Engine {
     /** provider: {name, oneWay(origin, dest, day, opts)}; cache: see db.js OfferCache (optional). */
     constructor(provider, cache = null, concurrency = 8) {
-      this.provider = provider; this.cache = cache; this.concurrency = concurrency;
+      this.provider = provider; this.cache = cache; this.concurrency = concurrency; this.cancelled = false;
       this.reset();
     }
+
+    /** The Cancel button: lookups in flight finish (and are cached), no new ones start, and search() rejects. */
+    cancel() { this.cancelled = true; }
 
     reset() { this.apiCalls = 0; this.cacheHits = 0; this.sources = {}; this.oldestTs = null; this.onProgress = null; }
 
@@ -191,18 +196,20 @@
         const src = offers.source || this.provider.name;
         this.sources[src] = (this.sources[src] || 0) + 1;
         if (offers.fallback) fallbacks.push(offers.fallback);
+        if (offers.fetched_at) this.oldestTs = this.oldestTs === null ? offers.fetched_at : Math.min(this.oldestTs, offers.fetched_at);
         raw.set(k, offers);
-        if (this.cache && offers.length) await this.cache.put(this.cacheKey(req, k), offers, this.ttlFor(day, offers));  // never cache "no flights"
+        if (this.cache && offers.length) await this.cache.put(this.cacheKey(req, k), offers, this.ttlFor(day, offers), offers.fetched_at);  // never cache "no flights"
       };
       const queue = [...missing];
       const worker = async () => {
-        while (queue.length) {
+        while (queue.length && !this.cancelled) {
           await fetchOne(queue.shift());
           done++;
           if (this.onProgress) this.onProgress(done, missing.length);
         }
       };
       await Promise.all(Array.from({ length: Math.min(this.concurrency, queue.length) }, worker));
+      if (this.cancelled) throw new Error(CANCELLED);
 
       if (errors.length && !raw.size) throw new Error(`All provider calls failed. First error: ${errors[0]}`);
       const warnings = errors.length ? [`${errors.length} provider call(s) failed; first: ${errors[0]}`] : [];

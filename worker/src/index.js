@@ -4,12 +4,14 @@
      GET  /health                   which services are configured, and whether the caller's token is accepted
      GET  /gflights?origin&dest&... one one-way lookup straight from Google Flights (free; gflights.js)
      GET  /serpapi?origin&dest&...  one one-way Google Flights lookup through SerpApi (one credit)
+                                    both shared from the edge cache for a while, with their age (farecache.js)
      POST /decide                   a typed decision from Jev, as the Python service's /api/decide (decide.py)
      POST /chat                     one model turn for the page's AI chat, as the Python service's /api/chat/complete
      /trips...                      shared trips: a group chat per trip (trips.js)
      GET|POST /links                airline search links the desktop extension learned, for phones (links.js) */
 
 import { CITY_AIRPORTS } from "./airports.js";
+import { cachedFares } from "./farecache.js";
 import { gflights } from "./gflights.js";
 import { SearchLinks, links } from "./links.js";
 import { SharedTrip, newTripId, tripStub, validTripId } from "./trips.js";
@@ -172,6 +174,16 @@ async function serpapi(url, env, wait = sleep) {
   }
 }
 
+/** What an upstream service said went wrong, for an error the person can act on ("402: Insufficient credits"
+    rather than "502"): OpenRouter's {error: {message}}, a plain {error}, or the start of the body. */
+export async function upstreamReason(r) {
+  const text = await r.text().catch(() => "");
+  let said = text;
+  try { const e = JSON.parse(text).error; said = typeof e === "string" ? e : (e && e.message) || text; } catch { /* not JSON */ }
+  said = String(said).replace(/\s+/g, " ").trim().slice(0, 200);
+  return said ? `${r.status}: ${said}` : String(r.status);
+}
+
 /** Laya-style request -> Jev's (decide.to_jev_request): a bare string state is wrapped; noul questions get default criteria. */
 export function jevRequest(body, model) {
   const { state, questions } = body || {};
@@ -196,7 +208,7 @@ async function decide(request, env) {
   if (bad) return error(bad, 422);
   const r = await fetch(JEV_URL, { method: "POST", body: JSON.stringify(jev),
     headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json", "X-Title": "Skyhop" } });
-  if (!r.ok) return error(`Jev/OpenRouter answered ${r.status}`, 502);
+  if (!r.ok) return error(`Jev/OpenRouter answered ${await upstreamReason(r)}`, 502);
   const data = await r.json();
   return json({ answers: data.answers, cost: Number((data.usage || {}).cost) || 0, model: data.model, backend: "jev" });
 }
@@ -224,10 +236,10 @@ async function chat(request, env, who) {
   if (bad) return error(bad, 422);
   const r = await fetch(CHAT_URL, { method: "POST", body: JSON.stringify(out),
     headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json", "X-Title": "Skyhop chat" } });
-  if (!r.ok) return error(`chat model answered ${r.status}`, 502);
+  if (!r.ok) return error(`chat model answered ${await upstreamReason(r)}`, 502);
   const data = await r.json();
   const message = (data.choices || [])[0]?.message;
-  if (!message) return error("unexpected answer from the chat model", 502);
+  if (!message) return error(`unexpected answer from the chat model: ${JSON.stringify(data.error || data).slice(0, 200)}`, 502);
   const tokens = Number((data.usage || {}).total_tokens);
   await audit(env, { email: who.email, action: "chat", detail: out.model, tokens: Number.isFinite(tokens) ? tokens : null });
   return json({ message });
@@ -253,8 +265,8 @@ export default {
       if (!who) return error("sign in with Google", 401);
       if (url.pathname === "/links") return await links(request, env, who, { json, error });
       if (url.pathname === "/trips" || url.pathname.startsWith("/trips/")) return await trips(request, env, url, who);
-      if (url.pathname === "/gflights" && request.method === "GET") return (await mayspend(request, env, who, "gflights")) || await logged(env, who, "search", route(url), gflights(url, { json, error }, sleep));
-      if (url.pathname === "/serpapi" && request.method === "GET") return (await mayspend(request, env, who, "serpapi")) || await logged(env, who, "serpapi", route(url), serpapi(url, env));
+      if (url.pathname === "/gflights" && request.method === "GET") return await cachedFares(url, json, async () => (await mayspend(request, env, who, "gflights")) || await logged(env, who, "search", route(url), gflights(url, { json, error }, sleep)));
+      if (url.pathname === "/serpapi" && request.method === "GET") return await cachedFares(url, json, async () => (await mayspend(request, env, who, "serpapi")) || await logged(env, who, "serpapi", route(url), serpapi(url, env)));
       if (url.pathname === "/chat" && request.method === "POST") return (await mayspend(request, env, who, "chat")) || await chat(request, env, who);
       if (!who.allowed) return error("sign in with an allowed Google account", 403);
       if (url.pathname === "/decide" && request.method === "POST") return await logged(env, who, "decide", null, decide(request, env));

@@ -125,7 +125,7 @@ const MixMatch = (() => {
     if (!S.check) {
       const start = S.key, pair = [out, ret];
       S.check = { loading: true };
-      post("/api/itinerary/check", { legs: pair, currency: cur }).then(r => { if (S.key === start && S.out === pair[0] && S.ret === pair[1]) S.check = r; }).catch(() => { S.check = { error: true }; }).finally(() => { if (S.key === start) draw(host); });
+      post("/api/itinerary/check", { legs: pair, currency: cur }).then(r => { if (S.key === start && S.out === pair[0] && S.ret === pair[1]) S.check = r; }).catch(e => { S.check = { error: e.message }; }).finally(() => { if (S.key === start) draw(host); });
     }
     const g = S.check && S.check.gaps ? S.check.gaps[0] : null;
     const label = f => `${[...new Set(f.segments.map(s => airlineName(s.airline_code, s.airline)))].join("+")} ${tmShort(f)}`;
@@ -133,6 +133,7 @@ const MixMatch = (() => {
       h("div", { class: "mm-total" }, h("div", { class: "k" }, "Your combination"), h("div", { class: "v" }, fmtMoney(total, shownCur(cur)), isConverted(cur) ? h("small", { class: "orig block" }, `originally ${fmtMoney(orig, cur)}`) : null),
         priced.length < 2 ? h("div", { class: "pax" }, "One flight has no price shown: check the airline's site") : null),
       h("div", { class: "mm-pick" }, h("div", {}, h("b", {}, "Out "), label(out)), h("div", {}, h("b", {}, "Back "), label(ret)),
+        S.check && S.check.error ? h("div", { class: "note bad" }, `Couldn't check the time between these flights: ${S.check.error}`) : null,
         g ? h("div", { class: `gap ${g.status}` }, h("div", { class: "gap-h" }, h("span", { class: "pill" }, { ok: "OK", tight: "Tight", impossible: "Not enough time" }[g.status]), h("span", {}, g.headline)), g.detail ? h("div", { class: "gap-d" }, g.detail) : null) : null),
       h("div", { class: "actions" },
         h("button", { type: "button", class: "btn small", onclick: () => { Builder.addFlight(out, { pax: S.ctx.paxLabel, currency: cur }); Builder.addFlight(ret, { pax: S.ctx.paxLabel, currency: cur }); } }, "＋ Add both to Trip builder"),

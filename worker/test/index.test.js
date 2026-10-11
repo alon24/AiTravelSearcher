@@ -78,11 +78,14 @@ test("serpapi params mirror the Python provider: city codes expand, stops map, k
 test("a lookup adds the key, passes back only the flights, and treats 'no results' as empty", async () => {
   stubFetch([["https://serpapi.com/", reply({ best_flights: [{ price: 1 }], other_flights: [], search_metadata: { google_flights_url: "https://g/f" }, extra: "x" })]]);
   const r = await call("/serpapi?origin=TLV&dest=ROM&date=2026-11-02", { appToken: "app-secret" });
-  assert.deepEqual(await r.json(), { best_flights: [{ price: 1 }], other_flights: [], google_flights_url: "https://g/f" });
+  const { fetched_at, ...body } = await r.json();
+  assert.deepEqual(body, { best_flights: [{ price: 1 }], other_flights: [], google_flights_url: "https://g/f" });
+  assert.ok(Math.abs(fetched_at - Date.now() / 1000) < 5, "every answer says when it was fetched");
   assert.equal(new URL(calls[0].url).searchParams.get("api_key"), "serp-key");
   assert.equal(r.headers.get("Access-Control-Allow-Origin"), "*");
   stubFetch([["https://serpapi.com/", reply({ error: "Google Flights hasn't returned any results for this query." })]]);
-  assert.deepEqual(await (await call("/serpapi?origin=TLV&dest=ROM&date=2026-11-02", { appToken: "app-secret" })).json(), { best_flights: [], other_flights: [] });
+  const { fetched_at: _, ...empty } = await (await call("/serpapi?origin=TLV&dest=ROM&date=2026-11-02", { appToken: "app-secret" })).json();
+  assert.deepEqual(empty, { best_flights: [], other_flights: [] });
   stubFetch([["https://serpapi.com/", reply({ error: "Invalid API key." }, 401)]]);
   assert.equal((await call("/serpapi?origin=TLV&dest=ROM&date=2026-11-02", { appToken: "app-secret" })).status, 502);
 });
@@ -142,6 +145,19 @@ test("chat relays one turn with the page's tools and the key", async () => {
   assert.equal(calls[0].init.headers.Authorization, "Bearer or-key");
   stubFetch([["https://openrouter.ai/", reply({ error: "x" }, 500)]]);
   assert.equal((await call("/chat", { appToken: "app-secret", method: "POST", body: JSON.stringify({ messages: [{ role: "user", content: "x" }] }) })).status, 502);
+});
+
+test("chat and Jev failures carry what OpenRouter said, not just a status", async () => {
+  const turn = { appToken: "app-secret", method: "POST", body: JSON.stringify({ messages: [{ role: "user", content: "x" }] }) };
+  stubFetch([["https://openrouter.ai/", reply({ error: { message: "Insufficient credits", code: 402 } }, 402)]]);
+  assert.deepEqual(await (await call("/chat", turn)).json(), { error: "chat model answered 402: Insufficient credits" });
+  stubFetch([["https://openrouter.ai/", () => new Response("<html>Bad gateway</html>", { status: 502 })]]);
+  assert.deepEqual(await (await call("/chat", turn)).json(), { error: "chat model answered 502: <html>Bad gateway</html>" });
+  stubFetch([["https://openrouter.ai/", reply({ error: { message: "rate limited" } })]]);    // 200 without choices
+  assert.match((await (await call("/chat", turn)).json()).error, /^unexpected answer from the chat model: .*rate limited/);
+  stubFetch([["https://openrouter.ai/", reply({ error: "model not found" }, 404)]]);
+  const jev = await call("/decide", { appToken: "app-secret", method: "POST", body: JSON.stringify({ state: "s", questions: { q: { type: "noul" } } }) });
+  assert.deepEqual(await jev.json(), { error: "Jev/OpenRouter answered 404: model not found" });
 });
 
 test("chat requests are bounded like the Python relay", () => {

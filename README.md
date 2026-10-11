@@ -85,7 +85,8 @@ sequenceDiagram
 ```
 
 A search that covers many days and destinations can take from a few seconds to a couple of minutes — that's
-real lookups running, not a stall. The progress bar shows how many are left.
+real lookups running, not a stall. The progress bar shows how many are left, and **Cancel** stops it; fares it already
+fetched are kept, so a narrower search right after reuses them.
 
 ### 3. Where are my past searches stored?
 

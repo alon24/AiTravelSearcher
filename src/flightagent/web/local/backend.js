@@ -7,10 +7,10 @@
 
   class HttpError extends Error {}
   const fail = msg => { throw new HttpError(msg); };
-  const FALLBACK_RATES = { USD: 1.0, ILS: 3.0, GBP: 0.75, EUR: 0.87 };    // rough, as in api.py
 
   let cache, history, engineProvider;
   const running = new Set();
+  const jobs = new Map();          // id -> the engine of a running search, for Cancel
   const jsonOnce = url => { let p; return () => (p = p || fetch(url).then(r => r.json())); };
   const loadConfig = jsonOnce("config.json");
   const loadAirports = jsonOnce("airports.json");
@@ -39,9 +39,9 @@
   const nextCheck = (result, rechecks) => L.polling.nextCheckTime(result.unpriced.map(u => u.date), rechecks, Date.now() / 1000);
   async function stored(id) { const row = await history.get(id); if (!row) fail("search not found"); return row; }
   async function done(id) { const row = await history.get(id); if (!row || row.status !== "done") fail("search not found or not finished"); return row; }
-  async function search(req, onProgress) {
+  async function search(req, onProgress, eng = engine()) {
     await zones();
-    try { return await engine().search(req, onProgress); } catch (e) { fail(e.message); }
+    try { return await eng.search(req, onProgress); } catch (e) { fail(e.message); }
   }
   async function oneWayOptions(req, o, d, day) {
     try { return await engine().oneWayOptions(req, o, d, day); } catch (e) { fail(e.message); }
@@ -61,6 +61,7 @@
     ["GET", /^\/api\/searches\/(\w+)$/, async ({ m }) => stored(m[1])],
     ["DELETE", /^\/api\/searches\/(\w+)$/, async ({ m }) => ({ deleted: await history.delete(m[1]) })],
     ["POST", /^\/api\/searches\/(\w+)\/filter$/, filterSearch],
+    ["POST", /^\/api\/searches\/(\w+)\/cancel$/, cancelSearch],
     ["POST", /^\/api\/searches\/(\w+)\/recheck$/, recheckSearch],
     ["GET", /^\/api\/searches\/(\w+)\/flights$/, searchFlights],
     ["GET", /^\/api\/searches\/(\w+)\/bagfees$/, bagFees],
@@ -89,15 +90,25 @@
     const id = Array.from(crypto.getRandomValues(new Uint8Array(6)), b => b.toString(16).padStart(2, "0")).join("");
     await history.create(id, req);
     running.add(id);
+    const eng = engine();
+    jobs.set(id, eng);
     (async () => {
       try {
-        const result = await search(req, (d, t) => history.progress(id, d, t));
+        const result = await search(req, (d, t) => history.progress(id, d, t), eng);
         await history.finish(id, result, bestPrice(result), nextCheck(result, 0));
       } catch (e) {
         await history.fail(id, e.message || String(e));
-      } finally { running.delete(id); }
+      } finally { running.delete(id); jobs.delete(id); }
     })();
     return { id };
+  }
+
+  /** Stop a running search (api.py cancel_search). */
+  async function cancelSearch({ m }) {
+    const eng = jobs.get(m[1]);
+    if (!eng) fail("this search isn't running");
+    eng.cancel();
+    return { cancelled: true };
   }
 
   /** Change a finished search's airline filter in place, recomputed from the flights already saved. */
@@ -182,11 +193,11 @@
   async function rates() {
     try {
       const r = await fetch("https://api.frankfurter.dev/v1/latest?base=USD&symbols=ILS,GBP,EUR");
-      if (!r.ok) throw new Error(r.statusText);
+      if (!r.ok) throw new Error(`frankfurter.dev answered ${r.status}`);
       const j = await r.json();
       return { base: "USD", rates: { USD: 1.0, ...j.rates }, date: j.date || null, source: "ECB via frankfurter.dev" };
-    } catch {
-      return { base: "USD", rates: FALLBACK_RATES, date: null, source: "approximate fallback" };
+    } catch (e) {     // as api.py: no guessed rates, the page keeps prices as searched
+      return { base: "USD", rates: {}, date: null, source: null, error: `live exchange rates unavailable: ${e.message}` };
     }
   }
 

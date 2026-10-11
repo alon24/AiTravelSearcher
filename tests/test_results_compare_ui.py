@@ -414,3 +414,15 @@ def test_without_the_extension_a_known_airline_link_opens_its_own_search_for_the
     assert re.fullmatch(rf"Opens Wizz Air's own results for {origin} → {dest} that day and copies this flight \(W6\d+ .+\); you pick it there",
                         btn.get_attribute("title"))
     assert p.locator(".site-btn", has_text="Search on El Al site").count() == 0, "El Al has no search link: plain site link"
+
+
+def test_a_failed_connection_check_says_why_instead_of_vanishing(results):
+    p = results
+    p.wait_for_selector(".mm-row")
+    p.evaluate("""() => { const real = api;
+        window.api = (path, o) => path === '/api/itinerary/check' ? Promise.reject(new Error('server restarted')) : real(path, o); }""")
+    for col in range(2):                                   # a new pair: out and back that are not picked yet
+        p.locator(".mm-col").nth(col).locator(".mm-row:not(.picked)").first.click()
+    note = p.locator(".mm-sum .note.bad")
+    note.wait_for()
+    assert note.inner_text() == "Couldn't check the time between these flights: server restarted"

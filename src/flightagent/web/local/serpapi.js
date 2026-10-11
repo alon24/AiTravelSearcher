@@ -28,7 +28,9 @@
   function provider(get) {
     async function oneWay(origin, dest, day, { currency, adults, maxStops, children = 0, infants = 0 }) {   // bags: not used, as in Python
       const q = new URLSearchParams({ origin, dest, date: day, currency, adults, max_stops: maxStops, children, infants });
-      return parse(await get(`/serpapi?${q}`), origin, dest, day, currency);
+      const r = await get(`/serpapi?${q}`), offers = parse(r, origin, dest, day, currency);
+      offers.fetched_at = r.fetched_at || null;     // the Worker may answer from its shared cache
+      return offers;
     }
     return { name: "serpapi", oneWay };
   }

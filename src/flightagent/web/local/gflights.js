@@ -46,10 +46,16 @@
     async function oneWay(origin, dest, day, { currency, adults, maxStops, children = 0, infants = 0, carryOnBags = 0, checkedBags = 0 }) {
       const q = new URLSearchParams({ origin, dest, date: day, currency, adults, max_stops: maxStops, children, infants,
         carry_on_bags: carryOnBags, checked_bags: checkedBags });
-      const once = async () => { const r = await get(`/gflights?${q}`); return parse(r.groups, origin, dest, currency, r.url, r.usual); };
+      let fetchedAt = null;     // the Worker may answer from its shared cache: keep the oldest fetch time
+      const once = async () => {
+        const r = await get(`/gflights?${q}`);
+        if (r.fetched_at) fetchedAt = Math.min(fetchedAt ?? r.fetched_at, r.fetched_at);
+        return parse(r.groups, origin, dest, currency, r.url, r.usual);
+      };
       let offers = await once();
       // Google sometimes omits a fare it shows on the next request: ask again for unpriced flights (as gflights.py).
       for (let i = 0; i < retryUnpriced && !offers.every(o => o.priced); i++) { await wait(1000); offers = merge(offers, await once()); }
+      offers.fetched_at = fetchedAt;
       return offers;
     }
     return { name: "gflights", oneWay };

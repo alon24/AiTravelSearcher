@@ -376,6 +376,39 @@ def test_ui_api_search_history_estimate(monkeypatch, tmp_path):
         assert c.get("/").status_code == 200 and c.get("/health").json()["status"] == "ok"
 
 
+def test_cancel_stops_a_running_search_and_keeps_what_it_fetched(monkeypatch, tmp_path):
+    import time
+    from fastapi.testclient import TestClient
+    import flightagent.api as api
+
+    class Slow(Fake):
+        async def one_way(self, o, d, day, **kw):
+            await asyncio.sleep(0.05)
+            return await super().one_way(o, d, day, **kw)
+
+    slow = Slow(lambda o, d, day: [offer(o, d, at(day), 100)])
+    monkeypatch.setenv("FLIGHTAGENT_CACHE_DB", str(tmp_path / "c.sqlite"))
+    monkeypatch.setattr(api, "build_engine", lambda: FlightSearchEngine(slow, cache=OfferCache(str(tmp_path / "c.sqlite")), concurrency=1))
+    body = {"destinations": ["ROM"], "window_start": "2026-10-01", "window_end": "2026-10-20", "min_nights": 3, "max_nights": 4,
+            "max_api_calls": 500}
+    with TestClient(api.app) as c:
+        sid = c.post("/api/searches", json=body).json()["id"]
+        time.sleep(0.3)
+        assert c.post(f"/api/searches/{sid}/cancel").json() == {"cancelled": True}
+        for _ in range(50):
+            row = c.get(f"/api/searches/{sid}").json()
+            if row["status"] != "running":
+                break
+            time.sleep(0.05)
+        assert row["status"] == "failed" and row["error"] == api.CANCELLED
+        made = len(slow.calls)
+        assert 0 < made < row["progress"]["total"], "it stopped part way"
+        time.sleep(0.2)
+        assert len(slow.calls) == made, "no lookups after Cancel"
+        assert c.post("/api/estimate", json=body).json()["cached"] >= made - 1, "what it fetched is reused"
+        assert c.post(f"/api/searches/{sid}/cancel").status_code == 409
+
+
 def test_passenger_ages_map_to_google_categories():
     r = req(adults=2, children_ages=[0, 5, 11, 12, 16])
     assert (r.pax_adults, r.pax_children, r.pax_infants) == (4, 2, 1)
