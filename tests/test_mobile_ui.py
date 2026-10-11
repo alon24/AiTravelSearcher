@@ -56,6 +56,23 @@ def test_the_form_is_one_step_at_a_time(phone):
     assert phone.locator(".wz-title").inner_text() == "Step 2 of 4 · When"
 
 
+def test_a_fresh_load_starts_on_step_one_even_with_a_saved_search(phone):
+    _fill(phone)                                                          # saves the form
+    phone.reload()
+    phone.wait_for_function("typeof readForm === 'function' && !!ac.from && document.querySelector('.wz-title')")
+    assert phone.evaluate("readForm().to.length") == 2, "the saved destinations are still there"
+    assert phone.locator(".wz-title").inner_text() == "Step 1 of 4 · Where"
+
+
+def test_the_steps_are_numbered_so_you_know_where_to_tap(phone):
+    steps = phone.locator(".wz-dots button")
+    assert steps.all_inner_texts() == ["1 Where", "2 When", "3 Who", "4 Review"]
+    _fill(phone)
+    phone.evaluate("Mobile.wizardTo(1)")
+    steps.nth(1).click()                                                  # the form is complete: any step can be tapped
+    assert phone.locator(".wz-title").inner_text() == "Step 2 of 4 · When"
+
+
 def test_a_filled_form_opens_on_the_review_and_searches_from_there(phone):
     _fill(phone)
     assert phone.locator(".wz-title").inner_text() == "Step 4 of 4 · Review"

@@ -166,7 +166,7 @@ const Mobile = (() => {
   function initWizard() {
     const form = $("#form");
     wzHead = h("div", { class: "wz-head" }, h("div", { class: "wz-title" }),
-      h("div", { class: "wz-dots" }, STEPS.map((s, i) => h("button", { type: "button", "aria-label": `Step ${i + 1}: ${s}`, onclick: () => (i + 1 <= at ? wizardTo(i + 1) : next()) }, s))));
+      h("div", { class: "wz-dots" }, STEPS.map((s, i) => h("button", { type: "button", "aria-label": `Step ${i + 1}: ${s}`, onclick: () => (i + 1 <= at ? wizardTo(i + 1) : next()) }, h("b", {}, i + 1), ` ${s}`))));
     wzReview = h("div", { class: "wz-review", "data-wstep": "4" });
     wzNav = h("div", { class: "wz-nav" },
       h("button", { type: "button", class: "btn wz-back", onclick: () => wizardTo(at - 1) }, "‹ Back"),
@@ -177,7 +177,7 @@ const Mobile = (() => {
     form.addEventListener("change", () => { if (at === STEPS.length) drawReview(); });
     const sync = () => { form.classList.toggle("wz", isPhone()); $("#step-panel").classList.toggle("wz-on", isPhone()); };
     query.addEventListener("change", sync);
-    sync(); wizardReset();
+    sync(); wizardTo(1);   // a fresh load starts at the first step, even with last time's search restored
   }
 
   // ---------------------------------------------------------------- bottom bar

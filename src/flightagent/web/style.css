@@ -685,6 +685,8 @@ td.air-names { white-space: normal; min-width: 110px; }
   .wz-title { font-weight: 800; font-size: 18px; letter-spacing: -.02em; }
   .wz-dots { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .wz-dots button { border: 0; border-top: 4px solid var(--line-2); background: transparent; padding: 6px 0 0; font: inherit; font-size: 12px; font-weight: 700; color: var(--muted); text-align: left; }
+  .wz-dots b { display: inline-grid; place-items: center; width: 20px; height: 20px; margin-right: 4px; border-radius: 50%; background: var(--line-2); color: var(--ink); font-size: 12px; }
+  .wz-dots button[aria-current="true"] b { background: var(--accent); color: #fff; }
   .wz-dots button.done { border-color: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--ink-2); }
   .wz-dots button[aria-current="true"] { border-color: var(--accent); color: var(--accent-ink); }
   .wz-review { gap: 8px; }
