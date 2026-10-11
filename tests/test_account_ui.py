@@ -69,6 +69,12 @@ def worker(page, base_url):
                 body["groups"][0][1][0][1] = state["round_trip_price"]
         elif state.get("serpapi_down"):
             return route.fulfill(status=502, headers=CORS, json={"error": "SerpApi: Invalid API key"})
+        elif state.get("serpapi_same"):           # SerpApi lists Google's Gee Air flight, at its own price
+            q = parse_qs(url.query)
+            day = q["date"][0]
+            body = {"best_flights": [{"price": state["serpapi_same"], "flights": [{
+                "departure_airport": {"id": q["origin"][0], "time": f"{day} 09:00"}, "arrival_airport": {"id": q["dest"][0], "time": f"{day} 12:00"},
+                "airline": "Gee Air", "flight_number": "GG 7", "duration": 180}]}], "other_flights": []}
         else:
             body = _fares(parse_qs(url.query))
         route.fulfill(status=200, headers=CORS, content_type="application/json", body=json.dumps(body))
@@ -153,6 +159,23 @@ def test_a_round_trip_ticket_is_priced_by_google_next_to_the_two_one_ways(page, 
     asked = worker["round_trip_asked"]
     assert asked["origin"] == ["TLV"] and asked["dest"] == ["ROM"] and asked["return_date"][0] > asked["date"][0]
     assert said.get_by_role("link", name="See it on Google ↗").get_attribute("href").startswith("https://www.google.com/travel/flights?tfs=")
+
+
+def test_a_trip_is_checked_flight_by_flight_on_the_other_fare_source(page, worker):
+    worker["gflights"], worker["serpapi_same"] = "ok", 79
+    _sign_in(page)
+    _fill(page)
+    page.evaluate("() => { const f = readForm(); f.currency = 'USD'; writeForm(f); onFormChange(); }")
+    page.click("#go")
+    btn = page.locator("article.trip .vf-check").first
+    btn.wait_for(timeout=60000)
+    btn.click()
+    box = page.locator("article.trip .vf").first
+    box.wait_for()
+    assert "confirmed" in box.get_attribute("class")
+    assert box.locator("b").inner_text() == "✓ serpapi shows the same price"
+    assert box.locator("li").all_inner_texts() == ["Outbound: $77 here, $79 on serpapi", "Return: $77 here, $79 on serpapi"]
+    assert len([p for p, _ in worker["asked"] if p == "/serpapi"]) == 2, "one SerpApi credit per flight"
 
 
 def test_serpapi_answers_when_google_refuses_the_worker(page, worker):

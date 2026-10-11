@@ -1184,8 +1184,31 @@ function tripCard(t, cur, pax = 1) {
       return h("div", { class: "warn" + (bad ? "" : " info") }, h("span", { "aria-hidden": "true" }, bad ? "⚠" : "ℹ"), w);
     })) : null,
     h("div", { class: "actions" }, h("button", { type: "button", class: "btn small", onclick: () => Builder.addTrip(t, { pax: paxLabel(resultsQuery), currency: cur }) }, "＋ Add all flights to Trip builder"),
-      roundTripButton(t, resultsQuery),
+      roundTripButton(t, resultsQuery), verifyButton(t, titles),
       h("button", { type: "button", class: "btn small accent hub-save", title: "Put these flights on your trip in Travel Hub, next to its hotels and day-by-day map", onclick: () => saveToHub(t.legs.map(l => ({ ...l, currency: resultsQuery.currency }))) }, hubLabel())));
+}
+// ------------------------------------------------------------------ price check by a second source
+/** Looks the trip's flights up again on the other fare source (verify.py). Demo fares have nothing to check against. */
+function verifyButton(t, titles) {
+  if (t.legs.some(l => l.provider === "mock")) return null;
+  const btn = h("button", { type: "button", class: "btn small vf-check",
+    title: "Looks these exact flights up again on the other fare source (Google Flights or SerpApi; SerpApi costs one credit per flight)",
+    onclick: () => checkPrice(t, titles, btn) }, "Check price with a second source");
+  return btn;
+}
+const VF_HEAD = { confirmed: src => `✓ ${src} shows the same price`, price_differs: src => `⚠ ${src} shows a different price`,
+  not_found: src => `${src} doesn't list every flight`, error: src => `Couldn't check with ${src}` };
+async function checkPrice(t, titles, btn) {
+  const cur = resultsQuery.currency;
+  btn.disabled = true; btn.textContent = "Checking…";
+  let r;
+  try { r = await post("/api/verify", { request: resultsQuery, legs: t.legs }); } catch (e) {
+    btn.replaceWith(h("div", { class: "vf error" }, `Couldn't check the price: ${e.message}`));
+    return;
+  }
+  const line = (v, i) => h("li", {}, `${titles[i] || "Leg"}: `, v.seen_price != null
+    ? `${money(v.price, cur)} here, ${money(v.seen_price, cur)} on ${r.source}` : v.note);
+  btn.replaceWith(h("div", { class: `vf ${r.status}` }, h("b", {}, VF_HEAD[r.status](r.source)), h("ul", {}, r.legs.map(line))));
 }
 // ------------------------------------------------------------------ Google's own round trip
 /* Skyhop prices a trip as two one-way tickets, but an airline may sell the same dates as a cheaper return ticket.

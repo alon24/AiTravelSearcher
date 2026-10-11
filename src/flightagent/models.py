@@ -193,6 +193,8 @@ class LegView(BaseModel):
     co2_g: int | None = None
     co2_typical_g: int | None = None
     usual_price: list[float] | None = None
+    provider: str = ""                # the fare source that priced it (verify.py checks it against the other)
+    hub: str | None = None            # where a self-transfer's two tickets meet
 
 
 class Trip(BaseModel):

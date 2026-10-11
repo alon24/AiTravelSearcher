@@ -26,9 +26,10 @@ from .itinerary import ItineraryCheck, analyse
 from .links import AIRLINE_SEARCH_URLS, AIRLINE_SITES, BAG_NOTES, BAG_SHORT, KNOWN_AIRLINES
 from .models import LegView, SearchRequest, SearchResult
 from .polling import next_check_time
-from .providers import FallbackProvider, GoogleFlightsScraper
+from .providers import FallbackProvider, GoogleFlightsScraper, get_provider
 from .report import render
 from .simple import SimpleSearch, build_engine, run_simple_search, to_request
+from .verify import judge, lookups, second_source, worst
 
 load_dotenv()
 
@@ -350,6 +351,32 @@ async def roundtrip(b: RoundTripBody) -> dict:
                                         carry_on_bags=q.carry_on_bags, checked_bags=q.checked_bags)
     except RuntimeError as e:
         raise HTTPException(502, str(e))
+
+
+class VerifyBody(BaseModel):
+    request: SearchRequest        # the search the trip came from: travellers, currency, stops
+    legs: list[LegView]
+
+
+@app.post("/api/verify")
+async def verify(b: VerifyBody) -> dict:
+    """Look a trip's flights up again on the other fare source and say, per leg, whether it shows the same price."""
+    chain = [n.strip().lower() for n in os.getenv("FLIGHTAGENT_PROVIDER", "mock").split(",")]
+    source = second_source(chain, b.legs)
+    if source is None:
+        raise HTTPException(409, "checking a price needs a second fare source: set FLIGHTAGENT_PROVIDER=gflights,serpapi")
+    try:
+        engine = FlightSearchEngine(get_provider(source))       # no cache: a check asks the source now
+    except RuntimeError as e:
+        raise HTTPException(409, f"can't check with {source}: {e}")
+    found, errors = {}, {}
+    for k in lookups(b.legs):
+        try:
+            found[k] = await engine.one_way_options(b.request, *k)
+        except Exception as e:      # named per leg, so one failed lookup doesn't hide the others
+            errors[k] = str(e) or type(e).__name__
+    legs = [judge(leg, found, errors, source) for leg in b.legs]
+    return {"source": source, "status": worst(legs), "legs": legs, "checked_at": time.time()}
 
 
 _RATES: dict = {"at": 0.0, "data": None}

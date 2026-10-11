@@ -111,7 +111,7 @@
   function legView(o) {
     return { origin: o.origin, destination: o.destination, airlines: airlines(o), segments: o.segments, stops: stops(o),
       layovers_min: layovers(o), duration_min: duration(o), price: o.price, self_transfer: o.self_transfer, deep_links: o.deep_links, priced: o.priced,
-      co2_g: o.co2_g, co2_typical_g: o.co2_typical_g, usual_price: o.usual_price };
+      co2_g: o.co2_g, co2_typical_g: o.co2_typical_g, usual_price: o.usual_price, provider: o.provider || "", hub: o.hub ?? null };
   }
 
   function segment(x) {

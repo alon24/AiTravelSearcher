@@ -22,7 +22,7 @@ def leg_view(l: Offer) -> LegView:
     return LegView(origin=l.origin, destination=l.destination, airlines=l.airlines, segments=l.segments, stops=l.stops,
                    layovers_min=l.layovers_min, duration_min=l.duration_min, price=l.price,
                    self_transfer=l.self_transfer, deep_links=l.deep_links, priced=l.priced,
-                   co2_g=l.co2_g, co2_typical_g=l.co2_typical_g, usual_price=l.usual_price)
+                   co2_g=l.co2_g, co2_typical_g=l.co2_typical_g, usual_price=l.usual_price, provider=l.provider, hub=l.hub)
 
 
 def _sum(*values: int | None) -> int | None:

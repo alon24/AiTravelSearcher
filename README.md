@@ -217,6 +217,9 @@ implemented. Add a provider by implementing `FlightProvider.one_way` (`providers
    departure day as cheapest and best value, plus top-N with segments, deep links and warnings.
 
 ## Limits worth knowing
+- Every price comes from Google Flights, read either free or through SerpApi. **Check price with a second source** on a
+  trip looks its exact flights up again on the other one and says whether it shows the same price (SerpApi costs one
+  credit per flight).
 - Prices are sums of one-way fares; a genuine round-trip fare from one airline can be cheaper. Each there-and-back
   trip has a "Compare with a round-trip ticket" link that opens Google Flights' round-trip search for the same dates
   and travellers, and **Check round-trip price**, which asks Google for its cheapest return ticket on those dates and

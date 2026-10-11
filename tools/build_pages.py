@@ -32,12 +32,14 @@ def runtime() -> str:
 def build(out: Path) -> Path:
     sys.path.insert(0, str(ROOT / "src"))
     from flightagent.links import AIRLINE_SEARCH_URLS, AIRLINE_SITES, BAG_NOTES, BAG_SHORT, KNOWN_AIRLINES
+    from flightagent.providers.airports import CITY_AIRPORTS
 
     if out.exists():
         shutil.rmtree(out)
     shutil.copytree(PKG / "web", out, ignore=shutil.ignore_patterns("*.test.js"))
     (out / "runtime.js").write_text(runtime())
-    config = {"airline_sites": AIRLINE_SITES, "airline_search_urls": AIRLINE_SEARCH_URLS, "airlines": KNOWN_AIRLINES, "bag_notes": BAG_NOTES, "bag_short": BAG_SHORT}
+    config = {"airline_sites": AIRLINE_SITES, "airline_search_urls": AIRLINE_SEARCH_URLS, "airlines": KNOWN_AIRLINES, "bag_notes": BAG_NOTES, "bag_short": BAG_SHORT,
+              "city_airports": CITY_AIRPORTS}
     (out / "config.json").write_text(json.dumps(config, ensure_ascii=False))
     shutil.copy(PKG / "data" / "airport_tz.json", out / "local" / "airport_tz.json")
     (out / ".nojekyll").touch()     # serve files as they are

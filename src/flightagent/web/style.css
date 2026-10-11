@@ -769,3 +769,6 @@ td.air-names { white-space: normal; min-width: 110px; }
   .chip button::after, .kid button::after, .hi-del::after { content: ""; position: absolute; inset: -10px; }
 }
 @media (hover: none) { .hi-del { opacity: 1; } }
+.vf { flex-basis: 100%; border-radius: 12px; padding: 10px 12px; background: var(--card-2); color: var(--ink-2); font-size: 14px; }
+.vf ul { margin: 6px 0 0; padding-left: 18px; } .vf.confirmed { background: var(--ok-bg); color: var(--ok-ink); }
+.vf.price_differs, .vf.error { background: var(--bad-bg); color: var(--bad-ink); } .vf.not_found { background: var(--warn-bg); color: var(--warn-ink); }

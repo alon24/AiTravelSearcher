@@ -68,6 +68,7 @@
     ["GET", /^\/api\/flights$/, flights],
     ["POST", /^\/api\/itinerary\/check$/, checkItinerary],
     ["POST", /^\/api\/roundtrip$/, roundTrip],
+    ["POST", /^\/api\/verify$/, verifyTrip],
     ["POST", /^\/api\/explore$/, explore],
     ["POST", /^\/api\/chat\/complete$/, chatTurn],
   ];
@@ -194,6 +195,23 @@
     try { r = await a.get(`/gflights?${q}`); } catch (e) { fail(e.message); }
     const prices = L.gflights.parse(r.groups, body.origin, body.dest, req.currency, r.url).filter(o => o.priced).map(o => o.price);
     return { price: prices.length ? Math.min(...prices) : null, flights: r.groups.length, url: r.url };
+  }
+
+  /** api.py verify: the trip's flights looked up again on the other fare source the Worker has (verify.js). */
+  async function verifyTrip({ body }) {
+    const a = L.account, legs = body.legs || [];
+    const available = a && a.live() ? ["gflights", "serpapi"].filter(n => a.has(n)) : [];
+    const source = L.verify.secondSource(available, legs);
+    if (!source) fail(available.length ? `checking a price needs a second fare source, and this site only has ${available.join(", ")}` : "checking a price needs real fares: sign in");
+    const req = request(body.request), cities = (await loadConfig()).city_airports || {};
+    const eng = new L.engine.Engine(source === "gflights" ? L.gflights.provider(a.get) : L.serpapi.provider(a.get), null);  // no cache: ask now
+    const found = {}, errors = {};
+    for (const k of L.verify.lookups(legs, cities)) {
+      const [o, d, day] = k.split("|");
+      try { found[k] = await eng.oneWayOptions(req, o, d, day); } catch (e) { errors[k] = e.message || String(e); }
+    }
+    const results = legs.map(l => L.verify.judge(l, found, errors, source, cities));
+    return { source, status: L.verify.worst(results), legs: results, checked_at: Date.now() / 1000 };
   }
 
   /** One model turn for the AI chat (chat.js), through the Worker: it holds the OpenRouter key. */

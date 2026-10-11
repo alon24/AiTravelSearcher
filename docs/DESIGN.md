@@ -669,7 +669,19 @@ at startup are marked failed. The cache key is `provider|origin|dest|day|currenc
 `FLIGHTAGENT_CACHE_TTL_HOURS`. The compose file pins `FLIGHTAGENT_CACHE_DB=/data/offers.sqlite` so the cache and
 `history.sqlite` live on the `flightagent-cache` volume. Never commit `.env`.
 
-## 8. Proposal: price verification by an independent provider
+## 8. Price check by a second fare source (built Oct 2026, on demand)
+
+**What exists.** Each trip card has **Check price with a second source** (not on demo fares). `POST /api/verify`
+(`verify.py`; `web/local/verify.js` on Pages, parity-tested in `tests/test_verify.py`) looks every leg up again, uncached,
+on the real-fare source that did *not* price it (`LegView.provider`: Google Flights <-> SerpApi), finds the same flights by
+airline + flight number + departure minute of every segment, and answers per leg `confirmed` (within max(3 %, 5)),
+`price_differs` (both prices shown), `not_found` (inconclusive, says which flight is missing) or `error` (the
+source's own message); the trip shows its worst. A self-transfer is split into its two tickets at `LegView.hub`. With
+no second source (mock, or a Worker without SerpApi) it says so. SerpApi costs one credit per leg, so it never runs
+by itself. Both sources read Google Flights, so this catches parser and stale-cache errors, not Google's own.
+Not built from the proposal below: automatic checks of the top N trips, stored results, the conformance suite.
+
+Original proposal:
 
 **Problem.** A provider can be wrong in ways we cannot see (a parser bug hid the cheapest fares for the
 scraper). A trip shown as "cheapest" is only trustworthy if a second, independent source agrees.
