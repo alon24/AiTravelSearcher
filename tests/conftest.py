@@ -6,12 +6,19 @@ import time
 import pytest
 
 
-@pytest.fixture(scope="session", params=["server", "browser"])
+def pytest_generate_tests(metafunc):
+    """Tests marked `docker` also run against the Python service (the Docker version); the rest only on the Pages
+    build, which is what people use and shares the same page code (ilan, 2026-10-11: cut the duplicate runs)."""
+    if "base_url" in metafunc.fixturenames and metafunc.definition.get_closest_marker("docker"):
+        metafunc.parametrize("base_url", ["server", "browser"], indirect=True, scope="session")
+
+
+@pytest.fixture(scope="session")
 def base_url(request, tmp_path_factory):
-    """Every UI test runs twice: against the Python service, and as the GitHub Pages build (no server: the /api
-    routes are answered inside the page by web/local/backend.js), served under a sub-path as Pages does."""
+    """The GitHub Pages build (no server: the /api routes are answered inside the page by web/local/backend.js),
+    served under a sub-path as Pages does; or, for `docker` tests, also the Python service."""
     pytest.importorskip("playwright.sync_api")
-    if request.param == "browser":
+    if getattr(request, "param", "browser") == "browser":
         yield from _static_site(tmp_path_factory)
         return
     uvicorn = pytest.importorskip("uvicorn")

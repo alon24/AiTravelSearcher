@@ -59,8 +59,8 @@ python3 tools/sync_assist_manifest.py --check     # extension manifest matches a
 ```
 
 - **Engine changes go in both languages.** `web/local/*.js` mirrors `engine.py`, `models.py`, `itinerary.py`, `geo.py`,
-  `polling.py` and the mock provider; `tests/test_browser_parity.py` fails if their results differ. UI tests run twice,
-  `[server]` and `[browser]` (the Pages build).
+  `polling.py` and the mock provider; `tests/test_browser_parity.py` fails if their results differ. UI tests run once, on
+  the Pages build; the few marked `@pytest.mark.docker` also run against the Python service (`[server]`).
 
 - Unit tests use fake providers (see `Fake` in `tests/test_engine.py`) and never hit the network.
   `tests/fixtures/` holds a real captured Google Flights payload so scraper breakage shows up as a failure.
@@ -73,8 +73,8 @@ python3 tools/sync_assist_manifest.py --check     # extension manifest matches a
 
 ## Speed (learned 2026-10-10)
 
-- **While iterating, run only what you touched:** `pytest tests/test_<area>.py -k <name>`, and for UI tests one build
-  with `-k server` (the `[browser]` twin runs before the PR). The whole suite takes about 4 minutes with `-n auto` (10 without): run it once,
+- **While iterating, run only what you touched:** `pytest tests/test_<area>.py -k <name>`. The whole suite takes
+  about 3 minutes with `-n auto`: run it once,
   in the background, before pushing.
 - Node checks (`node src/flightagent/web/*.test.js`, `cd worker && node --test`) take seconds; run them on every change
   to those files.

@@ -10,6 +10,7 @@ def middle(page, sel):
     return b["y"] + b["height"] / 2
 
 
+@pytest.mark.docker
 def test_five_fields_on_one_row_with_aligned_labels(page):
     labels = ["#form .row.dates > .field:nth-child(1) label", "#form .row.dates > .field:nth-child(2) label",
               "#form .row.dates > .field:nth-child(3) .lbl", "#form .row.dates > .field:nth-child(4) .lbl", "#form .row.dates > .field:nth-child(5) .lbl"]

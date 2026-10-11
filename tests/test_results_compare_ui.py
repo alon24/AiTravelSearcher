@@ -25,6 +25,7 @@ def texts(page, sel):
     return page.locator(sel).all_inner_texts()
 
 
+@pytest.mark.docker
 def test_matrix_has_every_destination_and_length_and_nothing_preselected(results):
     p = results
     assert p.locator(".cmp-cell:not(.empty)").count() == 9                       # 3 lengths x 3 destinations

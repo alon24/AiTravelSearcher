@@ -27,3 +27,4 @@ flightagent = ["web/*", "data/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["docker: a UI test that also runs against the Python service (the Docker version)"]

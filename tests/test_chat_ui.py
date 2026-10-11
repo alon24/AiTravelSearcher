@@ -86,6 +86,7 @@ def _ask_rome(p):
     p.wait_for_selector(".msg.ai:has-text('Cheapest is')", timeout=60000)
 
 
+@pytest.mark.docker
 def test_the_chat_runs_a_search_and_talks_about_it(page, chat):
     _ask_rome(page)
     assert page.locator(".msg.me").inner_text() == ASK
