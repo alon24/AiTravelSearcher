@@ -2,7 +2,7 @@
    keys for the GitHub Pages build. Only active when runtime.js names a Worker and a Google OAuth client (build_pages.py
    writes both from GitHub variables); otherwise the page stays on demo fares. The Google access token is kept until it
    expires (about an hour) so a reload, on a phone too, doesn't ask again. Skyhop is one of a suite on alon24.github.io
-   with Travel Hub AI (alon24/travel-hub), which signs in with the same Google client: whichever app you sign in to,
+   with Travel Hub AI (alon24/travel-hub) and MyMaps AI, all on the same Google client: whichever app you sign in to,
    the others on this origin use that sign-in (HUB below) until it expires or you sign out. */
 (function (root) {
   "use strict";
@@ -11,7 +11,8 @@
   const HUB = "travel-hub.session";     // Travel Hub AI's sign-in: {token, expires, email, name?, picture?}
   const GIS = "https://accounts.google.com/gsi/client";
   const REVOKE = "https://oauth2.googleapis.com/revoke";
-  const SIGN_IN = "openid email", DRIVE = "https://www.googleapis.com/auth/drive.file";
+  const DRIVE = "https://www.googleapis.com/auth/drive.file";
+  const SIGN_IN = `openid email profile ${DRIVE}`;    // the suite's scopes: a token from any app opens MyMaps AI's maps
   const rt = () => root.SKYHOP_RUNTIME || {};
   const configured = () => !!(rt().workerUrl && rt().googleClientId);
 
@@ -29,12 +30,12 @@
     try {
       const h = JSON.parse(root.localStorage.getItem(HUB));
       if (!h || typeof h.token !== "string" || typeof h.email !== "string" || !(h.expires > Date.now() + 60_000)) return null;
-      return { token: h.token, until: h.expires - 60_000, email: h.email, scopes: ["openid", "email", "profile"] };
+      return { token: h.token, until: h.expires - 60_000, email: h.email, scopes: Array.isArray(h.scopes) ? h.scopes : ["openid", "email", "profile"] };
     } catch { return null; }
   }
   /** Hand a Skyhop sign-in to the hub, unless it is signed in already (possibly as someone else). */
   function shareWithHub(s) {
-    try { if (!fromHub()) root.localStorage.setItem(HUB, JSON.stringify({ token: s.token, expires: s.until, email: s.email })); } catch { /* private mode */ }
+    try { if (!fromHub()) root.localStorage.setItem(HUB, JSON.stringify({ token: s.token, expires: s.until, email: s.email, scopes: s.scopes })); } catch { /* private mode */ }
   }
   /** A signed-out or dead token is dead in every app of the suite: drop the hub's copy of it too. */
   function dropFromHub(token) {
@@ -144,7 +145,7 @@
   async function driveToken() {
     if (!signedIn()) throw new Error("Sign in with Google first");
     if (!(session.scopes || []).includes(DRIVE)) {
-      const t = await requestToken(`${SIGN_IN} ${DRIVE}`, session.email);
+      const t = await requestToken(SIGN_IN, session.email);     // a sign-in from before the suite asked for Drive
       if (!t.scopes.includes(DRIVE)) throw new Error("Skyhop wasn't given access to Google Drive");
       save({ ...session, ...t });
     }

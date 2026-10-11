@@ -1235,7 +1235,7 @@ async function toggleAccount() {
 }
 /** The phone's browser, opened by the Skyhop Android app to sign in (account.js appToken): Google refuses sign-in inside
     an app's web view, so it happens here and the token goes back to the app as a skyhop:// link. */
-const APP_SCOPES = new Set(["openid", "email", "https://www.googleapis.com/auth/drive.file"]);
+const APP_SCOPES = new Set(["openid", "email", "profile", "https://www.googleapis.com/auth/drive.file"]);
 function appSignInPage(q) {
   const scope = q.get("scope") || "openid email";
   const msg = h("p", {}, "The Skyhop app needs your Google sign-in. Google doesn't allow signing in inside apps, so you sign in here and go back to the app.");

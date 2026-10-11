@@ -58,15 +58,17 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
    - Not in the browser: the background recheck loop (a recheck runs when the user asks), chat, Jev. A search still
      running when the tab closes is marked failed on the next visit.
 2. **Worker (`worker/`):** a Cloudflare Worker holds the SerpApi and OpenRouter keys. Sign-in works like mymaps-ai:
-   - The page gets a Google access token (Google Identity Services token client, scope `openid email`,
+   - The page gets a Google access token (Google Identity Services token client, scope `openid email profile drive.file`,
      `local/account.js`) and sends it as a Bearer header.
    - The Worker asks Google's `tokeninfo` whether the token was issued to our client, and caches the answer for up to
      5 minutes. `ALLOWED_EMAILS` limits who may spend credits.
-   - **One sign-in for the suite.** Travel Hub AI (alon24/travel-hub) is on the same origin (`alon24.github.io`) and,
-     as checked in its deploy log on 2026-10-11, uses the same Google OAuth client. With no Skyhop session,
-     `account.js` uses the hub's `travel-hub.session` (`{token, expires, email}`) if it has over a minute left. A Skyhop
-     sign-in is written there when the hub has none; signing out, or the Worker refusing the token, removes the hub's copy
-     of that same token (it is revoked or dead). MyMaps AI's token is `drive.file` only, with no email, so it can't be shared.
+   - **One sign-in for the suite.** Travel Hub AI (alon24/travel-hub) and MyMaps AI (alon24/mymaps-ai) are on the
+     same origin (`alon24.github.io`) and, as checked in their deploy logs on 2026-10-11, the same Google OAuth client.
+     The shared session is the hub's `travel-hub.session` (`{token, expires, email, scopes}`): with no session of its
+     own, each app uses it if it has over a minute left, and each writes its own sign-in there when it is empty. All
+     three ask for the same scopes, `drive.file` included, so any app's token opens MyMaps AI's maps and Skyhop's
+     Save to Drive needs no second popup. Signing out, or the Worker refusing the token, removes the shared copy of that
+     same token (it is revoked or dead); the hub's Log out also clears Skyhop's and MyMaps AI's copies.
    - Signed in, `backend.js` swaps the mock provider for real fares, in the server's default order
      (`gflights,serpapi`): `local/gflights.js` first, `local/serpapi.js` when that lookup fails (`fallback()`, as
      `FallbackProvider`). The badge says LIVE.

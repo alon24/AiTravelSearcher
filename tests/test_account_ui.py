@@ -224,6 +224,7 @@ def test_search_links_learned_on_the_computer_work_on_the_phone(page, worker):
 
 # ---------------------------------------------------------------------------- one sign-in for the suite (travel-hub)
 HUB = "travel-hub.session"
+DRIVE = "https://www.googleapis.com/auth/drive.file"
 
 
 def _hub(p, session=None):
@@ -231,7 +232,8 @@ def _hub(p, session=None):
     if session is None:
         return p.evaluate("k => JSON.parse(localStorage.getItem(k))", HUB)
     if isinstance(session, str):
-        session = {"token": session, "expires": p.evaluate("Date.now()") + 3_600_000, "email": "ilan@example.com", "name": "Ilan"}
+        session = {"token": session, "expires": p.evaluate("Date.now()") + 3_600_000, "email": "ilan@example.com", "name": "Ilan",
+                   "scopes": ["openid", "email", "profile", DRIVE]}
     p.evaluate("([k, s]) => localStorage.setItem(k, JSON.stringify(s))", [HUB, session])
 
 
@@ -241,12 +243,14 @@ def test_signed_in_to_the_hub_is_signed_in_to_skyhop(page, worker):
     page.wait_for_function("document.querySelector('#mode-badge-desk').textContent === 'LIVE'")
     assert page.locator(".account-btn:visible").inner_text() == "Sign out"
     assert ("/health", True) in worker["asked"], "the hub's token goes to Skyhop's Worker"
+    assert page.evaluate("SkyhopLocal.account.hasDrive()"), "Save to Drive needs no second popup"
 
 
 def test_signing_in_or_out_of_skyhop_does_the_same_in_the_hub(page, worker):
     _sign_in(page)
     hub = _hub(page)
     assert hub["token"] == "tok-1" and hub["email"] == "ilan@example.com" and hub["expires"] > page.evaluate("Date.now()") + 3_000_000
+    assert hub["scopes"] == ["openid", "email", "profile", DRIVE], "the suite's scopes, so MyMaps AI can open its maps with it"
     page.locator(".account-btn:visible").click()
     page.wait_for_function("document.querySelector('#mode-badge-desk').textContent === '⚠ DEMO DATA'")
     assert _hub(page) is None, "the revoked token is gone from the hub too"

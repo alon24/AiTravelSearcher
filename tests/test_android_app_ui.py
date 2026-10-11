@@ -80,7 +80,7 @@ def _app_sign_in(p, token=None):
 
 def test_signing_in_in_the_app_goes_through_the_phones_browser(page, app):
     _app_sign_in(page)
-    assert page.evaluate("__native.signIns") == [["openid email", ""]]
+    assert page.evaluate("__native.signIns") == [["openid email profile https://www.googleapis.com/auth/drive.file", ""]]
     page.wait_for_function("document.querySelector('#mode-badge-desk').textContent === 'LIVE'")
     assert page.locator(".account-btn:visible").inner_text() == "Sign out"
 
