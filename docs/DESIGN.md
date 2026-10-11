@@ -250,6 +250,16 @@ A provider **must**:
 7. Cope with **city codes** (`ROM`, `LON`, `PAR`, `NYC`). Either accept them (gflights) or expand them to
    airports (`providers/airports.py`, used by serpapi).
 8. Be safe under concurrency: bound its own request rate (gflights: 3 in flight plus a 0.2-0.7 s jitter).
+9. Put a link to the source's page for that search in `deep_links`, so a fare can be checked where it came from.
+   gflights links the exact `tfs` URL it fetched (passengers, bags, stops and currency included); the Worker returns
+   it as `url` next to the groups.
+
+What Google embeds per result, read from the captured fixture on 2026-10-11 (indices into a result's flight array):
+segment `[17]` aircraft name, `[14]` legroom ("30 in", absent for some), flight `[22][7]` CO2 grams per passenger and
+`[22][8]` the route's typical grams (`[22][3]` is Google's rounded percentage). `entry[1][1]` is a token whose
+protobuf holds the price in cents (16017 USD for the fare Google shows as $161): Google's display price is that
+value rounded **up**. Skyhop keeps the display price so it matches the Google page the user opens. Flight `[24]`
+links the airline's special-assistance page, not its baggage rules.
 
 Composition: `FallbackProvider(primary, backup)` uses the backup only when the primary **raises**.
 `FLIGHTAGENT_PROVIDER=gflights,serpapi` builds that chain. Results carry `.source` so reports show which provider

@@ -212,7 +212,9 @@ implemented. Add a provider by implementing `FlightProvider.one_way` (`providers
 ## Limits worth knowing
 - Prices are sums of one-way fares; a genuine round-trip fare from one airline can be cheaper.
 - Times shown are local. Durations use the provider's real flight times (mock data ignores time zones).
-- "Google Flights" deep links go to a Google Flights search for that flight. "Check on `<Airline>` site" /
+- "Google Flights" deep links open the exact Google Flights search that priced the fare (same passengers, bags,
+  stops and currency); with the free Google Flights source, each flight also shows its aircraft, legroom and
+  Google's CO₂ estimate against the route's typical flight. "Check on `<Airline>` site" /
   "Select ... on site" go to the airline's own website (see "Using Skyhop" above) — never a search engine,
   and Skyhop itself never books or takes payment.
 - Providers return only what Google Flights shows; some low-cost carriers may be missing.

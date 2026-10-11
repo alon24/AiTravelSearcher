@@ -117,16 +117,20 @@ def test_self_transfer_bundles_with_buffer_and_warning():
     def fn(o, d, day):
         if (o, d) == ("TLV", "ROM") or (o, d) == ("ROM", "TLV"):
             return []  # no through offer at all
+        co2 = {} if (o, d) == ("IST", "TLV") else {"co2_g": 90000, "co2_typical_g": 100000}   # one ticket without Google's CO2
         if d == "IST" or (o == "IST" and d == "TLV"):
-            return [offer(o, d, at(day, 8), 40)]
+            return [offer(o, d, at(day, 8), 40).model_copy(update=co2)]
         if o == "IST" and d == "ROM" or (o == "ROM" and d == "IST"):
-            return [offer(o, d, at(day, 9), 30),    # gap 8:00+3h=11:00 -> 9:00 departs before arrival: invalid
-                    offer(o, d, at(day, 16), 35)]   # gap 5h: valid (buffer 4h)
+            return [offer(o, d, at(day, 9), 30).model_copy(update=co2),    # gap 8:00+3h=11:00 -> 9:00 departs before arrival: invalid
+                    offer(o, d, at(day, 16), 35).model_copy(update=co2)]   # gap 5h: valid (buffer 4h)
         return []
     r = req(allow_self_transfer=True, self_transfer_hubs=["IST"])
     res = run(FlightSearchEngine(Fake(fn)), r)
     t = res.daily[0].cheapest
     assert t.self_transfer and t.price == 150
+    # a bundle's CO2 is the sum of its tickets, and unknown when any ticket's is
+    assert (t.legs[0].co2_g, t.legs[0].co2_typical_g) == (180000, 200000)
+    assert (t.legs[1].co2_g, t.legs[1].co2_typical_g) == (None, None)
     assert any("SELF-TRANSFER" in w and "IST" in w for w in t.warnings)
     strict = run(FlightSearchEngine(Fake(fn)), req(allow_self_transfer=True, self_transfer_hubs=["IST"],
                                                    self_transfer_buffer_min=30 * 60))
@@ -239,8 +243,37 @@ def test_gflights_parses_best_and_other_groups():
     # the $161 Tus Air fare lives in Google's "best flights" block, which fast-flights drops
     assert (cheapest.price, cheapest.airlines, cheapest.segments[0].label) == (161.0, ["U8"], "U8132")
     assert cheapest.duration_min == 225 and cheapest.stops == 0
+    # what Google shows per flight: aircraft, legroom (left out for some), CO2 against the route's typical figure
+    assert (cheapest.segments[0].aircraft, cheapest.segments[0].legroom) == ("Boeing 737", "30 in")
+    assert (cheapest.co2_g, cheapest.co2_typical_g) == (239000, 200000)
+    wizz = next(o for o in offers if o.segments[0].label == "W46044")
+    assert (wizz.segments[0].aircraft, wizz.segments[0].legroom) == ("Airbus A321neo", "")
     sky = next(o for o in offers if o.airlines == ["GQ"])
     assert sky.stops == 1 and sky.segments[1].origin == "ATH" and sky.layovers_min[0] > 0
+
+
+def test_gflights_links_each_fare_to_the_exact_google_page_it_came_from(monkeypatch):
+    """The "Google Flights" button must reopen the search that priced the fare: same passengers, bags, stops, currency."""
+    import base64
+    import json
+    from pathlib import Path
+    from urllib.parse import parse_qs, urlsplit
+    from flightagent.providers.gflights import GoogleFlightsScraper
+
+    fx = json.loads((Path(__file__).parent / "fixtures" / "gflights_tlv_fco_2026-10-05.json").read_text())
+    payload = [None, None, [fx["best"]], [fx["other"]]]
+    html = f"<script class=\"ds:1\">AF_initDataCallback({{key: 'ds:1', data:{json.dumps(payload)}, sideChannel: {{}}}});</script>"
+    fetched = []
+    monkeypatch.setattr(GoogleFlightsScraper, "_fetch", staticmethod(lambda q, what: fetched.append(q) or html))
+    offers = asyncio.run(GoogleFlightsScraper(delay=(0, 0)).one_way(
+        "TLV", "FCO", date(2026, 10, 5), currency="EUR", adults=2, children=1, max_stops=0, checked_bags=1))
+    link = urlsplit(offers[0].deep_links[0])
+    q = parse_qs(link.query)
+    assert f"{link.scheme}://{link.netloc}{link.path}" == "https://www.google.com/travel/flights"
+    assert q == {k: [v] for k, v in fetched[0].params().items()} and q["curr"] == ["EUR"]
+    tfs = base64.b64decode(q["tfs"][0])
+    assert b"2026-10-05" in tfs and b"TLV" in tfs and b"FCO" in tfs
+    assert {o.deep_links[0] for o in offers} == {offers[0].deep_links[0]}
 
 
 def test_fallback_provider_and_selection(monkeypatch):

@@ -4,6 +4,7 @@ import asyncio
 import json
 import random
 from datetime import date, datetime
+from urllib.parse import urlencode
 
 from ..links import google_flights_link
 from ..models import Offer, Segment
@@ -15,7 +16,20 @@ def _time(value: list[int | None] | None) -> tuple[int, int]:
     return padded[0] or 0, padded[1] or 0
 
 
-def parse_groups(groups: list[list], origin: str, dest: str, currency: str) -> list[Offer]:
+URL = "https://www.google.com/travel/flights"   # what fast-flights fetches
+
+
+def _at(value, *path):
+    """value[i][j]..., or None where Google left a part out."""
+    for i in path:
+        if not isinstance(value, list) or len(value) <= i:
+            return None
+        value = value[i]
+    return value
+
+
+def parse_groups(groups: list[list], origin: str, dest: str, currency: str, link: str | None = None) -> list[Offer]:
+    """`link` is the Google Flights page the fares came from, so "Google Flights" opens the very same search."""
     offers = []
     for entry in groups:
         flight = entry[0]
@@ -33,17 +47,19 @@ def parse_groups(groups: list[list], origin: str, dest: str, currency: str) -> l
                 airline_code=code, airline=airline, flight_number=str(number),
                 origin=s[3], destination=s[6],
                 departs=datetime(*s[20], dep_h, dep_m), arrives=datetime(*s[21], arr_h, arr_m),
-                duration_min=s[11],
+                duration_min=s[11], aircraft=s[17] or "", legroom=s[14] or "",
             ))
+        co2, typical = _at(flight, 22, 7), _at(flight, 22, 8)
         offers.append(Offer(
             origin=segs[0].origin, destination=segs[-1].destination, price=float(price or 0),
             currency=currency, segments=segs, provider="gflights", priced=priced,
-            deep_links=[google_flights_link(origin, dest, segs[0].departs.date())],
+            deep_links=[link or google_flights_link(origin, dest, segs[0].departs.date())],
+            co2_g=co2, co2_typical_g=typical if co2 is not None else None,
         ))
     return offers
 
 
-def parse_html(html: str, origin: str, dest: str, currency: str) -> list[Offer]:
+def parse_html(html: str, origin: str, dest: str, currency: str, link: str | None = None) -> list[Offer]:
     from selectolax.lexbor import LexborHTMLParser
 
     tree = LexborHTMLParser(html)
@@ -63,7 +79,7 @@ def parse_html(html: str, origin: str, dest: str, currency: str) -> list[Offer]:
     for idx in (2, 3):
         if len(payload) > idx and payload[idx] and payload[idx][0]:
             groups += payload[idx][0]
-    return parse_groups(groups, origin, dest, currency)
+    return parse_groups(groups, origin, dest, currency, link)
 
 
 def _passengers(adults: int, children: int, infants: int):
@@ -115,22 +131,28 @@ class GoogleFlightsScraper:
         return offers
 
     async def _once(self, origin, dest, day, currency, adults, max_stops, children, infants, carry_on_bags=0, checked_bags=0) -> list[Offer]:
+        query = self._query(origin, dest, day, currency, adults, max_stops, children, infants, carry_on_bags, checked_bags)
         async with self.sem:
             await asyncio.sleep(random.uniform(*self.delay))
-            html = await asyncio.to_thread(self._fetch, origin, dest, day, currency, adults, max_stops, children, infants, carry_on_bags, checked_bags)
-        return parse_html(html, origin, dest, currency)
+            html = await asyncio.to_thread(self._fetch, query, f"{origin}->{dest} {day}")
+        return parse_html(html, origin, dest, currency, link=f"{URL}?{urlencode(query.params())}")
 
     @staticmethod
-    def _fetch(origin: str, dest: str, day: date, currency: str, adults: int, max_stops: int,
-               children: int = 0, infants: int = 0, carry_on_bags: int = 0, checked_bags: int = 0) -> str:
+    def _query(origin: str, dest: str, day: date, currency: str, adults: int, max_stops: int,
+               children: int = 0, infants: int = 0, carry_on_bags: int = 0, checked_bags: int = 0):
         import fast_flights as ff
 
-        query = ff.create_query(
+        return ff.create_query(
             flights=[ff.FlightQuery(date=day.isoformat(), from_airport=origin, to_airport=dest)],
             trip="one-way", currency=currency, language="en-US",
             passengers=_passengers(adults, children, infants), max_stops=max_stops if max_stops < 3 else None,
             carry_on_bags=carry_on_bags, checked_bags=checked_bags,
         )
+
+    @staticmethod
+    def _fetch(query, what: str) -> str:
+        import fast_flights as ff
+
         last: Exception | None = None
         for attempt in range(3):
             try:
@@ -139,4 +161,4 @@ class GoogleFlightsScraper:
                 last = e
                 import time
                 time.sleep(1.5 * (attempt + 1))
-        raise RuntimeError(f"Google Flights fetch failed for {origin}->{dest} {day}: {last}")
+        raise RuntimeError(f"Google Flights fetch failed for {what}: {last}")

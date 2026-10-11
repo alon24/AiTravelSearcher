@@ -25,13 +25,15 @@ def _fares(q):
 
 
 def _google(q):
-    """The Worker's /gflights answer for one lookup: Google's result groups with one nonstop Gee Air flight."""
+    """The Worker's /gflights answer for one lookup: Google's result groups with one nonstop Gee Air flight, and the
+    Google Flights page they came from."""
     o, d, day = q["origin"][0], q["dest"][0], q["date"][0]
     ymd = [int(x) for x in day.split("-")]
     seg = [None] * 23
     seg[3], seg[6], seg[8], seg[10], seg[11], seg[20], seg[21] = o, d, [9], [12], 180, ymd, ymd
-    seg[22] = ["GG", "7", None, "Gee Air"]
-    return {"groups": [[[None, None, [seg]], [[None, 77]]]]}
+    seg[14], seg[17], seg[22] = "29 in", "Airbus A320", ["GG", "7", None, "Gee Air"]
+    flight = [None, None, [seg]] + [None] * 19 + [[None, None, -10, None, None, 1, 1, 180000, 200000]]
+    return {"groups": [[flight, [[None, 77]]]], "url": f"https://www.google.com/travel/flights?tfs={o}{d}{day}&curr=EUR"}
 
 
 @pytest.fixture
@@ -111,6 +113,11 @@ def test_free_google_flights_fares_come_first(page, worker):
     page.click("#go")
     page.wait_for_selector("text=gflights ×4", timeout=60000)
     assert "Gee Air" in page.inner_text("main")
+    # what Google shows per flight, and a link back to the exact Google search that priced it
+    leg = page.locator(".leg").first
+    assert "Airbus A320 · 29 in legroom" in leg.inner_text() and "180 kg CO₂ · 10% below typical" in leg.inner_text()
+    href = leg.get_by_role("link", name="Google Flights ↗").get_attribute("href")
+    assert href.startswith("https://www.google.com/travel/flights?tfs=") and href.endswith("&curr=EUR")
     assert not [p for p, _ in worker["asked"] if p == "/serpapi"], "no SerpApi credits spent while Google answers"
 
 

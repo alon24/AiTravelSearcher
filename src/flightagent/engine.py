@@ -21,7 +21,13 @@ LONG_LAYOVER_MIN = 8 * 60
 def leg_view(l: Offer) -> LegView:
     return LegView(origin=l.origin, destination=l.destination, airlines=l.airlines, segments=l.segments, stops=l.stops,
                    layovers_min=l.layovers_min, duration_min=l.duration_min, price=l.price,
-                   self_transfer=l.self_transfer, deep_links=l.deep_links, priced=l.priced)
+                   self_transfer=l.self_transfer, deep_links=l.deep_links, priced=l.priced,
+                   co2_g=l.co2_g, co2_typical_g=l.co2_typical_g)
+
+
+def _sum(*values: int | None) -> int | None:
+    """A bundle's total, or None when any ticket's figure is unknown (a partial sum would look complete)."""
+    return None if None in values else sum(values)
 
 
 class BudgetExceeded(RuntimeError):
@@ -250,6 +256,7 @@ class FlightSearchEngine:
                             currency=a.currency, segments=a.segments + b.segments,
                             deep_links=a.deep_links + b.deep_links,
                             provider=a.provider, self_transfer=True, hub=h,
+                            co2_g=_sum(a.co2_g, b.co2_g), co2_typical_g=_sum(a.co2_typical_g, b.co2_typical_g),
                         ))
         ok = [c for c in candidates if self._passes(req, c)]
         ok.sort(key=lambda c: self._leg_cost(req, c))

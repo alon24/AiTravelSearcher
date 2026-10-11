@@ -9,10 +9,13 @@
 
   /** Google omits zero components: [8] is 08:00, [null, 31] is 00:31. */
   const time = v => { const [h, m] = [...(v || []), null, null]; return `${pad(h || 0)}:${pad(m || 0)}:00`; };
+  /** gflights._at: value[i][j]..., or null where Google left a part out. */
+  const at = (value, ...path) => { for (const i of path) { if (!Array.isArray(value) || value.length <= i) return null; value = value[i]; } return value ?? null; };
   const stamp = (ymd, hm) => `${ymd[0]}-${pad(ymd[1])}-${pad(ymd[2])}T${time(hm)}`;
 
-  /** gflights.parse_groups: one Offer per group; a flight Google lists without a fare is kept, marked unpriced. */
-  function parse(groups, origin, dest, currency) {
+  /** gflights.parse_groups: one Offer per group; a flight Google lists without a fare is kept, marked unpriced.
+      `link` is the Google Flights page the fares came from (the Worker's `url`). */
+  function parse(groups, origin, dest, currency, link) {
     return groups.map(entry => {
       const flight = entry[0];
       let price = null;
@@ -20,11 +23,13 @@
       const segments = flight[2].map(s => {
         const [code, number, , airline] = s[22];
         return L.models.segment({ airline_code: code, airline, flight_number: String(number), origin: s[3], destination: s[6],
-          departs: stamp(s[20], s[8]), arrives: stamp(s[21], s[10]), duration_min: s[11] });
+          departs: stamp(s[20], s[8]), arrives: stamp(s[21], s[10]), duration_min: s[11], aircraft: s[17] || "", legroom: s[14] || "" });
       });
+      const co2 = at(flight, 22, 7), typical = at(flight, 22, 8);
       return L.models.offer({ origin: segments[0].origin, destination: segments[segments.length - 1].destination, price: Number(price || 0),
         currency, segments, provider: "gflights", priced: !!price,
-        deep_links: [L.mock.googleFlightsLink(origin, dest, segments[0].departs.slice(0, 10))] });
+        deep_links: [link || L.mock.googleFlightsLink(origin, dest, segments[0].departs.slice(0, 10))],
+        co2_g: co2, co2_typical_g: co2 == null ? null : typical });
     });
   }
 
@@ -41,7 +46,7 @@
     async function oneWay(origin, dest, day, { currency, adults, maxStops, children = 0, infants = 0, carryOnBags = 0, checkedBags = 0 }) {
       const q = new URLSearchParams({ origin, dest, date: day, currency, adults, max_stops: maxStops, children, infants,
         carry_on_bags: carryOnBags, checked_bags: checkedBags });
-      const once = async () => parse((await get(`/gflights?${q}`)).groups, origin, dest, currency);
+      const once = async () => { const r = await get(`/gflights?${q}`); return parse(r.groups, origin, dest, currency, r.url); };
       let offers = await once();
       // Google sometimes omits a fare it shows on the next request: ask again for unpriced flights (as gflights.py).
       for (let i = 0; i < retryUnpriced && !offers.every(o => o.priced); i++) { await wait(1000); offers = merge(offers, await once()); }

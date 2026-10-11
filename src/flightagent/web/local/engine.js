@@ -21,6 +21,8 @@
   const sortBy = (list, key) => list.map(x => [key(x), x]).sort((a, b) => cmp(a[0], b[0])).map(p => p[1]);
   const keyOf = (o, d, day) => `${o}|${d}|${day}`;
   const splitKey = k => k.split("|");
+  /** engine._sum: a bundle's total, or null when any ticket's figure is unknown (a partial sum would look complete). */
+  const sum = (...values) => (values.some(v => v == null) ? null : values.reduce((t, v) => t + v, 0));
 
   class Engine {
     /** provider: {name, oneWay(origin, dest, day, opts)}; cache: see db.js OfferCache (optional). */
@@ -229,7 +231,7 @@
               if (Math.max(req.self_transfer_buffer_min, req.min_layover_min) <= gap && gap <= req.max_layover_min) {
                 candidates.push(M.offer({ origin: o, destination: d, price: M.round2(a.price + b.price), currency: a.currency,
                   segments: [...a.segments, ...b.segments], deep_links: [...a.deep_links, ...b.deep_links],
-                  provider: a.provider, self_transfer: true, hub: h }));
+                  provider: a.provider, self_transfer: true, hub: h, co2_g: sum(a.co2_g, b.co2_g), co2_typical_g: sum(a.co2_typical_g, b.co2_typical_g) }));
               }
             }
           }

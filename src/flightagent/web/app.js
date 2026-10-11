@@ -1161,6 +1161,14 @@ function legTimes(leg) {
     h("div", { class: "lt r" }, h("div", { class: "big" }, fmtTime(e.arr), sh > 0 ? h("sup", {}, `+${sh}`) : null), h("div", { class: "ap" }, e.to), h("div", { class: "dt" }, fmtDay(e.arr))));
 }
 
+/** Google's CO2 estimate and how it compares with the route's typical flight, worded as Google Flights does. */
+function co2Note(leg) {
+  if (leg.co2_g == null) return null;
+  const kg = Math.round(leg.co2_g / 1000), diff = leg.co2_typical_g ? Math.round(100 * (leg.co2_g / leg.co2_typical_g - 1)) : null;
+  const vs = diff == null ? "" : diff === 0 ? " · typical for this route" : ` · ${Math.abs(diff)}% ${diff > 0 ? "above" : "below"} typical`;
+  return h("div", { class: "seg-meta co2", title: "Google Flights' estimate per passenger" }, `${kg} kg CO₂${vs}`);
+}
+
 function legCard(leg, title, cur) {
   const first = leg.segments[0], seen = new Map();
   leg.segments.forEach(s2 => { if (!seen.has(s2.airline_code)) seen.set(s2.airline_code, airlineName(s2.airline_code, s2.airline)); });
@@ -1169,6 +1177,8 @@ function legCard(leg, title, cur) {
     const out = [h("div", { class: "seg-row" }, h("span", { class: "al" }, `${sg.airline_code}${sg.flight_number}`),
       h("div", { class: "seg-times" }, h("span", { class: "t" }, fmtTime(dep)), h("span", { class: "a" }, sg.origin), h("span", { class: "arrow" }, "→"),
         h("span", { class: "t" }, fmtTime(arr), arr.getDate() !== dep.getDate() ? " +1" : ""), h("span", { class: "a" }, sg.destination), h("span", { class: "a" }, sg.airline)))];
+    const plane = [sg.aircraft, sg.legroom && `${sg.legroom} legroom`].filter(Boolean).join(" · ");
+    if (plane) out.push(h("div", { class: "seg-meta" }, plane));
     if (lay != null) out.push(h("div", { class: "layover" }, h("span", { class: "badge " + (lay >= 480 ? "warn" : "ok") }, `${hm(lay)} layover in ${sg.destination}`)));
     return out;
   });
@@ -1189,7 +1199,7 @@ function legCard(leg, title, cur) {
       h("div", { class: "leg-title" }, title, h("small", {}, [...seen.values()].join(" · "))),
       h("strong", { title: isConverted(cur) ? `Originally ${fmtMoney(leg.price, cur)}` : null }, money(leg.price, cur))),
     legTimes(leg),
-    rows, h("div", { class: "actions" }, autoSelect, links, direct,
+    rows, co2Note(leg), h("div", { class: "actions" }, autoSelect, links, direct,
       h("button", { type: "button", class: "btn small", title: "See every flight that day, including ones with no price", onclick: () => Builder.browse(leg.origin, leg.destination, leg.segments[0].departs.slice(0, 10)) }, "All flights that day"),
       h("button", { type: "button", class: "btn small", onclick: () => Builder.addFlight(leg, { pax: paxLabel(resultsQuery), currency: cur }) }, "＋ Trip builder")));
 }

@@ -26,7 +26,9 @@ const call = (path, env = { GOOGLE_CLIENT_ID: "client-1" }) => worker.fetch(new 
 test("a lookup returns Google's best and other result groups, with no key needed", async () => {
   const r = await call("/gflights?origin=TLV&dest=FCO&date=2026-10-05&currency=eur");
   assert.equal(r.status, 200);
-  assert.deepEqual((await r.json()).groups, [...FIXTURE.best, ...FIXTURE.other]);
+  const body = await r.json();
+  assert.deepEqual(body.groups, [...FIXTURE.best, ...FIXTURE.other]);
+  assert.equal(body.url, google[0].url);   // the page links each fare to the exact search that priced it
   const url = new URL(google[0].url);
   assert.equal(url.origin + url.pathname, "https://www.google.com/travel/flights");
   assert.equal(url.searchParams.get("curr"), "EUR");

@@ -95,7 +95,8 @@
   // ----------------------------------------------------------------- Offer (a one-way ticket, or a self-transfer bundle)
   function offer(o) {
     return { origin: o.origin, destination: o.destination, price: o.price, currency: o.currency, segments: o.segments,
-      deep_links: o.deep_links || [], provider: o.provider || "", priced: o.priced ?? true, self_transfer: !!o.self_transfer, hub: o.hub ?? null };
+      deep_links: o.deep_links || [], provider: o.provider || "", priced: o.priced ?? true, self_transfer: !!o.self_transfer, hub: o.hub ?? null,
+      co2_g: o.co2_g ?? null, co2_typical_g: o.co2_typical_g ?? null };
   }
   const departs = o => o.segments[0].departs;
   const arrives = o => o.segments[o.segments.length - 1].arrives;
@@ -109,12 +110,14 @@
 
   function legView(o) {
     return { origin: o.origin, destination: o.destination, airlines: airlines(o), segments: o.segments, stops: stops(o),
-      layovers_min: layovers(o), duration_min: duration(o), price: o.price, self_transfer: o.self_transfer, deep_links: o.deep_links, priced: o.priced };
+      layovers_min: layovers(o), duration_min: duration(o), price: o.price, self_transfer: o.self_transfer, deep_links: o.deep_links, priced: o.priced,
+      co2_g: o.co2_g, co2_typical_g: o.co2_typical_g };
   }
 
   function segment(x) {
     return { airline_code: x.airline_code, airline: x.airline || "", flight_number: x.flight_number, origin: x.origin,
-      destination: x.destination, departs: x.departs, arrives: x.arrives, duration_min: x.duration_min ?? null };
+      destination: x.destination, departs: x.departs, arrives: x.arrives, duration_min: x.duration_min ?? null,
+      aircraft: x.aircraft || "", legroom: x.legroom || "" };
   }
 
   L.models = {

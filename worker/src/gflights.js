@@ -61,7 +61,8 @@ export function resultGroups(html) {
   return [2, 3].flatMap(i => (payload[i] && payload[i][0]) || []);
 }
 
-/** GET /gflights: one lookup, tried twice. Answers {groups} for the page to parse. */
+/** GET /gflights: one lookup, tried twice. Answers {groups, url} for the page to parse: `url` is the Google Flights
+    page the fares came from, so the page's "Google Flights" link opens that very search. */
 export async function gflights(url, { json, error }, wait) {
   const { url: target, error: bad } = gflightsQuery(url.searchParams);
   if (bad) return error(bad, 400);
@@ -71,7 +72,7 @@ export async function gflights(url, { json, error }, wait) {
     try {
       const r = await fetch(target, { headers: HEADERS });
       if (!r.ok) throw new Error(`Google Flights answered ${r.status}`);
-      return json({ groups: resultGroups(await r.text()) });
+      return json({ groups: resultGroups(await r.text()), url: target });
     } catch (e) { last = e; }
   }
   return error(last.message, 502);

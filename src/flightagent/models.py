@@ -114,6 +114,8 @@ class Segment(BaseModel):
     arrives: datetime
     # Real flight time from the provider; local arrival - departure is wrong across time zones.
     duration_min: int | None = None
+    aircraft: str = ""   # as Google Flights names it, e.g. "Airbus A320neo"
+    legroom: str = ""    # e.g. "30 in"; Google omits it for some flights
 
     @property
     def label(self) -> str:
@@ -133,6 +135,8 @@ class Offer(BaseModel):
     priced: bool = True          # False: the source lists the flight but shows no fare (book on the airline's site)
     self_transfer: bool = False
     hub: str | None = None  # where the tickets of a self-transfer bundle meet
+    co2_g: int | None = None          # Google's CO2 estimate for the itinerary, grams per passenger
+    co2_typical_g: int | None = None  # Google's typical figure for the route, which its "+20% emissions" compares to
 
     @property
     def departs(self) -> datetime:
@@ -185,6 +189,8 @@ class LegView(BaseModel):
     self_transfer: bool
     deep_links: list[str]
     priced: bool = True
+    co2_g: int | None = None
+    co2_typical_g: int | None = None
 
 
 class Trip(BaseModel):
