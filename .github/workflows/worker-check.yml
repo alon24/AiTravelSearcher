@@ -1,0 +1,24 @@
+name: Check the live site and Worker
+
+# What the published site and its Cloudflare Worker answer right now: the site's runtime.js (which Worker and Google
+# client it uses) and the Worker's /health (which keys it has). Run it from the Actions tab when the site isn't LIVE.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.github/workflows/worker-check.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: The site's runtime.js
+        run: curl -sS --fail https://alon24.github.io/AiTravelSearcher/runtime.js
+      - name: The Worker's /health
+        run: |
+          url=$(curl -sS https://alon24.github.io/AiTravelSearcher/runtime.js | grep -oE 'https://[a-z0-9.-]+\.workers\.dev')
+          echo "Worker: ${url:-none in runtime.js}"
+          curl -sS --fail -H "Origin: https://alon24.github.io" -D - "$url/health"
