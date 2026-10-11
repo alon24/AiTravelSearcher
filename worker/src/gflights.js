@@ -1,14 +1,16 @@
 /* Free Google Flights fares for the page, like providers/gflights.py does for Docker: the Worker asks Google Flights
    for one one-way search and hands back the result groups Google embeds in the page; the page parses them
    (web/local/gflights.js). No key and no credits, but Google may refuse or change the page, so the page falls back
-   to SerpApi when this fails. The query is the `tfs` protobuf that fast-flights builds (pb/flights.proto). */
+   to SerpApi when this fails. The query is the `tfs` protobuf that providers/gflights.py builds. */
+
+import { isCityOnly } from "./airports.js";
 
 const URL_BASE = "https://www.google.com/travel/flights";
 const CODE_RE = /^[A-Z]{3}$/;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
-// Passenger wire values as gflights._passengers sends them (3 is what Google prices as a lap infant).
+// Passenger wire values as gflights.tfs sends them (3 is what Google prices as a lap infant).
 const ADULT = 1, CHILD = 2, LAP_INFANT = 3;
-const ECONOMY = 1, ONE_WAY = 2;
+const ECONOMY = 1, ONE_WAY = 2, AIRPORT = 1;
 const HEADERS = {
   "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -23,9 +25,13 @@ const int = (field, v) => [...tag(field, 0), ...varint(v)];
 const bytes = (field, b) => [...tag(field, 2), ...varint(b.length), ...b];
 const str = (field, s) => bytes(field, [...new TextEncoder().encode(s)]);
 
-/** The `tfs` query for one one-way search, byte for byte what fast-flights' create_query encodes (tested from pytest). */
+const place = code => [...(isCityOnly(code) ? [] : int(1, AIRPORT)), ...str(2, code)];
+
+/** The `tfs` query for one one-way search, byte for byte what gflights.tfs encodes (tested from pytest). An airport
+    carries its type (1): Google answers a bare airport code with its landing page (measured 2026-10-11). City codes
+    (ROM) stay bare as before: how Google wants them typed is not measured yet. */
 export function tfs({ origin, dest, day, adults = 1, children = 0, infants = 0, maxStops = 1, carryOn = 0, checked = 0 }) {
-  const flight = [...str(2, day), ...(maxStops < 3 ? int(5, maxStops) : []), ...bytes(13, str(2, origin)), ...bytes(14, str(2, dest))];
+  const flight = [...str(2, day), ...(maxStops < 3 ? int(5, maxStops) : []), ...bytes(13, place(origin)), ...bytes(14, place(dest))];
   const pax = [...Array(adults).fill(ADULT), ...Array(children).fill(CHILD), ...Array(infants).fill(LAP_INFANT)];
   const info = [...bytes(3, flight), ...bytes(8, pax.flatMap(varint)), ...int(9, ECONOMY),
     ...(carryOn || checked ? bytes(13, [...int(2, carryOn), ...int(3, checked)]) : []), ...int(19, ONE_WAY)];

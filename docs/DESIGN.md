@@ -76,7 +76,7 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
      (`Offers.fallback`, both engines), and the results warn "N lookup(s) used the backup provider; first: gflights
      failed (…), so serpapi answered". When both fail, the error names both reasons. The estimate says SerpApi credits
      may be spent when Google refuses. The Worker's catch-all error names the failure.
-   - **Free fares (`GET /gflights`, `worker/src/gflights.js`).** The Worker builds the same `tfs` query as fast-flights
+   - **Free fares (`GET /gflights`, `worker/src/gflights.js`).** The Worker builds the same `tfs` query as `gflights.tfs`
      (byte for byte, tested from pytest), fetches the Google Flights page with a browser User-Agent and a consent cookie,
      and returns the `ds:1` result groups. The page parses them like `gflights.parse_groups` (parity-tested) and asks
      again for flights listed without a fare, as `gflights.py` does. A robot check or cookie wall is a 502 that names
@@ -280,6 +280,10 @@ served each lookup.
   not sell it on that route.
 - Prices are **totals for all travellers**. Children are priced by age (under 2 infant, 2-11 child, 12+ adult).
   Some airlines price children like adults; others (e.g. Swiss) charge less.
+- **Airports must be typed in `tfs`.** Measured 2026-10-11 (curl from a home connection): a place sent as a bare
+  code (`{2: "TLV"}`, fast-flights' encoding) gets Google's landing page with no results; `{1: 1, 2: "TLV"}` gets the
+  flights. Google's own links use `{1: 2|3, 2: "/m/07qzv"}` for cities (Freebase ids). Metropolitan codes (`ROM`)
+  are still sent bare until their typing is measured.
 - **Infants:** fast-flights swaps the wire values for lap and seat infants. Measured against Google, value 3 is a lap
   infant (fare equals the adult-only fare) and 4 an infant with its own seat, so the scraper sends raw values.
   With a lap infant Google returned about half as many itineraries: airlines that do not carry infants are hidden.
@@ -587,7 +591,7 @@ was deliberately reused vs. new).
 ### Current providers
 | Name | Source | Cost | Notes |
 |---|---|---|---|
-| `gflights` | Scrapes Google Flights (`fast-flights` HTTP client, own parser) | free | Accepts city codes. May break or be blocked; scraping may violate Google's terms. |
+| `gflights` | Scrapes Google Flights (`primp` HTTP client, own query encoder and parser) | free | Accepts city codes. May break or be blocked; scraping may violate Google's terms. |
 | `serpapi` | SerpApi `engine=google_flights` | 1 credit per lookup; free plan 250/month | Needs `SERPAPI_API_KEY`. City codes are expanded to airport lists. |
 | `mock` | Deterministic fake fares | free | UI and reports are labelled DEMO DATA. |
 

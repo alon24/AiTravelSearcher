@@ -189,9 +189,10 @@ python tools/build_pages.py _site                 # the server-less GitHub Pages
 `FLIGHTAGENT_PROVIDER` accepts a comma list as a fallback order. The default `gflights,serpapi`
 scrapes for free and only spends SerpApi credits if Google blocks or breaks the scraper.
 
-Scraper notes: it uses the `fast-flights` package for its browser-impersonating HTTP client, but
-parses the page itself, because the library drops Google's "best flights" block (often the cheapest
-fares). It accepts city codes (`ROM`, `LON`) directly. Scraping may violate Google's terms, can be
+Scraper notes: it fetches with `primp`, a browser-impersonating HTTP client, and builds Google's `tfs`
+query and parses the page itself: the `fast-flights` library it started from drops Google's "best flights" block
+(often the cheapest fares), and since October 2026 Google answers its untyped airport codes with an empty landing
+page. It accepts city codes (`ROM`, `LON`) directly. Scraping may violate Google's terms, can be
 rate-limited or break when Google changes the page, so keep volume modest. `tests/fixtures/` holds a
 real captured payload so a layout change shows up as a failing test.
 

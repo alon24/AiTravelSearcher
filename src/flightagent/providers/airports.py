@@ -10,6 +10,11 @@ CITY_AIRPORTS = {
 }
 
 
+def is_city_only(code: str) -> bool:
+    """A metropolitan code that is not itself an airport (ROM, not IST)."""
+    return code in CITY_AIRPORTS and code not in CITY_AIRPORTS[code].split(",")
+
+
 def expand(code: str) -> str:
     """City code -> comma-separated airport codes; anything else passes through."""
     return CITY_AIRPORTS.get(code.upper(), code.upper())

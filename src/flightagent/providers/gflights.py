@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import random
 from datetime import date, datetime
@@ -8,6 +9,7 @@ from urllib.parse import urlencode
 
 from ..links import google_flights_link
 from ..models import Offer, Segment
+from .airports import is_city_only
 
 
 def _time(value: list[int | None] | None) -> tuple[int, int]:
@@ -16,7 +18,7 @@ def _time(value: list[int | None] | None) -> tuple[int, int]:
     return padded[0] or 0, padded[1] or 0
 
 
-URL = "https://www.google.com/travel/flights"   # what fast-flights fetches
+URL = "https://www.google.com/travel/flights"
 
 
 def _at(value, *path):
@@ -82,15 +84,48 @@ def parse_html(html: str, origin: str, dest: str, currency: str, link: str | Non
     return parse_groups(groups, origin, dest, currency, link)
 
 
-def _passengers(adults: int, children: int, infants: int):
-    """Passenger list for the query. fast-flights names wire value 3 INFANT_IN_SEAT and 4 INFANT_ON_LAP, but
-    measured against Google, value 3 is priced as a lap infant (fare = adult-only fare) and value 4 as an infant
-    with its own seat (roughly a second full fare), so the library's names are swapped. We send raw values."""
-    from types import SimpleNamespace
+# ------------------------------------------------------------------------------- the `tfs` query (a protobuf)
+# Passenger wire values: 3 is what Google prices as a lap infant (fare = adult-only fare), although fast-flights'
+# schema names it INFANT_IN_SEAT; 4 is priced as an infant with its own seat (roughly a second full fare).
+ADULT, CHILD, LAP_INFANT = 1, 2, 3
+ECONOMY, ONE_WAY, AIRPORT = 1, 2, 1
 
-    from fast_flights.pb import flights_pb2 as pb
-    return SimpleNamespace(pb=lambda: [*[pb.Passenger.Value("ADULT")] * adults, *[pb.Passenger.Value("CHILD")] * children,
-                                       *[3] * infants])
+
+def _varint(n: int) -> bytes:
+    out = bytearray()
+    while True:
+        b, n = n & 0x7F, n >> 7
+        out.append(b | 0x80 if n else b)
+        if not n:
+            return bytes(out)
+
+
+def _int(field: int, v: int) -> bytes:
+    return _varint(field << 3) + _varint(v)
+
+
+def _bytes(field: int, b: bytes) -> bytes:
+    return _varint(field << 3 | 2) + _varint(len(b)) + b
+
+
+def tfs(origin: str, dest: str, day: str, adults: int = 1, children: int = 0, infants: int = 0, max_stops: int = 1,
+        carry_on: int = 0, checked: int = 0) -> str:
+    """The `tfs` query for one one-way search; worker/src/gflights.js builds the same bytes. An airport carries its
+    type (1): measured 2026-10-11, Google answers a bare airport code, as fast-flights sends it, with its landing page.
+    City codes (ROM) stay bare as before: how Google wants them typed is not measured yet."""
+    place = lambda code: (b"" if is_city_only(code) else _int(1, AIRPORT)) + _bytes(2, code.encode())  # noqa: E731
+    flight = (_bytes(2, day.encode()) + (_int(5, max_stops) if max_stops < 3 else b"")
+              + _bytes(13, place(origin)) + _bytes(14, place(dest)))
+    pax = b"".join(_varint(p) for p in [ADULT] * adults + [CHILD] * children + [LAP_INFANT] * infants)
+    bags = _bytes(13, _int(2, carry_on) + _int(3, checked)) if carry_on or checked else b""
+    info = _bytes(3, flight) + _bytes(8, pax) + _int(9, ECONOMY) + bags + _int(19, ONE_WAY)
+    return base64.b64encode(info).decode()
+
+
+def search_url(origin: str, dest: str, day: date, currency: str, adults: int, max_stops: int, children: int = 0,
+               infants: int = 0, carry_on_bags: int = 0, checked_bags: int = 0) -> str:
+    q = tfs(origin, dest, day.isoformat(), adults, children, infants, max_stops, carry_on_bags, checked_bags)
+    return f"{URL}?{urlencode({'tfs': q, 'hl': 'en-US', 'curr': currency})}"
 
 
 def _merge(old: list[Offer], new: list[Offer]) -> list[Offer]:
@@ -105,8 +140,8 @@ def _merge(old: list[Offer], new: list[Offer]) -> list[Offer]:
 
 
 class GoogleFlightsScraper:
-    """Free provider: scrapes Google Flights pages (no API key). Uses fast-flights only for its
-    browser-impersonating HTTP client and query encoding. Keep the request rate low.
+    """Free provider: scrapes Google Flights pages (no API key) with primp, a browser-impersonating HTTP client.
+    Keep the request rate low.
     Note: scraping may violate Google's terms and can be blocked or break without notice."""
 
     name = "gflights"
@@ -131,34 +166,24 @@ class GoogleFlightsScraper:
         return offers
 
     async def _once(self, origin, dest, day, currency, adults, max_stops, children, infants, carry_on_bags=0, checked_bags=0) -> list[Offer]:
-        query = self._query(origin, dest, day, currency, adults, max_stops, children, infants, carry_on_bags, checked_bags)
+        url = search_url(origin, dest, day, currency, adults, max_stops, children, infants, carry_on_bags, checked_bags)
         async with self.sem:
             await asyncio.sleep(random.uniform(*self.delay))
-            html = await asyncio.to_thread(self._fetch, query, f"{origin}->{dest} {day}")
-        return parse_html(html, origin, dest, currency, link=f"{URL}?{urlencode(query.params())}")
+            html = await asyncio.to_thread(self._fetch, url, f"{origin}->{dest} {day}")
+        return parse_html(html, origin, dest, currency, link=url)
 
     @staticmethod
-    def _query(origin: str, dest: str, day: date, currency: str, adults: int, max_stops: int,
-               children: int = 0, infants: int = 0, carry_on_bags: int = 0, checked_bags: int = 0):
-        import fast_flights as ff
+    def _fetch(url: str, what: str) -> str:
+        import time
 
-        return ff.create_query(
-            flights=[ff.FlightQuery(date=day.isoformat(), from_airport=origin, to_airport=dest)],
-            trip="one-way", currency=currency, language="en-US",
-            passengers=_passengers(adults, children, infants), max_stops=max_stops if max_stops < 3 else None,
-            carry_on_bags=carry_on_bags, checked_bags=checked_bags,
-        )
+        from primp import Client
 
-    @staticmethod
-    def _fetch(query, what: str) -> str:
-        import fast_flights as ff
-
+        client = Client(impersonate="chrome_145", impersonate_os="macos", referer=True, cookie_store=True)
         last: Exception | None = None
         for attempt in range(3):
             try:
-                return ff.fetch_flights_html(query)
+                return client.get(url).text
             except Exception as e:
                 last = e
-                import time
                 time.sleep(1.5 * (attempt + 1))
         raise RuntimeError(f"Google Flights fetch failed for {what}: {last}")

@@ -264,16 +264,34 @@ def test_gflights_links_each_fare_to_the_exact_google_page_it_came_from(monkeypa
     payload = [None, None, [fx["best"]], [fx["other"]]]
     html = f"<script class=\"ds:1\">AF_initDataCallback({{key: 'ds:1', data:{json.dumps(payload)}, sideChannel: {{}}}});</script>"
     fetched = []
-    monkeypatch.setattr(GoogleFlightsScraper, "_fetch", staticmethod(lambda q, what: fetched.append(q) or html))
+    monkeypatch.setattr(GoogleFlightsScraper, "_fetch", staticmethod(lambda url, what: fetched.append(url) or html))
     offers = asyncio.run(GoogleFlightsScraper(delay=(0, 0)).one_way(
         "TLV", "FCO", date(2026, 10, 5), currency="EUR", adults=2, children=1, max_stops=0, checked_bags=1))
-    link = urlsplit(offers[0].deep_links[0])
+    assert offers[0].deep_links[0] == fetched[0]
+    link = urlsplit(fetched[0])
     q = parse_qs(link.query)
     assert f"{link.scheme}://{link.netloc}{link.path}" == "https://www.google.com/travel/flights"
-    assert q == {k: [v] for k, v in fetched[0].params().items()} and q["curr"] == ["EUR"]
+    assert q["curr"] == ["EUR"] and q["hl"] == ["en-US"]
     tfs = base64.b64decode(q["tfs"][0])
-    assert b"2026-10-05" in tfs and b"TLV" in tfs and b"FCO" in tfs
+    assert b"2026-10-05" in tfs and b"\x08\x01\x12\x03TLV" in tfs
     assert {o.deep_links[0] for o in offers} == {offers[0].deep_links[0]}
+
+
+def test_gflights_query_marks_each_place_as_an_airport():
+    """Measured 2026-10-11: Google answers a bare airport code (fast-flights' encoding) with its landing page and no
+    results; the same query with the place typed as an airport, {1: 1, 2: "TLV"}, returns the flights."""
+    import base64
+    from flightagent.providers.gflights import tfs
+
+    q = base64.b64decode(tfs("TLV", "FCO", "2026-10-27", adults=2, children=1, infants=1, max_stops=0, checked=1))
+    leg = b"\x12\x0a2026-10-27" + b"\x28\x00" + b"\x6a\x07\x08\x01\x12\x03TLV" + b"\x72\x07\x08\x01\x12\x03FCO"
+    # passengers ADULT=1, CHILD=2, and 3 for a lap infant (measured: priced as the adult-only fare; fast-flights calls 3
+    # INFANT_IN_SEAT); economy; one checked bag; one way
+    assert q == (b"\x1a" + bytes([len(leg)]) + leg + b"\x42\x04\x01\x01\x02\x03" + b"\x48\x01"
+                 + b"\x6a\x04\x10\x00\x18\x01" + b"\x98\x01\x02")
+    # a city code (ROM) stays bare, as before: its typing is not measured yet; IST is a city code AND an airport
+    assert b"\x72\x05\x12\x03ROM" in base64.b64decode(tfs("TLV", "ROM", "2026-10-27"))
+    assert b"\x72\x07\x08\x01\x12\x03IST" in base64.b64decode(tfs("TLV", "IST", "2026-10-27"))
 
 
 def test_fallback_provider_and_selection(monkeypatch):
@@ -397,14 +415,6 @@ def test_serpapi_sends_passengers(monkeypatch):
     monkeypatch.setattr(SerpApiProvider, "_get", fake_get)
     asyncio.run(SerpApiProvider("k").one_way("TLV", "FCO", date(2026, 10, 5), currency="USD", adults=2, max_stops=1, children=1, infants=1))
     assert (sent["adults"], sent["children"], sent["infants_on_lap"]) == (2, 1, 1)
-
-
-def test_gflights_encodes_lap_infants_with_measured_wire_value():
-    from flightagent.providers.gflights import _passengers
-
-    # ADULT=1, CHILD=2; lap infant is wire value 3 (measured: priced as adult-only fare), not the library's name for 4
-    assert _passengers(2, 1, 1).pb() == [1, 1, 2, 3]
-    assert _passengers(1, 0, 0).pb() == [1]
 
 
 def test_simple_endpoint_reports_validation_errors_briefly(monkeypatch, tmp_path):

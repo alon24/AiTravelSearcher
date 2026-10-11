@@ -9,10 +9,13 @@
      /trips...                      shared trips: a group chat per trip (trips.js)
      GET|POST /links                airline search links the desktop extension learned, for phones (links.js) */
 
+import { CITY_AIRPORTS } from "./airports.js";
 import { gflights } from "./gflights.js";
 import { SearchLinks, links } from "./links.js";
 import { SharedTrip, newTripId, tripStub, validTripId } from "./trips.js";
 import { audit, isAllowed } from "./users.js";
+
+export { CITY_AIRPORTS };
 
 const SERPAPI_URL = "https://serpapi.com/search.json";
 const JEV_URL = "https://openrouter.ai/api/alpha/decisions";
@@ -27,14 +30,6 @@ const ROLES = new Set(["system", "user", "assistant", "tool"]);
 const CODE_RE = /^[A-Z]{3}$/;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 const STOPS = { 0: 1, 1: 2, 2: 3, 3: 0 };   // our max stops -> SerpApi `stops` (0 any, 1 nonstop, 2 up to 1, 3 up to 2)
-// Google Flights rejects IATA city codes but accepts comma-separated airports (providers/airports.py).
-export const CITY_AIRPORTS = {
-  ROM: "FCO,CIA", LON: "LHR,LGW,STN,LTN,LCY", PAR: "CDG,ORY,BVA", NYC: "JFK,EWR,LGA",
-  MIL: "MXP,LIN,BGY", BER: "BER", STO: "ARN,BMA,NYO", MOW: "SVO,DME,VKO",
-  TYO: "HND,NRT", WAS: "IAD,DCA,BWI", CHI: "ORD,MDW", BUH: "OTP,BBU",
-  BJS: "PEK,PKX", OSA: "KIX,ITM", SAO: "GRU,CGH,VCP", BUE: "EZE,AEP",
-  MAD: "MAD", BRU: "BRU", IST: "IST,SAW", VCE: "VCE,TSF",
-};
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
