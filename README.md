@@ -12,7 +12,8 @@ so any provider that can price a one-way flight works.
 **Web UI:** run `docker compose up -d --build`, then open http://localhost:8765/ (search form, live progress, past searches).
 **Installing on another computer (server + Chrome extension): [`docs/INSTALL.md`](docs/INSTALL.md)** (`tools/install.sh` on Linux/macOS).
 **Without a server (GitHub Pages):** every push to `main` also publishes a build that runs entirely in the browser
-(`.github/workflows/pages.yml`). It shows **demo fares** until you press **Sign in** (Google). Once you're signed in,
+(`.github/workflows/pages.yml`). It shows **demo fares** until you press **Sign in** (Google). Signing in to
+[Travel Hub AI](https://alon24.github.io/travel-hub/) signs you in here too, and the other way round. Once you're signed in,
 searches use real Google Flights fares, on phones too. A small Cloudflare Worker fetches them from Google Flights for
 free, and uses SerpApi credits only if Google refuses it. The Worker also holds the keys; set it up once as described
 in [`worker/README.md`](worker/README.md). With the Airline Assist extension on desktop, Jev works on the web version

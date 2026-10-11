@@ -1,11 +1,14 @@
 /* Signing in with Google, and talking to Skyhop's Cloudflare Worker (worker/), which holds the SerpApi and OpenRouter
    keys for the GitHub Pages build. Only active when runtime.js names a Worker and a Google OAuth client (build_pages.py
    writes both from GitHub variables); otherwise the page stays on demo fares. The Google access token is kept until it
-   expires (about an hour) so a reload, on a phone too, doesn't ask again. */
+   expires (about an hour) so a reload, on a phone too, doesn't ask again. Skyhop is one of a suite on alon24.github.io
+   with Travel Hub AI (alon24/travel-hub), which signs in with the same Google client: whichever app you sign in to,
+   the others on this origin use that sign-in (HUB below) until it expires or you sign out. */
 (function (root) {
   "use strict";
   const L = (root.SkyhopLocal = root.SkyhopLocal || {});
   const KEY = "skyhop.google";
+  const HUB = "travel-hub.session";     // Travel Hub AI's sign-in: {token, expires, email, name?, picture?}
   const GIS = "https://accounts.google.com/gsi/client";
   const REVOKE = "https://oauth2.googleapis.com/revoke";
   const SIGN_IN = "openid email", DRIVE = "https://www.googleapis.com/auth/drive.file";
@@ -18,7 +21,24 @@
   let checked = null;
 
   function load() {
-    try { const s = JSON.parse(root.localStorage.getItem(KEY)); return s && s.until > Date.now() ? s : null; } catch { return null; }
+    try { const s = JSON.parse(root.localStorage.getItem(KEY)); if (s && s.until > Date.now()) return s; } catch { /* below */ }
+    return fromHub();
+  }
+  /** The suite's sign-in, from Travel Hub AI, while it has more than a minute left (the hub's own rule). */
+  function fromHub() {
+    try {
+      const h = JSON.parse(root.localStorage.getItem(HUB));
+      if (!h || typeof h.token !== "string" || typeof h.email !== "string" || !(h.expires > Date.now() + 60_000)) return null;
+      return { token: h.token, until: h.expires - 60_000, email: h.email, scopes: ["openid", "email", "profile"] };
+    } catch { return null; }
+  }
+  /** Hand a Skyhop sign-in to the hub, unless it is signed in already (possibly as someone else). */
+  function shareWithHub(s) {
+    try { if (!fromHub()) root.localStorage.setItem(HUB, JSON.stringify({ token: s.token, expires: s.until, email: s.email })); } catch { /* private mode */ }
+  }
+  /** A signed-out or dead token is dead in every app of the suite: drop the hub's copy of it too. */
+  function dropFromHub(token) {
+    try { const h = JSON.parse(root.localStorage.getItem(HUB)); if (h && h.token === token) root.localStorage.removeItem(HUB); } catch { /* private mode */ }
   }
   function save(s) {
     session = s;
@@ -37,6 +57,7 @@
     let j = null;
     try { j = await r.json(); } catch { /* not JSON */ }
     if (r.status === 401 && session) {        // the token expired or was revoked: tell the page once
+      dropFromHub(session.token);
       save(null);
       if (health) health = { ...health, user: null, guest: null };
       root.dispatchEvent(new CustomEvent("skyhop-signed-out"));
@@ -51,7 +72,8 @@
     if (!checked || force) {
       checked = get("/health").catch(() => null).then(h => {
         health = h;
-        if (session && !(h && (h.user || h.guest))) save(null);        // expired or revoked
+        if (session && h && !(h.user || h.guest)) dropFromHub(session.token);     // expired or revoked
+        if (session && !(h && (h.user || h.guest))) save(null);
         return h;
       });
     }
@@ -113,6 +135,7 @@
     if (!h) { save(null); throw new Error("Couldn't reach Skyhop's server"); }
     if (!h.user && !h.guest) { save(null); throw new Error("Google didn't confirm this account"); }
     save({ ...session, email: h.user || h.guest });
+    shareWithHub(session);
     return session.email;
   }
 
@@ -130,7 +153,10 @@
   const hasDrive = () => signedIn() && (session.scopes || []).includes(DRIVE);
 
   function signOut() {
-    if (session) fetch(REVOKE, { method: "POST", mode: "no-cors", body: new URLSearchParams({ token: session.token }) }).catch(() => {});
+    if (session) {          // revoked, the token is dead in the hub too
+      dropFromHub(session.token);
+      fetch(REVOKE, { method: "POST", mode: "no-cors", body: new URLSearchParams({ token: session.token }) }).catch(() => {});
+    }
     save(null);
     if (health) health = { ...health, user: null, guest: null };
   }

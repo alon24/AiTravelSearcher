@@ -220,3 +220,56 @@ def test_search_links_learned_on_the_computer_work_on_the_phone(page, worker):
     btn = page.locator(".site-btn:visible", has_text="Search on Zed Air site").first
     btn.wait_for(timeout=60000)
     assert re.fullmatch(r"https://www\.zed\.example/search/tlv-ROM/0[2-4]112026", btn.get_attribute("href"))
+
+
+# ---------------------------------------------------------------------------- one sign-in for the suite (travel-hub)
+HUB = "travel-hub.session"
+
+
+def _hub(p, session=None):
+    """Travel Hub AI's stored sign-in on this origin: set it (a dict, or the token with an hour left) or read it."""
+    if session is None:
+        return p.evaluate("k => JSON.parse(localStorage.getItem(k))", HUB)
+    if isinstance(session, str):
+        session = {"token": session, "expires": p.evaluate("Date.now()") + 3_600_000, "email": "ilan@example.com", "name": "Ilan"}
+    p.evaluate("([k, s]) => localStorage.setItem(k, JSON.stringify(s))", [HUB, session])
+
+
+def test_signed_in_to_the_hub_is_signed_in_to_skyhop(page, worker):
+    _hub(page, "tok-1")
+    page.reload()
+    page.wait_for_function("document.querySelector('#mode-badge-desk').textContent === 'LIVE'")
+    assert page.locator(".account-btn:visible").inner_text() == "Sign out"
+    assert ("/health", True) in worker["asked"], "the hub's token goes to Skyhop's Worker"
+
+
+def test_signing_in_or_out_of_skyhop_does_the_same_in_the_hub(page, worker):
+    _sign_in(page)
+    hub = _hub(page)
+    assert hub["token"] == "tok-1" and hub["email"] == "ilan@example.com" and hub["expires"] > page.evaluate("Date.now()") + 3_000_000
+    page.locator(".account-btn:visible").click()
+    page.wait_for_function("document.querySelector('#mode-badge-desk').textContent === '⚠ DEMO DATA'")
+    assert _hub(page) is None, "the revoked token is gone from the hub too"
+
+
+def test_a_hub_signed_in_as_someone_else_is_left_alone(page, worker):
+    other = {"token": "tok-other", "expires": page.evaluate("Date.now()") + 3_600_000, "email": "dana@example.com"}
+    _hub(page, other)
+    page.evaluate("localStorage.setItem('skyhop.google', JSON.stringify({token: 'tok-1', until: Date.now() + 3e6, email: 'ilan@example.com', scopes: ['openid', 'email']}))")
+    page.reload()
+    page.wait_for_function("document.querySelector('#mode-badge-desk').textContent === 'LIVE'")
+    page.locator(".account-btn:visible").click()          # Skyhop's own sign-in wins in Skyhop; signing out of it...
+    page.wait_for_function("document.querySelector('#mode-badge-desk').textContent === '⚠ DEMO DATA'")
+    assert _hub(page) == other, "...doesn't touch the hub's other account"
+
+
+def test_an_expired_or_refused_hub_sign_in_is_not_used(page, worker):
+    _hub(page, {"token": "tok-1", "expires": page.evaluate("Date.now()") + 30_000, "email": "ilan@example.com"})
+    page.reload()
+    page.wait_for_function("typeof readForm === 'function' && !!ac.from")
+    assert page.locator(".account-btn:visible").inner_text() == "Sign in", "under a minute left: the hub would refuse it too"
+    _hub(page, "tok-dead")                                # Google no longer vouches for it
+    page.reload()
+    page.wait_for_function("document.querySelector('.account-btn:not([hidden])') && !!localStorage.getItem('travel-hub.session') === false")
+    assert page.inner_text("#mode-badge-desk") == "⚠ DEMO DATA"
+    assert page.locator(".account-btn:visible").inner_text() == "Sign in"

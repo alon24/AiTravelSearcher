@@ -62,6 +62,11 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
      `local/account.js`) and sends it as a Bearer header.
    - The Worker asks Google's `tokeninfo` whether the token was issued to our client, and caches the answer for up to
      5 minutes. `ALLOWED_EMAILS` limits who may spend credits.
+   - **One sign-in for the suite.** Travel Hub AI (alon24/travel-hub) is on the same origin (`alon24.github.io`) and,
+     as checked in its deploy log on 2026-10-11, uses the same Google OAuth client. With no Skyhop session,
+     `account.js` uses the hub's `travel-hub.session` (`{token, expires, email}`) if it has over a minute left. A Skyhop
+     sign-in is written there when the hub has none; signing out, or the Worker refusing the token, removes the hub's copy
+     of that same token (it is revoked or dead). MyMaps AI's token is `drive.file` only, with no email, so it can't be shared.
    - Signed in, `backend.js` swaps the mock provider for real fares, in the server's default order
      (`gflights,serpapi`): `local/gflights.js` first, `local/serpapi.js` when that lookup fails (`fallback()`, as
      `FallbackProvider`). The badge says LIVE.
