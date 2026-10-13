@@ -1,5 +1,5 @@
-/* verify.py in the browser: a trip's flights looked up again on the other fare source (Google Flights <-> SerpApi) and
-   matched by airline, flight number and departure minute of every segment, never by price. Parity-tested. */
+/* A trip's flights looked up again on the other fare source (Google Flights <-> SerpApi) and
+   matched by airline, flight number and departure minute of every segment, never by price. */
 (function (root) {
   "use strict";
   const L = (root.SkyhopLocal = root.SkyhopLocal || {});
@@ -11,7 +11,7 @@
   const label = s => `${s.airline_code}${s.flight_number}`.replace(/ /g, "");
 
   /** The separately bought tickets of a leg: one, or two for a self-transfer, split where they meet at the hub.
-      `cities` is providers/airports.py CITY_AIRPORTS (config.json), to read a city hub such as ROM. */
+      `cities` is city_airports from config.json, to read a city hub such as ROM. */
   function tickets(leg, cities = {}) {
     if (!leg.self_transfer) return [leg.segments];
     const hub = leg.hub ? new Set([leg.hub, ...(cities[leg.hub] || leg.hub).split(",")]) : new Set();

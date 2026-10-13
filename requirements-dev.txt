@@ -1,0 +1,4 @@
+# Test tools only: Skyhop itself is static files (src/flightagent/web) plus the Worker (worker/).
+pytest
+pytest-xdist
+playwright

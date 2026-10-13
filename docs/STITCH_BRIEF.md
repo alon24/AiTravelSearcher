@@ -8,7 +8,7 @@ Stitch takes a text prompt (and optionally an image) and can generate several sc
 to Figma or to front-end code (HTML/CSS, Tailwind and others).
 
 **How to use**
-1. Attach a screenshot of the current UI (open `http://localhost:8765/`, run a search, screenshot it).
+1. Attach a screenshot of the current UI (open https://alon24.github.io/AiTravelSearcher/, run a search, screenshot it).
 2. Paste the **Master prompt** (section 1). Let Stitch generate the first screen.
 3. Paste each **screen prompt** (section 3) as a new screen or an edit. Attach the sample data (section 4) so
    the mocks are realistic.

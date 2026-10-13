@@ -1,5 +1,5 @@
-/* itinerary.py in the browser: the gaps between consecutive flights of a trip, whether the airports differ, the
-   estimated ground transfer and whether it all fits. Same thresholds and wording as the server. */
+/* The gaps between consecutive flights of a trip, whether the airports differ, the
+   estimated ground transfer and whether it all fits. */
 (function (root) {
   "use strict";
   const L = (root.SkyhopLocal = root.SkyhopLocal || {});

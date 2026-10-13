@@ -12,6 +12,7 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 EXT = ROOT / "browser-extension"
 REG = json.loads((EXT / "airlines.json").read_text())["airlines"]
+CONFIG = json.loads((ROOT / "src/flightagent/data/config.json").read_text())
 MODES = {"url", "bespoke", "discover"}
 STATUSES = {"verified", "bespoke", "discover"}
 
@@ -179,8 +180,8 @@ def test_select_words(label, is_select):
 
 
 def test_phone_search_links_are_the_verified_templates():
-    """links.AIRLINE_SEARCH_URLS (what a phone opens without the extension) = the registry's verified url templates."""
-    from flightagent.links import AIRLINE_SEARCH_URLS
+    """config.json's airline_search_urls (what a phone opens without the extension) = the registry's verified url templates."""
+    AIRLINE_SEARCH_URLS = CONFIG["airline_search_urls"]
 
     want = {c: a["url"] for key, a in REG.items() if a["mode"] == "url" and a["status"] == "verified" for c in [key, *a["aliases"]]}
     assert AIRLINE_SEARCH_URLS == want

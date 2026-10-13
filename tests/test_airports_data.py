@@ -3,8 +3,6 @@ airports, and which of them have scheduled flights, so a country search skips ai
 import json
 from pathlib import Path
 
-from flightagent.geo import country_airports
-
 ROWS = {r[0]: r for r in json.loads((Path(__file__).resolve().parent.parent / "src/flightagent/web/airports.json").read_text(encoding="utf-8"))}
 
 
@@ -19,6 +17,7 @@ def test_newer_airports_come_from_ourairports():
 
 
 def test_a_countrys_airports_for_the_finder_are_the_ones_with_flights():
-    codes, trimmed = country_airports("Portugal")
-    assert not trimmed and {"LIS", "OPO", "FAO", "FNC", "PDL"} <= set(codes)
-    assert not {"AVR", "QLR", "BYJ"} & set(codes)
+    """The finder (local/backend.js byCountry) keeps a country's airports with scheduled flights, leaving out city groups."""
+    codes = {r[0] for r in ROWS.values() if r[3] == "Portugal" and r[4] != 2 and r[6]}
+    assert {"LIS", "OPO", "FAO", "FNC", "PDL"} <= codes
+    assert not {"AVR", "QLR", "BYJ"} & codes

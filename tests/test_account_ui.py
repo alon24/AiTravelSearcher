@@ -10,7 +10,7 @@ import pytest
 pytest.importorskip("playwright.sync_api")
 
 WORKER = "https://worker.test"
-RUNTIME = 'window.SKYHOP_RUNTIME = {"backend": "browser", "workerUrl": "%s", "googleClientId": "client-1"};' % WORKER
+RUNTIME = 'window.SKYHOP_RUNTIME = {"workerUrl": "%s", "googleClientId": "client-1"};' % WORKER
 GIS_STUB = """window.google = { accounts: { oauth2: {
   initTokenClient: c => ({ requestAccessToken: () => setTimeout(() => c.callback({ access_token: "tok-1", expires_in: 3599 }), 0) }),
 } } };"""
@@ -39,10 +39,8 @@ def _google(q):
 
 
 @pytest.fixture
-def worker(page, base_url):
+def worker(page):
     """Point the page at a fake Worker and Google; `state` sets who the Worker accepts and records what it was asked."""
-    if not base_url.endswith("/skyhop"):
-        pytest.skip("sign-in exists only on the Pages build")
     state = {"user": "ilan@example.com", "guest": None, "serpapi": True, "gflights": None, "links": None, "asked": [], "revoked": []}
 
     def answer(route):
@@ -284,6 +282,19 @@ def test_the_airline_assist_extension_gets_the_worker_for_jev(page, worker):
     assert route["url"] == WORKER and route["token"] == "tok-1" and route["until"] > 0
     page.locator(".account-btn:visible").click()
     page.wait_for_function("routes.length && routes[routes.length - 1] === null")
+
+
+def test_switching_the_extension_to_jev_needs_the_sign_in(page, worker):
+    """Jev runs only on Skyhop's Worker, as the signed-in user: signed out, the 🧠 badge says so and keeps Laya."""
+    page.evaluate("""document.documentElement.dataset.skyhopExtension = "1"; window.picked = [];
+        addEventListener('skyhop-set-decider', e => picked.push(e.detail.value))""")
+    badge = page.locator(".dec-badge:visible").first
+    badge.click()
+    assert "Jev needs you signed in" in page.locator(".toast").inner_text() and page.evaluate("picked") == []
+    _sign_in(page)
+    badge.click()
+    page.wait_for_function("picked.length === 1")
+    assert page.evaluate("picked") == ["jev"]
 
 
 def test_search_links_learned_on_the_computer_work_on_the_phone(page, worker):

@@ -1,9 +1,8 @@
 name: Google Flights from the cloud
 
-# Does Google Flights still answer both free scrapers from a data-centre IP (GitHub's runners): the Python one
-# (providers/gflights.py, Docker) and the Worker's (worker/src/gflights.js, the Pages site)? Runs every morning: when
-# Google changes its page, the run fails and opens (or comments on) a "gflights broken" issue, so the breakage is
-# found here and not by someone searching.
+# Does Google Flights still answer the Worker's free scraper (worker/src/gflights.js) from a data-centre IP (GitHub's
+# runners)? Runs every morning: when Google changes its page, the run fails and opens (or comments on) a
+# "gflights broken" issue, so the breakage is found here and not by someone searching.
 on:
   schedule:
     - cron: "0 5 * * *"
@@ -11,7 +10,6 @@ on:
   pull_request:
     paths:
       - .github/workflows/gflights-probe.yml
-      - src/flightagent/providers/gflights.py
       - worker/src/gflights.js
       - worker/tools/probe.js
 
@@ -24,10 +22,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install -e .
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -35,43 +29,16 @@ jobs:
         id: worker
         continue-on-error: true
         run: node worker/tools/probe.js
-      - name: The Python scraper, ten one-way lookups a month ahead
-        id: python
-        continue-on-error: true
-        run: |
-          python - <<'PY'
-          import asyncio
-          from datetime import date, timedelta
-          from flightagent.providers.gflights import GoogleFlightsScraper
-
-          async def main():
-              scraper, ok = GoogleFlightsScraper(), 0
-              routes = [("TLV", "FCO"), ("TLV", "ATH"), ("LHR", "JFK"), ("BUD", "TLV"), ("CDG", "BCN")]
-              for i, (o, d) in enumerate(routes * 2):
-                  day = date.today() + timedelta(days=30 + i)
-                  try:
-                      offers = await scraper.one_way(o, d, day, currency="USD", adults=1, max_stops=1)
-                      priced = [x.price for x in offers if x.priced]
-                      print(f"OK   {o}->{d} {day}: {len(offers)} flights, cheapest {min(priced, default=None)}")
-                      ok += bool(offers)
-                  except Exception as e:
-                      print(f"FAIL {o}->{d} {day}: {e}")
-              print(f"{ok}/10 lookups returned flights")
-              raise SystemExit(0 if ok >= 8 else 1)
-
-          asyncio.run(main())
-          PY
       - name: Open or update the "gflights broken" issue
-        if: github.event_name == 'schedule' && (steps.worker.outcome == 'failure' || steps.python.outcome == 'failure')
+        if: github.event_name == 'schedule' && steps.worker.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
-          WHICH: ${{ steps.worker.outcome == 'failure' && 'the Worker (Pages site)' || '' }} ${{ steps.python.outcome == 'failure' && 'the Python provider (Docker)' || '' }}
         run: |
           run="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
-          body="Free Google Flights fares failed today's check for: ${WHICH}. The run's log shows each lookup and Google's answer: ${run}"
+          body="Free Google Flights fares failed today's check (the Worker's scraper). The run's log shows each lookup and Google's answer: ${run}"
           open=$(gh issue list --state open --search "in:title gflights broken" --json number --jq '.[0].number')
           if [ -n "$open" ]; then gh issue comment "$open" --body "$body"
           else gh issue create --title "gflights broken: Google Flights stopped answering the free scraper" --body "$body"; fi
-      - name: Fail when either scraper failed
-        if: steps.worker.outcome == 'failure' || steps.python.outcome == 'failure'
+      - name: Fail when the scraper failed
+        if: steps.worker.outcome == 'failure'
         run: exit 1

@@ -1,4 +1,4 @@
-/* Browser storage for the in-browser backend: the offer cache (cache.py), past searches (history.py) and airline sites, kept in
+/* Browser storage for the in-page backend: the offer cache, past searches and airline sites, kept in
    IndexedDB because a few searches' fares outgrow localStorage. Falls back to memory when IndexedDB is unavailable
    (private windows, Node tests), so the app still works for the session. */
 (function (root) {

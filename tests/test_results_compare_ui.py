@@ -9,6 +9,10 @@ import pytest
 
 pytest.importorskip("playwright.sync_api")
 
+from pathlib import Path
+
+AIRLINE_SITES = json.loads((Path(__file__).resolve().parent.parent / "src/flightagent/data/config.json").read_text())["airline_sites"]
+
 
 @pytest.fixture
 def results(page):
@@ -25,7 +29,6 @@ def texts(page, sel):
     return page.locator(sel).all_inner_texts()
 
 
-@pytest.mark.docker
 def test_matrix_has_every_destination_and_length_and_nothing_preselected(results):
     p = results
     assert p.locator(".cmp-cell:not(.empty)").count() == 9                       # 3 lengths x 3 destinations
@@ -204,7 +207,6 @@ def test_check_on_site_searches_the_flight_when_the_extension_is_there(results):
 
 
 def test_tarom_link_is_the_english_site():
-    from flightagent.links import AIRLINE_SITES
     assert AIRLINE_SITES["RO"] == "https://www.tarom.ro/en"
 
 
@@ -333,8 +335,7 @@ def test_clicking_a_site_button_opens_the_site_and_copies_the_flight(results):
     assert "Search for it there" in p.inner_text(".toast")
 
 
-def test_the_server_knows_many_more_airline_sites():
-    from flightagent.links import AIRLINE_SITES
+def test_the_page_knows_many_more_airline_sites():
     assert len(AIRLINE_SITES) >= 60
     for code in ("LY", "6H", "IZ", "W6", "W4", "FR", "U2", "RO", "TP", "UX", "HV", "VY", "EW", "AZ"):
         assert AIRLINE_SITES[code].startswith("https://")
@@ -427,3 +428,23 @@ def test_a_failed_connection_check_says_why_instead_of_vanishing(results):
     note = p.locator(".mm-sum .note.bad")
     note.wait_for()
     assert note.inner_text() == "Couldn't check the time between these flights: server restarted"
+
+
+def test_unpriced_flights_are_checked_again_on_schedule_while_the_search_is_open(results):
+    """No server runs scheduled checks: the open page does them, when polling.js says, and says so."""
+    p = results
+    p.clock.install()
+    p.evaluate("""() => { window.calls = []; window.toasts = []; window.toast = m => toasts.push(m); const real = api;
+        window.api = (path, o) => { if (!path.endsWith('/recheck')) return real(path, o); calls.push(path);
+            return Promise.resolve({ changed: { before: 2, after: 1 }, search: { ...currentRow, next_check: null } }); };
+        watchRecheck({ ...currentRow, next_check: Date.now() / 1000 + 900 });
+        return true; }""")
+    p.clock.run_for(890_000)
+    assert p.evaluate("calls") == []
+    p.clock.run_for(15_000)
+    p.wait_for_function("calls.length === 1")
+    assert p.evaluate("calls")[0].endswith(f"/api/searches/{p.evaluate('currentRow.id')}/recheck")
+    p.wait_for_function("toasts.length")
+    assert p.evaluate("toasts") == ["1 flight now has a price"]
+    text = p.evaluate("nextCheckText({ next_check: Date.now() / 1000 + 600, rechecks: 1 })")
+    assert text == "Next automatic check in 10 min, while this search is open · checked again 1 time"

@@ -24,9 +24,7 @@ def test_the_progress_card_has_cancel_and_a_cancelled_search_says_what_was_kept(
     assert page.locator(".progress .cancel-search").is_disabled()
 
 
-def test_cancelling_a_wide_search_stops_it_and_keeps_its_fares(page, base_url):
-    if not base_url.endswith("/skyhop"):
-        pytest.skip("the mock provider can only be slowed down in the browser build; tests/test_engine.py covers the server")
+def test_cancelling_a_wide_search_stops_it_and_keeps_its_fares(page):
     page.evaluate("""() => { const real = SkyhopLocal.mock.oneWay;
         SkyhopLocal.mock.oneWay = async (...a) => { await new Promise(r => setTimeout(r, 40)); return real(...a); }; }""")
     page.evaluate(WIDE)

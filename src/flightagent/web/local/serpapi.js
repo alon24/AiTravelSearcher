@@ -1,5 +1,5 @@
-/* providers/serpapi.py in the browser: real Google Flights fares through SerpApi. The page never sees the SerpApi key;
-   it asks Skyhop's Cloudflare Worker (worker/), which adds the key, and parses the answer exactly as the Python provider. */
+/* Real Google Flights fares through SerpApi. The page never sees the SerpApi key;
+   it asks Skyhop's Cloudflare Worker (worker/), which adds the key, and parses the answer here. */
 (function (root) {
   "use strict";
   const L = (root.SkyhopLocal = root.SkyhopLocal || {});

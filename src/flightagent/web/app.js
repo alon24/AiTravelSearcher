@@ -80,16 +80,7 @@ const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } },
 };
-async function api(path, opts) {
-  if (SkyhopLocal.backend.enabled()) return SkyhopLocal.backend.handle(path, opts);   // hosted without the server (GitHub Pages)
-  const r = await fetch(path, opts);
-  if (!r.ok) {
-    let msg = r.statusText;
-    try { const j = await r.json(); msg = Array.isArray(j.detail) ? j.detail.map(d => d.msg).join("; ") : j.detail || msg; } catch { /* keep */ }
-    throw new Error(msg);
-  }
-  return r.json();
-}
+function api(path, opts) { return SkyhopLocal.backend.handle(path, opts); }   // /api is answered in the page (local/backend.js)
 const post = (path, body) => api(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
 // Trip length: the form counts nights or days (a 5-night trip spans 6 calendar days); the API always works in nights.
@@ -992,23 +983,27 @@ function airlinePanel(res, q, cur, row) {
 // Flights Google lists but shows no fare for (often airlines that sell only on their own site, e.g. HiSky).
 function nextCheckText(row) {
   const parts = [];
-  if (row.next_check) { const m = Math.round((row.next_check * 1000 - Date.now()) / 60000); parts.push(m <= 0 ? "Next automatic check: any moment" : `Next automatic check in ${m < 90 ? `${m} min` : `${Math.round(m / 60)} h`}`); }
+  if (row.next_check) { const m = Math.round((row.next_check * 1000 - Date.now()) / 60000); parts.push(`${m <= 0 ? "Next automatic check: any moment" : `Next automatic check in ${m < 90 ? `${m} min` : `${Math.round(m / 60)} h`}`}, while this search is open`); }
   if (row.rechecks) parts.push(`checked again ${plural(row.rechecks, "time")}`);
   return parts.join(" · ");
 }
-// Rechecks run on the server on a schedule; refresh what is on screen when one has finished.
+// While a search with unpriced flights is on screen, the page checks them again when the schedule says (polling.js).
+// Nothing runs once the search or the page is closed.
 function watchRecheck(row) {
   clearTimeout(recheckTimer);
-  const wait = Math.max(45000, (row.next_check ? row.next_check * 1000 - Date.now() : 0) + 20000);
+  if (!row.next_check) return;
+  const due = row.next_check * 1000 - Date.now();
   recheckTimer = setTimeout(async () => {
     if (current !== row.id) return;
+    if (row.next_check * 1000 > Date.now()) { watchRecheck(row); return; }      // woke early (timers are capped at 20 min)
     try {
-      const fresh = await api(`/api/searches/${row.id}`);
+      const r = await post(`/api/searches/${row.id}/recheck`, {});
       if (current !== row.id) return;
-      if (fresh.updated !== row.updated) { const gained = (row.result.unpriced || []).length - (fresh.result.unpriced || []).length; renderResult(fresh); if (gained > 0) toast(`${plural(gained, "flight")} now ${gained === 1 ? "has" : "have"} a price`); }
-      else watchRecheck(row);
-    } catch { watchRecheck(row); }
-  }, Math.min(wait, 20 * 60000));
+      const gained = r.changed.before - r.changed.after;
+      renderResult(r.search); refreshHistory();
+      if (gained > 0) toast(`${plural(gained, "flight")} now ${gained === 1 ? "has" : "have"} a price`);
+    } catch { row = { ...row, next_check: Date.now() / 1000 + 60 }; watchRecheck(row); }   // e.g. a manual recheck is running
+  }, Math.max(1000, Math.min(due, 20 * 60000)));
 }
 
 // Browser-extension bridge (browser-extension/): lets a flight row trigger "search + select
@@ -1154,7 +1149,7 @@ function unpricedPanel(res, row) {
   } }, "Recheck now");
   return h("details", { class: "card panel air-panel", open: true },
     h("summary", {}, `Flights listed without a price (${list.length})`, h("span", { class: "hint" }, "Google shows no fare for these")),
-    h("p", { class: "air-help" }, "Google lists these flights but shows no fare (sometimes it shows it a few minutes later, so Skyhop rechecks on a schedule, every 15 minutes for departures within two weeks). They are not included in the prices or rankings above."),
+    h("p", { class: "air-help" }, "Google lists these flights but shows no fare (sometimes it shows it a few minutes later, so while this search is open Skyhop checks again on a schedule, every 15 minutes for departures within two weeks). They are not included in the prices or rankings above."),
     h("div", { class: "air-tools" }, btn, h("span", { class: "unp-status" }, nextCheckText(row))),
     h("div", { class: "air-list" }, list.map(u => h("div", { class: "unp-row" },
       h("span", { class: "unp-date" }, fmtDay(day(u.date))),
@@ -1188,7 +1183,7 @@ function tripCard(t, cur, pax = 1) {
       h("button", { type: "button", class: "btn small accent hub-save", title: "Put these flights on your trip in Travel Hub, next to its hotels and day-by-day map", onclick: () => saveToHub(t.legs.map(l => ({ ...l, currency: resultsQuery.currency }))) }, hubLabel())));
 }
 // ------------------------------------------------------------------ price check by a second source
-/** Looks the trip's flights up again on the other fare source (verify.py). Demo fares have nothing to check against. */
+/** Looks the trip's flights up again on the other fare source (local/verify.js). Demo fares have nothing to check against. */
 function verifyButton(t, titles) {
   if (t.legs.some(l => l.provider === "mock")) return null;
   const btn = h("button", { type: "button", class: "btn small vf-check",
@@ -1212,7 +1207,7 @@ async function checkPrice(t, titles, btn) {
 }
 // ------------------------------------------------------------------ Google's own round trip
 /* Skyhop prices a trip as two one-way tickets, but an airline may sell the same dates as a cheaper return ticket.
-   This opens Google Flights' round-trip search for the trip: the `tfs` query providers/gflights.py builds for one way,
+   This opens Google Flights' round-trip search for the trip: the `tfs` query the Worker builds for one way (worker/src/gflights.js),
    with both legs and trip type 1 (the shape of Google's own links, decoded 2026-10-11). */
 const pbVarint = n => { const out = []; do { let b = n & 0x7f; n >>>= 7; if (n) b |= 0x80; out.push(b); } while (n); return out; };
 const pbInt = (field, v) => [...pbVarint(field << 3), ...pbVarint(v)];
@@ -1466,7 +1461,7 @@ async function init() {
     e.hidden = !extensionAvailable();
     e.classList.toggle("live", deciderUp === true); e.classList.toggle("demo", deciderUp === false);
     e.textContent = `🧠 ${name}${deciderUp === false ? " ✕ not running" : ""}`;
-    e.title = deciderUp === false ? `${name} isn't reachable, so Assist can't find elements on airline pages. ` + (decider() === "laya" ? "Start it with ~/laya-service/start.sh, or click to switch to Jev." : "Check the OpenRouter key on the server, or click to switch to Laya.")
+    e.title = deciderUp === false ? `${name} isn't reachable, so Assist can't find elements on airline pages. ` + (decider() === "laya" ? "Start it with ~/laya-service/start.sh, or click to switch to Jev." : "Check your sign-in and the OpenRouter key on Skyhop's Worker, or click to switch to Laya.")
       : decider() === "jev" ? "Assist uses Jev (hosted, via OpenRouter, billed per call) to find elements on airline pages. Click to switch to the local Laya service."
       : "Assist uses the local Laya service to find elements on airline pages. Click to switch to Jev (hosted, via OpenRouter).";
   });
@@ -1484,16 +1479,11 @@ async function init() {
     announceDecider = false;
   });
   window.addEventListener("focus", () => { if (extensionAvailable() && Date.now() - lastCheck > 10000) checkDecider(false); });
-  async function switchDecider() {
+  function switchDecider() {
     if (window.SkyhopNative) { toast("The app always uses Jev: Laya runs only on a computer"); return; }
     const next = decider() === "jev" ? "laya" : "jev";
-    if (next === "jev" && SkyhopLocal.account.configured()) {       // web version: Jev runs on the Worker
-      if (!SkyhopLocal.account.jevRoute()) { toast("Jev needs you signed in, with an OpenRouter key on Skyhop's Worker"); return; }
-    } else if (next === "jev") {
-      try {
-        const r = await api("/api/decide/health", { headers: { "X-Skyhop": "1" } });
-        if (!r.jev_configured) { toast("Jev needs an OpenRouter key on this server: put OPENROUTER_API_KEY in .env, then run docker compose up -d"); return; }
-      } catch { toast("Couldn't reach this server to check the Jev key"); return; }
+    if (next === "jev" && !SkyhopLocal.account.jevRoute()) {        // Jev runs on Skyhop's Worker, as the signed-in user
+      toast("Jev needs you signed in, with an OpenRouter key on Skyhop's Worker"); return;
     }
     window.dispatchEvent(new CustomEvent("skyhop-set-decider", { detail: { value: next } }));
     deciderUp = null; setTimeout(syncDecider, 300);

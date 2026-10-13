@@ -1,4 +1,4 @@
-/* polling.py in the browser: how long fetched fares stay fresh, and when unpriced flights are worth asking about again. */
+/* How long fetched fares stay fresh, and when unpriced flights are worth asking about again. */
 (function (root) {
   "use strict";
   const L = (root.SkyhopLocal = root.SkyhopLocal || {});

@@ -1,7 +1,7 @@
-/* Free Google Flights fares for the page, like providers/gflights.py does for Docker: the Worker asks Google Flights
+/* Free Google Flights fares for the page: the Worker asks Google Flights
    for one one-way search and hands back the result groups Google embeds in the page; the page parses them
    (web/local/gflights.js). No key and no credits, but Google may refuse or change the page, so the page falls back
-   to SerpApi when this fails. The query is the `tfs` protobuf that providers/gflights.py builds. */
+   to SerpApi when this fails. The query is the `tfs` protobuf of Google's own links. */
 
 import { isCityOnly } from "./airports.js";
 

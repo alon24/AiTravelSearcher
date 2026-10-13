@@ -1,5 +1,5 @@
-/* airline_sites.py in the browser: an airline's official website from Wikidata (free, no key, answers browsers
-   directly), or a plain "not found" -- never a guess. Answers are kept like the server keeps them: a site for 90 days,
+/* An airline's official website from Wikidata (free, no key, answers browsers
+   directly), or a plain "not found" -- never a guess. Answers are kept: a site for 90 days,
    a miss for 3; "couldn't ask right now" is never kept. */
 (function (root) {
   "use strict";

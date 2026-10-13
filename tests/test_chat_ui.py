@@ -10,7 +10,7 @@ import pytest
 pytest.importorskip("playwright.sync_api")
 
 WORKER = "https://worker.test"
-RUNTIME = 'window.SKYHOP_RUNTIME = {"backend": "browser", "workerUrl": "%s", "googleClientId": "client-1"};' % WORKER
+RUNTIME = 'window.SKYHOP_RUNTIME = {"workerUrl": "%s", "googleClientId": "client-1"};' % WORKER
 CORS = {"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "Authorization, Content-Type"}
 ASK = "Rome or Athens for 3 to 5 nights in early November"
 BRIEF = {"title": "Rome or Athens, November", "summary": "One adult from Tel Aviv, 3-5 nights in early November.",
@@ -35,10 +35,9 @@ def brain(body):
 
 
 @pytest.fixture
-def chat(page, base_url):
+def chat(page):
     """The page with a fake model behind its chat; `state["asked"]` holds every request the model got."""
     state = {"asked": [], "drive": []}
-    pages = base_url.endswith("/skyhop")
 
     def model(route):
         if route.request.method == "OPTIONS":
@@ -47,26 +46,22 @@ def chat(page, base_url):
         state["asked"].append(body)
         route.fulfill(status=200, headers=CORS, content_type="application/json", body=json.dumps({"message": brain(body)}))
 
-    if pages:
-        def worker(route):
-            if route.request.method == "OPTIONS":
-                return route.fulfill(status=204, headers=CORS)
-            path = urlparse(route.request.url).path
-            if path == "/chat":
-                return model(route)
-            ok = route.request.headers.get("authorization") == "Bearer tok-1"
-            route.fulfill(status=200, headers=CORS, json={"serpapi": False, "jev": True, "chat": True, "sign_in": True,
-                                                          "user": "ilan@example.com" if ok else None})
-        page.route(f"{WORKER}/**", worker)
-        page.route("**/skyhop/runtime.js", lambda r: r.fulfill(content_type="text/javascript", body=RUNTIME))
-        until = int(time.time() * 1000) + 3_000_000
-        page.evaluate("s => localStorage.setItem('skyhop.google', JSON.stringify(s))",
-                      {"token": "tok-1", "until": until, "email": "ilan@example.com", "scopes": ["openid", "email"]})
-    else:
-        page.route("**/api/chat/complete", model)
+    def worker(route):
+        if route.request.method == "OPTIONS":
+            return route.fulfill(status=204, headers=CORS)
+        path = urlparse(route.request.url).path
+        if path == "/chat":
+            return model(route)
+        ok = route.request.headers.get("authorization") == "Bearer tok-1"
+        route.fulfill(status=200, headers=CORS, json={"serpapi": False, "jev": True, "chat": True, "sign_in": True,
+                                                      "user": "ilan@example.com" if ok else None})
+    page.route(f"{WORKER}/**", worker)
+    page.route("**/skyhop/runtime.js", lambda r: r.fulfill(content_type="text/javascript", body=RUNTIME))
+    until = int(time.time() * 1000) + 3_000_000
+    page.evaluate("s => localStorage.setItem('skyhop.google', JSON.stringify(s))",
+                  {"token": "tok-1", "until": until, "email": "ilan@example.com", "scopes": ["openid", "email"]})
     page.reload()
     page.wait_for_function("typeof readForm === 'function' && !!ac.from")
-    state["pages"] = pages
     return state
 
 
@@ -86,7 +81,6 @@ def _ask_rome(p):
     p.wait_for_selector(".msg.ai:has-text('Cheapest is')", timeout=60000)
 
 
-@pytest.mark.docker
 def test_the_chat_runs_a_search_and_talks_about_it(page, chat):
     _ask_rome(page)
     assert page.locator(".msg.me").inner_text() == ASK
@@ -195,8 +189,6 @@ def test_a_shared_search_link_fills_the_form(page, chat, base_url):
 
 
 def test_on_pages_the_chat_asks_to_sign_in_first(page, chat):
-    if not chat["pages"]:
-        pytest.skip("Pages build only")
     page.evaluate("localStorage.removeItem('skyhop.google')")
     page.reload()
     page.wait_for_function("typeof readForm === 'function' && !!ac.from")
@@ -205,8 +197,6 @@ def test_on_pages_the_chat_asks_to_sign_in_first(page, chat):
 
 
 def test_a_brief_saves_to_google_drive(page, chat):
-    if not chat["pages"]:
-        pytest.skip("Google Drive needs the Pages build's Google sign-in")
     gis = """window.google = { accounts: { oauth2: { initTokenClient: c => ({ requestAccessToken: () => setTimeout(() =>
       c.callback({ access_token: "tok-1", expires_in: 3599, scope: c.scope }), 0) }) } } };"""
     page.route("https://accounts.google.com/gsi/client", lambda r: r.fulfill(content_type="text/javascript", body=gis))
@@ -257,8 +247,6 @@ EXISTING = {"schema": 1, "id": "x", "title": "Portugal", "description": "", "upd
 @pytest.fixture
 def maps(page, chat):
     """Google Drive as MyMaps AI uses it: one existing map; records every call."""
-    if not chat["pages"]:
-        pytest.skip("MyMaps AI maps live in Google Drive: Pages build only")
     calls = []
 
     def drive(route):

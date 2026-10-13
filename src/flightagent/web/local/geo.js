@@ -1,4 +1,4 @@
-/* geo.py in the browser: metro areas, estimated ground-transfer times (typical estimates, NOT measured data) and
+/* Metro areas, estimated ground-transfer times (typical estimates, NOT measured data) and
    airport time zones. The time-zone table (airport_tz.json, ~130 KB) is handed in with setZones() when first needed. */
 (function (root) {
   "use strict";

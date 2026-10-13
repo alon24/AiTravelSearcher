@@ -1,4 +1,4 @@
-// Google Flights rejects IATA city codes but accepts comma-separated airports (providers/airports.py).
+// Google Flights rejects IATA city codes but accepts comma-separated airports (the same groups as city_airports in src/flightagent/data/config.json).
 export const CITY_AIRPORTS = {
   ROM: "FCO,CIA", LON: "LHR,LGW,STN,LTN,LCY", PAR: "CDG,ORY,BVA", NYC: "JFK,EWR,LGA",
   MIL: "MXP,LIN,BGY", BER: "BER", STO: "ARN,BMA,NYO", MOW: "SVO,DME,VKO",

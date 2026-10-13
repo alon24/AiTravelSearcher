@@ -1,6 +1,6 @@
 name: Test and deploy to Pages
 
-# Every push runs the tests; a push to main also publishes the server-less build (tools/build_pages.py) to GitHub Pages
+# Every push runs the tests; a push to main also publishes the site (tools/build_pages.py) to GitHub Pages
 # and, once a Cloudflare token is set, deploys the Worker that holds the API keys (worker/README.md).
 # One-time setup: Settings -> Pages -> Source: GitHub Actions. Real fares: see worker/README.md.
 on:
@@ -27,15 +27,16 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: pyproject.toml
+          cache-dependency-path: requirements-dev.txt
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: pip install -e '.[dev,verify]'
+      - run: pip install -r requirements-dev.txt
       - run: python -m playwright install --with-deps chromium
       - run: pytest -q -rs -n auto           # tests run in parallel; each worker starts its own servers
       - run: node src/flightagent/web/airport-search.test.js
       - run: node src/flightagent/web/hub.test.js
+      - run: node --test tests/js/          # the in-page engine (web/local/*.js)
 
   build:
     needs: [test, deploy-worker]
@@ -46,9 +47,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: pyproject.toml
-      - run: pip install -e .
       - run: python tools/build_pages.py _site
         env:     # empty until the Worker is set up: the site then offers demo fares only
           SKYHOP_WORKER_URL: ${{ vars.SKYHOP_WORKER_URL || needs.deploy-worker.outputs.url }}

@@ -1,7 +1,7 @@
-/* providers/gflights.py in the browser: free Google Flights fares. A page can't read Google Flights itself (other
+/* Free Google Flights fares. A page can't read Google Flights itself (other
    origin), so Skyhop's Cloudflare Worker fetches the page and returns Google's result groups (worker/src/gflights.js);
-   they are parsed here exactly as the Python provider does. Google may refuse the Worker, so backend.js puts SerpApi
-   behind it (fallback()), as FLIGHTAGENT_PROVIDER=gflights,serpapi does on the server. */
+   they are parsed here. Google may refuse the Worker, so backend.js puts SerpApi
+   behind it (fallback()). */
 (function (root) {
   "use strict";
   const L = (root.SkyhopLocal = root.SkyhopLocal || {});
@@ -53,7 +53,7 @@
         return parse(r.groups, origin, dest, currency, r.url, r.usual);
       };
       let offers = await once();
-      // Google sometimes omits a fare it shows on the next request: ask again for unpriced flights (as gflights.py).
+      // Google sometimes omits a fare it shows on the next request: ask again for unpriced flights 
       for (let i = 0; i < retryUnpriced && !offers.every(o => o.priced); i++) { await wait(1000); offers = merge(offers, await once()); }
       offers.fetched_at = fetchedAt;
       return offers;

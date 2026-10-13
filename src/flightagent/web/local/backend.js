@@ -1,6 +1,5 @@
-/* The server's /api routes, answered inside the browser: used when the page is hosted without the Python service
-   (GitHub Pages, see tools/build_pages.py). app.js's api() hands every request here when runtime.js says
-   backend: "browser". Each handler mirrors its route in api.py and returns the same JSON. */
+/* Skyhop's /api, answered inside the browser: app.js's api() hands every request here. Real fares, sign-in and the
+   AI come from Skyhop's Cloudflare Worker (worker/); without it, demo fares. */
 (function (root) {
   "use strict";
   const L = (root.SkyhopLocal = root.SkyhopLocal || {});
@@ -105,7 +104,7 @@
     return { id };
   }
 
-  /** Stop a running search (api.py cancel_search). */
+  /** Stop a running search. */
   async function cancelSearch({ m }) {
     const eng = jobs.get(m[1]);
     if (!eng) fail("this search isn't running");
@@ -184,7 +183,7 @@
     return L.itinerary.analyse(body.legs, body.currency || "USD");
   }
 
-  /** api.py roundtrip: Google's cheapest return ticket for the trip's dates, through the Worker's free /gflights. */
+  /** Google's cheapest return ticket for the trip's dates, through the Worker's free /gflights. */
   async function roundTrip({ body }) {
     const a = L.account;
     if (!(a && a.live() && a.has("gflights"))) fail("round-trip prices come from Google Flights: sign in for real fares");
@@ -197,7 +196,7 @@
     return { price: prices.length ? Math.min(...prices) : null, flights: r.groups.length, url: r.url };
   }
 
-  /** api.py verify: the trip's flights looked up again on the other fare source the Worker has (verify.js). */
+  /** The trip's flights looked up again on the other fare source the Worker has (verify.js). */
   async function verifyTrip({ body }) {
     const a = L.account, legs = body.legs || [];
     const available = a && a.live() ? ["gflights", "serpapi"].filter(n => a.has(n)) : [];
@@ -228,13 +227,13 @@
       if (!r.ok) throw new Error(`frankfurter.dev answered ${r.status}`);
       const j = await r.json();
       return { base: "USD", rates: { USD: 1.0, ...j.rates }, date: j.date || null, source: "ECB via frankfurter.dev" };
-    } catch (e) {     // as api.py: no guessed rates, the page keeps prices as searched
+    } catch (e) {     // no guessed rates, the page keeps prices as searched
       return { base: "USD", rates: {}, date: null, source: null, error: `live exchange rates unavailable: ${e.message}` };
     }
   }
 
   /** country -> [[iata, name, rank]], rank 1 = well-known; only airports with scheduled flights when the country has
-      any, and city groups (rank 2) left out, as in geo.py. */
+      any, and city groups (rank 2) left out. */
   async function byCountry() {
     const out = new Map();
     for (const [iata, , name, country, rank, , service] of await loadAirports()) {
@@ -249,7 +248,7 @@
     return [...(await byCountry())].map(([name, a]) => ({ name, airports: a.length })).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   }
 
-  /** Which airlines fly between the origin and a country's airports (or the given airports)? See explore.py. */
+  /** Which airlines fly between the origin and a country's airports (or the given airports)? */
   async function explore({ body }) {
     const M = L.models, started = Date.now();
     let airports = (body.airports || []).map(a => a.trim().toUpperCase()).filter(Boolean), trimmed = false;
@@ -308,8 +307,6 @@
       currency: req.currency, api_calls: eng.apiCalls, cache_hits: eng.cacheHits, elapsed_s: Math.round((Date.now() - started) / 100) / 10 };
   }
 
-  const enabled = () => !!(root.SKYHOP_RUNTIME && root.SKYHOP_RUNTIME.backend === "browser");
-
-  L.backend = { setup, handle, enabled, HttpError };
+  L.backend = { setup, handle, HttpError };
   if (typeof module !== "undefined" && module.exports) module.exports = L.backend;
 })(typeof window !== "undefined" ? window : globalThis);

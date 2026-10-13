@@ -1,16 +1,15 @@
 # Skyhop Worker
 
-A small Cloudflare Worker that holds Skyhop's API keys when Skyhop runs on GitHub Pages. The page itself is static, so
-it cannot keep a secret. Instead, it signs you in with Google and asks this Worker, which adds the key and calls the
-service for it. The Docker version doesn't need the Worker, because its Python service holds the keys in `.env`.
+A small Cloudflare Worker that holds Skyhop's API keys. Skyhop is a static page on GitHub Pages, so it cannot keep a
+secret. Instead, it signs you in with Google and asks this Worker, which adds the key and calls the service for it.
 
 | Route | What it does |
 |---|---|
 | `GET /health` | Shows which keys are set and whether your Google sign-in is accepted. It is open to everyone. |
 | `GET /gflights?origin=TLV&dest=FCO&date=2026-11-02&currency=USD&adults=1&max_stops=1` | Runs one one-way lookup straight from Google Flights. It's free and needs no key, but Google may refuse it, so the page then asks `/serpapi`. |
 | `GET /serpapi?origin=TLV&dest=ROM&date=2026-11-02&currency=USD&adults=1&max_stops=1` | Runs one one-way Google Flights lookup through SerpApi, costing one credit. |
-| `POST /decide` | Asks Jev (via OpenRouter) for a typed decision, like the Python service's `/api/decide`. The Airline Assist extension uses it on the web version. |
-| `POST /chat` | Runs one model turn for the in-app AI chat, like the Python service's `/api/chat/complete`. The model is the `CHAT_MODEL` variable. |
+| `POST /decide` | Asks Jev (via OpenRouter) for a typed decision. The Airline Assist extension uses it. |
+| `POST /chat` | Runs one model turn for the in-app AI chat (`web/chat.js`). The model is the `CHAT_MODEL` variable. |
 | `GET /links`, `POST /links` | Airline search links the desktop extension learned, so phones can open the airline's own results page. Anyone signed in reads them; only allowed accounts add them (`src/links.js`). |
 | `POST /trips`, `GET /trips/:id?since=N`, `POST /trips/:id/messages`, `PATCH /trips/:id` | Shared trips: a group chat per trip, stored in a Durable Object (`src/trips.js`). |
 

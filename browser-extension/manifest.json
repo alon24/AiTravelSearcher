@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Skyhop Airline Assist",
-  "version": "0.8.2",
+  "version": "0.9.0",
   "description": "From a Skyhop flight result, open the airline's own site in a new tab with that flight already selected, so you can finish booking it yourself.",
   "permissions": [
     "scripting",
@@ -77,7 +77,6 @@
     "https://*.vueling.com/*",
     "https://*.wizzair.com/*",
     "http://127.0.0.1:8799/*",
-    "http://127.0.0.1:8765/*",
     "https://*.workers.dev/*"
   ],
   "action": {
@@ -89,8 +88,6 @@
   "content_scripts": [
     {
       "matches": [
-        "http://localhost:8765/*",
-        "http://127.0.0.1:8765/*",
         "https://alon24.github.io/AiTravelSearcher/*"
       ],
       "js": [

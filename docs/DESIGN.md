@@ -1,14 +1,41 @@
 # Skyhop / Flight Agent: Design
 
-Status: implemented except section 8 (price verification), which is a proposal.
+Status: implemented. Section 8 is built on demand; its automatic checks remain a proposal.
 Audience: a maintainer, a reviewer, or anyone plugging in a **third-party flight-data provider**.
+
+## 2026-10-13: one version
+
+The Docker / Python server was retired on 2026-10-13. Skyhop is now one thing: the live site
+(https://alon24.github.io/AiTravelSearcher/, GitHub Pages) plus the Cloudflare Worker in `worker/`.
+
+Why: the engine existed twice, in Python and in JavaScript, kept equal by parity tests, and every UI test ran twice
+(against the server and against the Pages build). Every engine change had to be written and tested in both languages.
+Meanwhile everyone used the live site and the Android app, not the local server.
+
+What replaced each piece:
+| Retired | Now |
+|---|---|
+| `api.py` (FastAPI, `localhost:8765`) | `web/local/backend.js` answers the same `/api` routes inside the page |
+| `engine.py`, `models.py`, `itinerary.py`, `geo.py`, `polling.py`, `verify.py`, `airline_sites.py` | `web/local/engine.js`, `models.js`, `itinerary.js`, `geo.js`, `polling.js`, `verify.js`, `sites.js` |
+| `providers/gflights.py`, `serpapi.py`, `mock.py` | `web/local/gflights.js` and `serpapi.js` (fetched through the Worker's `/gflights` and `/serpapi`), `mock.js` |
+| `cache.py`, `history.py` (SQLite in a Docker volume) | IndexedDB in the browser (`web/local/db.js`) |
+| `chat.py` (`POST /api/chat`, `flightagent-chat`), `decide.py` (`/api/decide`) | `web/chat.js` with the Worker's `POST /chat`; Jev through the Worker's `POST /decide` |
+| `links.py`, `providers/airports.py` | `src/flightagent/data/config.json` (airline sites, search links, bag notes, city airports) |
+| `.env`, `FLIGHTAGENT_*` variables | `SKYHOP_*` build variables and the Worker's secrets and variables |
+| `explore.py` (airline finder) | `explore()` in `backend.js` (`POST /api/explore`) |
+| `cli.py`, `simple.py`, `report.py` (CLI, `/search/simple`, text reports) | none |
+| Dockerfile, `docker-compose.yml`, `tools/install.sh`, `docs/INSTALL.md`, `pyproject.toml` | `tools/build_pages.py`; tests need only `requirements-dev.txt` |
+| `tests/test_browser_parity.py` and the second UI test run | `tests/js/` (the engine in Node) and one Playwright run against the built site |
+
+The Chrome extension (v0.9.0) attaches only to the live site, and the Android app loads it. All of the retired code is
+in git history, so it can come back. Sections below that describe the server keep their measured facts as history.
 
 ## 1. Goal
 
 Given an origin, one or more destinations, a date window and a trip length, find the cheapest
 (and best value) trips. The engine supports round trips, open-jaw, multi-stop between destinations,
-mixed airlines, self-transfer connections and layover/duration limits. Output is JSON for machines and a
-readable report or web UI for people.
+mixed airlines, self-transfer connections and layover/duration limits. Output is the web UI, fed by JSON from the
+`/api` routes the page answers itself.
 
 Non-goals: booking, payment, fare rules, baggage pricing, seat selection.
 
@@ -16,47 +43,50 @@ Non-goals: booking, payment, fare rules, baggage pricing, seat selection.
 
 ```mermaid
 flowchart LR
-    Browser["Browser UI"] --> API["FastAPI (api.py)"]
-    Chat["Chat (chat.py)\nCLI or POST /api/chat"] --> Simple["simple.py\n/search/simple"]
-    Simple --> API
-    CLI["CLI"] --> API
-    API --> Engine["Engine"]
-    API --> History[("History\nSQLite, past searches + results")]
-    Engine --> Cache[("OfferCache\nSQLite, per one-way lookup")]
-    Engine --> Gflights["gflights\n(free scrape of Google Flights)"]
-    Engine --> Serpapi["serpapi\n(Google Flights via SerpApi, paid quota)"]
-    Engine --> Mock["mock\n(deterministic fake data)"]
+    UI["Web UI (web/*.js)"] --> Backend["/api in the page\n(local/backend.js)"]
+    Chat["Ask Skyhop (chat.js)"] --> Backend
+    Backend --> Engine["Engine (local/engine.js)"]
+    Backend --> History[("Past searches\nIndexedDB (local/db.js)")]
+    Engine --> Cache[("Offer cache\nIndexedDB, per one-way lookup")]
+    Engine --> Gflights["local/gflights.js"]
+    Engine --> Serpapi["local/serpapi.js"]
+    Engine --> Mock["local/mock.js\n(demo fares)"]
+    Gflights --> Worker["Cloudflare Worker (worker/)"]
+    Serpapi --> Worker
+    Backend -->|"/chat"| Worker
+    Worker --> Google["Google Flights (free)"]
+    Worker --> SerpApi["SerpApi (paid quota)"]
+    Worker --> OpenRouter["OpenRouter (chat, Jev)"]
 ```
 
-- **One Python service** (`src/flightagent/`), one Docker container. The web UI is static files served by
-  the same service (`web/`, no build step).
-- **The natural-language chat is built in, not a separate app** (`chat.py`, `POST /api/chat` or the
-  `flightagent-chat` CLI): one call to a chat model turns a sentence into search parameters (the same flat
-  shape `simple.py`'s `SimpleSearch` already defined for `/search/simple`), then the same deterministic
-  Python does the actual search. There used to be an n8n workflow doing this externally
-  (`n8n/flight-agent-chat.json`, Chat Trigger → AI Agent → HTTP tool → `POST /search/simple`); it has been
-  removed in favour of this, and the service no longer depends on an external `n8n_default` Docker network.
+- **One static site plus one Worker.** The web UI is plain files (`src/flightagent/web/`, no build step) on GitHub
+  Pages. `app.js`'s `api()` hands every `/api` request to `local/backend.js`, which runs the engine in the page. The
+  Worker holds the keys (SerpApi, OpenRouter), checks the Google sign-in and fetches Google Flights for the page.
+- **The natural-language chat is built in** (`web/chat.js`): the conversation and its search tool run in the page;
+  only the model call goes to the Worker's `POST /chat`. (The n8n workflow, and later the server's `chat.py`, did this
+  before; both are gone.)
 - **Everything is composed from one-way lookups**: `(origin, destination, day) -> offers`. Round trips,
   open-jaw, mixed airlines and self-transfer are built by combining one-way offers. That is why any
   provider that can price a one-way flight can be plugged in.
 
 ### Hosting on GitHub Pages (Oct 2026)
 
-The goal is to run Skyhop like `alon24/mymaps-ai`: static files on GitHub Pages, a small Cloudflare Worker for the
-secrets, nothing on the user's machine. Stages, each its own PR, with the Docker service working throughout:
+The goal was to run Skyhop like `alon24/mymaps-ai`: static files on GitHub Pages, a small Cloudflare Worker for the
+secrets, nothing on the user's machine. It was built in stages, each its own PR, with the Docker service working
+throughout; on 2026-10-13 the Docker service was retired (see "2026-10-13: one version").
 
-1. **The engine runs in the page (this stage).** `web/local/*.js` is a line-for-line port of `engine.py`, `models.py`,
-   `itinerary.py`, `geo.py`, `polling.py`, `airline_sites.py` and the mock provider, plus `backend.js`, which answers the
-   same `/api` routes as `api.py` inside the page. `app.js`'s `api()` hands requests to it when `runtime.js` says
-   `backend: "browser"`; `tools/build_pages.py` writes that `runtime.js` and the data the server would send
-   (`config.json` from `links.py`, `local/airport_tz.json`). History, the offer cache and airline-site answers live in
-   IndexedDB (`local/db.js`). Airline websites come straight from Wikidata, which answers browsers. Fares are the mock
-   provider's, number for number (`local/rng.js` reproduces Python's Mersenne Twister and seeding).
-   - Kept honest by `tests/test_browser_parity.py` (Python and JS run the same searches, connection checks, request
-     validation and site choice; results must be identical) and by running **every UI test twice**, against the
-     server and against the Pages build served under a sub-path (`conftest.py`).
-   - Not in the browser: the background recheck loop (a recheck runs when the user asks), chat, Jev. A search still
-     running when the tab closes is marked failed on the next visit.
+1. **The engine runs in the page.** `web/local/*.js` started as a line-for-line port of the Python engine, models,
+   itinerary, geo, polling, airline-site and mock code, plus `backend.js`, which answers the `/api` routes inside the
+   page. `tools/build_pages.py` copies `web/` and writes `runtime.js` (the Worker URL and Google client id) and the data
+   files (`config.json` from `data/config.json`, `local/airport_tz.json`). History, the offer cache and airline-site
+   answers live in IndexedDB (`local/db.js`). Airline websites come straight from Wikidata, which answers browsers.
+   Demo fares come from `local/mock.js` (`local/rng.js` reproduces Python's Mersenne Twister, so they still match the
+   old server's demo fares number for number).
+   - Until 2026-10-13 `tests/test_browser_parity.py` ran the same searches in Python and JS and every UI test ran
+     twice. Now the engine is tested in Node (`tests/js/`) and the UI once, against the Pages build served under a
+     sub-path (`conftest.py`).
+   - Scheduled rechecks of unpriced flights run in the page, only while that search is open (`watchRecheck` in
+     `app.js`). A search still running when the tab closes is marked failed on the next visit.
 2. **Worker (`worker/`):** a Cloudflare Worker holds the SerpApi and OpenRouter keys. Sign-in works like mymaps-ai:
    - The page gets a Google access token (Google Identity Services token client, scope `openid email profile drive.file`,
      `local/account.js`) and sends it as a Bearer header.
@@ -69,20 +99,20 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
      three ask for the same scopes, `drive.file` included, so any app's token opens MyMaps AI's maps and Skyhop's
      Save to Drive needs no second popup. Signing out, or the Worker refusing the token, removes the shared copy of that
      same token (it is revoked or dead); the hub's Log out also clears Skyhop's and MyMaps AI's copies.
-   - Signed in, `backend.js` swaps the mock provider for real fares, in the server's default order
-     (`gflights,serpapi`): `local/gflights.js` first, `local/serpapi.js` when that lookup fails (`fallback()`, as
-     `FallbackProvider`). The badge says LIVE.
+   - Signed in with an allowed account (or as a guest inside a shared trip), `backend.js` swaps the mock provider for
+     real fares: `local/gflights.js` first, `local/serpapi.js` when that lookup fails (`fallback()`), or only the one
+     the Worker has. The badge says LIVE.
    - **Nothing silent (ilan, 2026-10-10: "this is money").** A lookup answered by the backup carries why
-     (`Offers.fallback`, both engines), and the results warn "N lookup(s) used the backup provider; first: gflights
+     (`Offers.fallback`), and the results warn "N lookup(s) used the backup provider; first: gflights
      failed (…), so serpapi answered". When both fail, the error names both reasons. The estimate says SerpApi credits
      may be spent when Google refuses. The Worker's catch-all error names the failure.
-   - **Free fares (`GET /gflights`, `worker/src/gflights.js`).** The Worker builds the same `tfs` query as `gflights.tfs`
-     (byte for byte, tested from pytest), fetches the Google Flights page with a browser User-Agent and a consent cookie,
-     and returns the `ds:1` result groups. The page parses them like `gflights.parse_groups` (parity-tested) and asks
-     again for flights listed without a fare, as `gflights.py` does. A robot check or cookie wall is a 502 that names
+   - **Free fares (`GET /gflights`, `worker/src/gflights.js`).** The Worker builds Google's `tfs` query (byte for byte
+     the Python scraper's, while that existed), fetches the Google Flights page with a browser User-Agent and a consent
+     cookie, and returns the `ds:1` result groups. `local/gflights.js` parses them (tested on the captured fixture in
+     `tests/js/providers.test.js`) and asks again, twice, 1 s apart, for flights listed without a fare. A robot check or cookie wall is a 502 that names
      it, and the fallback answers from SerpApi. Whether Google answers Cloudflare's addresses isn't measured yet
      (2026-10-10); the GitHub Actions probe got 10/10 answers from a cloud address on 2026-10-09.
-   - **SerpApi (`GET /serpapi`).** Parsed exactly like `SerpApiProvider.parse` (parity-tested); one credit a lookup.
+   - **SerpApi (`GET /serpapi`).** Parsed by `local/serpapi.js`; one credit a lookup.
    - Offer-cache keys include the provider, so demo and real fares never mix.
    - **Shared fare cache (Oct 2026, `worker/src/farecache.js`).** `/gflights` and `/serpapi` answers are kept in
      Cloudflare's edge cache, keyed by the sorted query, so the same route and day costs one lookup for everyone:
@@ -90,23 +120,24 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
      no Google answer with an unpriced flight, since the page asks again for those). Every answer carries `fetched_at`;
      the page keeps it as the offer-cache time, so "Flight data from 2h ago" stays true. A hit still needs a signed-in
      caller but spends nothing from a guest's trip allowance. `worker/tools/probe.js` runs the Worker's scraper daily
-     (`gflights-probe.yml`, with the Python one) and opens a "gflights broken" issue when either fails.
+     (`gflights-probe.yml`) and opens a "gflights broken" issue when either fails.
    - The token is kept in localStorage until it expires (about 1 h), so a reload or a phone doesn't ask again. A 401
      from the Worker signs the page out and says so. A `/health` that can't be reached is not a verdict on the token:
      the sign-in is kept and the page says "Couldn't reach Skyhop's server: <reason>" (before Oct 2026 it silently
      signed out).
    - **Jev for the extension.** On the web version the page hands the Airline Assist extension its Worker URL and
      Google token (`skyhop-jev-route` event, `content-bridge.js`), which `background.js` keeps in session storage until
-     the token expires and uses for `POST /decide`. Without it, Jev goes to the local server as before. Jev is the
-     default there until Laya is picked, since a phone or a laptop without Docker has no Laya.
+     the token expires and uses for `POST /decide`. Since extension v0.9.0 there is no local server to fall back to:
+     without that sign-in (an allowed account) Jev is unavailable and the badge says so. Jev is the default when it is
+     available, until Laya (a separate local service on `127.0.0.1:8799`) is picked.
    - CI (`pages.yml`) bakes `SKYHOP_WORKER_URL` and `SKYHOP_GOOGLE_CLIENT_ID` (GitHub variables) into `runtime.js`.
      When the `CLOUDFLARE_API_TOKEN` secret exists, it also deploys the Worker. Setup steps are in `worker/README.md`.
 3. **Ask Skyhop, the AI chat (`web/chat.js`).**
    - **Where things run.** The conversation and its one tool run in the page. Only the model call leaves it, through
-     `POST /api/chat/complete` (`chat.complete`, server) or the Worker's `POST /chat` (Pages). Both add the key, fix
-     the model and bound a call: at most 80 messages, 80k characters, 4 tools and 800 output tokens.
+     the Worker's `POST /chat` (`backend.js` routes the page's `/api/chat/complete` there). It adds the key, fixes the
+     model (`CHAT_MODEL`) and bounds a call: at most 80 messages, 80k characters, 4 tools and 800 output tokens.
    - **The user decides** (ilan, 2026-10-11, after the model argued three times that Denmark isn't warm in November).
-     The system prompt (here and in `chat.py`) says: search the place they name; the latest wish beats an earlier one
+     The system prompt (`chat.js`) says: search the place they name; the latest wish beats an earlier one
      and a clash gets a few words, never a question; answer in the user's language.
    - **The `search_flights` tool.** It takes `SearchRequest` fields. It validates them with the JS port of the
      request model, estimates, and runs the search through the normal `/api/searches` route, so the form fills in and
@@ -155,7 +186,7 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
    browsers, so there is no Assist there. Instead:
    - **Search links.** When an airline's results page is a known link, the button reads **Search on <airline> site**
      and opens that page for the leg's route and day; the flight is copied for reference. Links come from the
-     registry's verified templates (`links.AIRLINE_SEARCH_URLS`, kept equal to `airlines.json` by a test; Wizz Air
+     registry's verified templates (`airline_search_urls` in `data/config.json`, kept equal to `airlines.json` by a test; Wizz Air
      only, 2026-10-10) and from templates the desktop extension learned, which it posts to the Worker's `/links`
      (`worker/src/links.js`, one Durable Object, allowed accounts write, anyone signed in reads).
    - **Otherwise** **Check on <airline> site** opens the airline's own website (looked up when Skyhop doesn't know it)
@@ -200,9 +231,9 @@ secrets, nothing on the user's machine. Stages, each its own PR, with the Docker
 
 The port found a real bug: Python subtracts two times of the *same* zone as wall-clock times, so a connection across a
 clock change (land FCO 01:00, leave CIA 03:00 on the night Rome springs forward) was reported as 2 h instead of 1 h.
-`itinerary._gap` now converts to UTC first.
+Both engines were fixed to convert to UTC first; `local/itinerary.js` still does.
 
-## 3. Data model (`models.py`)
+## 3. Data model (`web/local/models.js`)
 
 | Type | Meaning |
 |---|---|
@@ -216,16 +247,16 @@ clock change (land FCO 01:00, leave CIA 03:00 on the night Rome springs forward)
 Time rules: segment times are **local** to each airport (naive datetimes). Durations use the provider's
 real flying minutes plus layovers, because subtracting local times is wrong across time zones.
 
-## 4. Search algorithm (`engine.py`)
+## 4. Search algorithm (`web/local/engine.js`)
 
 1. **Plan shapes.** For every (depart, return) pair in the window with `min..max` nights:
    round trip to each destination, open-jaw (each destination x each of destinations + `return_airports`),
    and with `connect_destinations` multi-stop `O→D1→D2→O` for every night split.
 2. **Collect required lookups.** The set of distinct `(origin, dest, day)` keys. With self-transfer,
    add `(O,H,day)`, `(H,D,day)`, `(H,D,day+1)` for each hub `H`.
-3. **Budget and estimate.** Uncached lookups above `max_api_calls` raise `BudgetExceeded` before any call.
+3. **Budget and estimate.** Uncached lookups above `max_api_calls` throw `BudgetExceeded` before any call.
    `estimate()` returns `{lookups, cached, to_fetch}`.
-4. **Fetch.** Concurrently (semaphore 8), through the cache. A failing lookup becomes a warning; if every
+4. **Fetch.** Concurrently (8 at a time), through the cache. A failing lookup becomes a warning; if every
    lookup fails the search fails. Empty results are **not cached**.
 5. **Per-leg options.** Build self-transfer bundles (gap >= `max(buffer, min_layover)` and <= `max_layover`),
    then filter: stops, every layover within `[min, max]`, total time <= cap. Keep the 6 best per leg by leg cost.
@@ -237,21 +268,19 @@ real flying minutes plus layovers, because subtracting local times is wrong acro
 Warnings are attached to trips: self-transfer (separate tickets, baggage, no protection), layover >= 8 h,
 open-jaw ground transport, different airlines out/back.
 
-## 5. Provider contract (`providers/base.py`)
+## 5. Provider contract (`web/local/engine.js`)
 
-```python
-class FlightProvider(Protocol):
-    name: str
-    async def one_way(self, origin: str, dest: str, day: date, *,
-                      currency: str, adults: int, max_stops: int,
-                      children: int = 0, infants: int = 0) -> list[Offer]: ...
+```js
+// A provider is { name, oneWay }:
+async function oneWay(origin, dest, day, { currency, adults, maxStops, children = 0, infants = 0,
+                                           carryOnBags = 0, checkedBags = 0 }) { /* -> Offer[] */ }
 ```
 
 A provider **must**:
 
 1. Return every itinerary the source shows for that route and day, not only "top" ones. (The `fast-flights`
    library silently dropped Google's "best flights" block, which contained the cheapest fares.)
-2. Return `[]` when the source says there are no flights, and **raise** on anything else (blocked, timeout,
+2. Return `[]` when the source says there are no flights, and **throw** on anything else (blocked, timeout,
    quota, layout change, bad credentials). The engine treats an exception as "unknown", not "none".
    Never return `[]` for an error: it hides failures and would be treated as a real answer.
 3. Fill `Segment.duration_min` with real flying minutes when the source has it.
@@ -260,8 +289,9 @@ A provider **must**:
 5. Use local departure/arrival times and IATA airport codes in segments.
 6. Honour `max_stops` (0 to 3) or tolerate the engine filtering afterwards. The engine re-filters anyway.
 7. Cope with **city codes** (`ROM`, `LON`, `PAR`, `NYC`). Either accept them (gflights) or expand them to
-   airports (`providers/airports.py`, used by serpapi).
-8. Be safe under concurrency: bound its own request rate (gflights: 3 in flight plus a 0.2-0.7 s jitter).
+   airports (`city_airports` in `data/config.json`).
+8. Be safe under concurrency: the engine runs 8 lookups at a time, so a source with a rate limit bounds its own.
+   (The retired Python scraper kept 3 in flight plus a 0.2-0.7 s jitter.)
 9. Put a link to the source's page for that search in `deep_links`, so a fare can be checked where it came from.
    gflights links the exact `tfs` URL it fetched (passengers, bags, stops and currency included); the Worker returns
    it as `url` next to the groups.
@@ -281,19 +311,20 @@ airlines. A round-trip search lists outbound flights priced as the **whole round
 cheapest one-way out); return flights appear only after one is picked, so Skyhop links to that search
 (`googleRoundTripUrl` in app.js) instead of scraping it. Its first page is still enough for one number: the lowest
 price on it is the cheapest return ticket on those dates (any flights). **Check round-trip price** on a there-and-back
-trip asks for it on demand (`POST /api/roundtrip`: `GoogleFlightsScraper.round_trip`, or the Worker's `/gflights` with
-`return_date` on Pages; free, no SerpApi) and says whether it beats the two one-ways, with the link to that Google page.
+trip asks for it on demand (`POST /api/roundtrip` in `backend.js`: the Worker's `/gflights` with `return_date`; free, no
+SerpApi) and says whether it beats the two one-ways, with the link to that Google page.
 Without Google Flights in the chain (mock, SerpApi only) it says so instead. The daily probe fetches one round trip.
 
-Composition: `FallbackProvider(primary, backup)` uses the backup only when the primary **raises**.
-`FLIGHTAGENT_PROVIDER=gflights,serpapi` builds that chain. Results carry `.source` so reports show which provider
-served each lookup.
+Composition: `L.gflights.fallback(primary, backup)` uses the backup only when the primary **throws**. `backend.js`
+builds that chain (gflights, then serpapi) when the user is signed in. Results carry `sources` (provider -> lookups) so
+the page shows which provider served each lookup.
 
 ### Adding a provider (checklist)
-1. `providers/<name>.py` implementing `one_way`; keep the network code and the pure parser separate.
+1. `web/local/<name>.js` implementing `oneWay`; keep the network code and the pure parser separate. A source that
+   needs a key gets a Worker route that adds it; the page never holds a key.
 2. Save a **real captured response** under `tests/fixtures/` and unit-test the parser (see
-   `test_gflights_parses_best_and_other_groups`).
-3. Register it in `providers/__init__.py::_one`.
+   `tests/js/providers.test.js`).
+3. Choose it in `provider()` in `backend.js`, and load the file in `index.html`.
 4. Compare against an existing provider on the same routes and dates (section 8) before trusting it.
 5. Add rate limits, a timeout, and an error message that names the route and day.
 
@@ -312,30 +343,31 @@ served each lookup.
   infant (fare equals the adult-only fare) and 4 an infant with its own seat, so the scraper sends raw values.
   With a lap infant Google returned about half as many itineraries: airlines that do not carry infants are hidden.
 - Google lists some flights **without a price**; the parser skips them (a crash here once forced whole route-days onto the paid fallback).
-- The cache key is versioned (`v2|`) so a provider-semantics change never serves stale prices.
+- The cache key is versioned (`v4|` in `engine.js`) so a provider-semantics change never serves stale prices.
 
 ### Unpriced flights, rechecks and the cache (measured, Sept 2026)
 - Google lists some flights **without a fare**. It is intermittent: HiSky (H4236, TLV-OTP) was priced on 8 of 8 fetches,
   then on 0 of 12 half an hour later, and it showed the fare in a real browser. Euroairlines is unpriced every time
   (Google shows "Price unavailable"). So the parser **keeps** unpriced flights (`Offer.priced=False`): they are never
   ranked or counted as fares, but they are listed (results panel, trip builder, report) and counted as "flies here".
-- **Cache lifetime is per entry** (`polling.py`): results with unpriced flights expire after 15 min when the flight is
+- **Cache lifetime is per entry** (`local/polling.js`): results with unpriced flights expire after 15 min when the flight is
   within 14 days, 1 h to 60 days, 3 h beyond; priced fares expire after 1 h within 2 days and 3 h within 14 days.
   `refresh_unpriced` makes a search ignore cached "no price" entries.
-- **Recheck**: `POST /api/searches/{id}/recheck`, plus a background loop (every minute) that re-runs searches whose
-  `next_check` is due, on the schedule above, backing off x2 after 4 fruitless rechecks (cap 6 h) and stopping when the
-  flight has departed. `FLIGHTAGENT_RECHECK=0` disables the loop.
-- **Last seen fare**: the cache remembers the last price per flight (`fares` table), so a flight Google later shows
+- **Recheck**: `POST /api/searches/{id}/recheck`, when the user asks, or by the page when the search's `next_check` is
+  due while that search is open (2026-10-13; the page says "while this search is open"). `next_check` follows the
+  schedule above, backing off after 4 fruitless rechecks (cap 6 h). The server's background loop, which also checked
+  closed searches, was retired with the server.
+- **Last seen fare**: the cache remembers the last price per flight (the `fares` store in `local/db.js`), so a flight Google later shows
   without a price is listed as "last seen ₪505, 2h ago" (may be out of date).
-- The scraper asks again (twice, 1 s apart) when it sees an unpriced flight. That rarely helps, since the fare comes
+- The page asks the Worker again (twice, 1 s apart) when it sees an unpriced flight. That rarely helps, since the fare comes
   back minutes later, which is what the scheduled recheck is for.
 
 ### Airline finder, trip builder, airline filters
 - `POST /api/explore`: which airlines fly between an origin and a country's airports (or listed airports). One date for
   every airport, then 2 more dates only for airports with flights. Per airline: airports served, nonstop or not, cheapest fare.
-- Trip builder (`web/builder.js`, `GET /api/flights`, `POST /api/itinerary/check`): hand-built legs; `itinerary.py`
+- Trip builder (`web/builder.js`, `GET /api/flights`, `POST /api/itinerary/check`): hand-built legs; `local/itinerary.js`
   computes gaps with airport time zones, flags tight or impossible connections, and mentions the estimated ground transfer
-  between airports of one city (`geo.py`; estimates supplied by us, not measured data).
+  between airports of one city (`local/geo.js`; estimates supplied by us, not measured data).
 - Airline include/exclude filters apply after fetching, so changing them costs no lookups.
 
 ### Currency display
@@ -354,7 +386,7 @@ served each lookup.
   (`carry_on_bags` / `checked_bags`), which it does only where it has fee data: US carriers (Frontier cabin +$35, Delta and
   American checked +$45-55) and European low-cost (Ryanair cabin +$48). For **Tel Aviv routes it returned no difference at all**.
 - So the app never claims a bag is free: a fee is shown as an estimate, a zero as "no estimate", and airlines with a
-  well-known base-fare policy (Ryanair, Wizz, easyJet, Frontier, Spirit) get a "bags usually extra" note (`BAG_NOTES`, general
+  well-known base-fare policy (Ryanair, Wizz, easyJet, Frontier, Spirit) get a "bags usually extra" note (`bag_notes` in `data/config.json`, general
   policy, not per fare). `GET /api/searches/{id}/bagfees` prices a route/day three times (no bag, cabin, checked); `available`
   is false when Google returned no difference anywhere.
 - `SearchRequest.carry_on_bags/checked_bags` (form: "Bags included in the price") make Google add those estimates to every fare.
@@ -368,53 +400,30 @@ served each lookup.
   (`stale_ok`: even expired ones), with no lookups, and keeps the same history entry. `SearchResult.data_from` says how old the
   data is; the UI shows "Flight data from 3h ago: Search again to refresh" past 30 minutes.
 
-### Scrape-failure diagnostics (Laya, optional)
-- When `gflights` can't find the expected data script (`parse_html`), the original error was one generic message
-  ("consent page, block or layout change"). `providers/laya_classify.py` can turn that into a specific reason
-  (`consent`, `captcha`, `blocked`, `other`, or "looks like results but the script was missing" for a real layout
-  change) by classifying the page's visible text with [Laya](https://huggingface.co/convaiinnovations/laya), a fast
-  BERT-style typed-question classifier (not an LLM/chat model). Verified against real Google Flights consent/block
-  page text: correctly separated consent (93% probability), block/rate-limit (93%) and a results page.
-- **Runs as a separate shared service, not an in-process import.** Laya's runtime (torch + transformers) is
-  ~1GB even CPU-only, and duplicating that per project that wants it is wasteful (it once filled this machine's
-  disk mid-install). So it lives at `~/laya-service/` (own venv, installed once), a tiny FastAPI wrapper
-  (`server.py`) around `agent.predict()` with the model loaded once and kept warm, listening on
-  `127.0.0.1:8799`. `laya_classify.py` is a plain `httpx` client -- **no laya/torch dependency in this project
-  at all**. Started manually (`~/laya-service/start.sh`); nothing runs in the background otherwise.
-- **Off by default, purely diagnostic**: it only runs on this one failure path (not per-offer), never raises, and
-  falls back to the original generic message if disabled, the service isn't running, or anything errors. Enable
-  with `FLIGHTAGENT_LAYA=1` (service must already be started); point at a non-default host with
-  `FLIGHTAGENT_LAYA_URL`.
-- The service defaults to CPU (`LAYA_DEVICE=cpu` env var on the service, not this project) since the call volume
-  here doesn't justify GPU setup. For local GPU use: set `USE_TF=0` (avoids a TensorFlow-probe deadlock in
-  `laya.load()` if TensorFlow is also installed), and on older NVIDIA cards (Pascal/GTX 10-series, `sm_61`) the
-  default PyTorch CUDA wheel has no kernels for them and silently falls back to CPU -- fix by installing a pinned
-  CUDA build *before* installing `laya` (installing torch first means `laya`'s own install sees the requirement
-  already satisfied and won't overwrite it with a CUDA-mismatched or bigger build), e.g.
+### Laya, the local classifier service
+
+- [Laya](https://huggingface.co/convaiinnovations/laya) is a fast BERT-style typed-question classifier (not an LLM/chat
+  model). It runs as a separate shared service, not inside Skyhop: its runtime (torch + transformers) is ~1GB even
+  CPU-only (it once filled this machine's disk mid-install). It lives at `~/laya-service/` (own venv), a tiny FastAPI
+  wrapper (`server.py`) around `agent.predict()` with the model kept warm, on `127.0.0.1:8799`. Started manually
+  (`~/laya-service/start.sh`). The Airline Assist extension calls it from `background.js` (see below).
+- The service defaults to CPU (`LAYA_DEVICE=cpu` on the service). For local GPU use: set `USE_TF=0` (avoids a
+  TensorFlow-probe deadlock in `laya.load()` if TensorFlow is also installed), and on older NVIDIA cards
+  (Pascal/GTX 10-series, `sm_61`) install a pinned CUDA build of torch *before* `laya`, e.g.
   `pip install torch --index-url https://download.pytorch.org/whl/cu126` then `pip install laya`.
-- Not used for browsing to airline sites directly (fetching real fares/baggage from the carrier's own site) --
-  that would need actual browser automation (Playwright or similar) per airline, which is a separate, larger
-  piece of work than this diagnostic classifier. See below.
+- The server also used it to name a Google Flights scrape failure (`consent`, `captcha`, `blocked`, layout change;
+  `providers/laya_classify.py`, `FLIGHTAGENT_LAYA=1`). Verified against real consent and block pages (93% each). That
+  diagnostic was retired with the server.
 
-### Airline-site verification (El Al) -- backend built, currently blocked
+### Airline-site verification (El Al): blocked, retired
 
-- `providers/elal_verify.py`: Playwright script that searches El Al's own site for a specific
-  route/date and reads the real per-fare-tier price and baggage text (not Google's estimate).
-  On-demand only (never part of a normal search); real selectors captured against the live site
-  2026-09-23, documented as fragile in the module docstring (no `data-testid` anywhere on the
-  site -- everything is a CSS class name or text match).
-- **Blocked in practice**: El Al runs a dedicated third-party anti-bot vendor (seen in its network
-  requests: `securitytrfx.com`, posting to a `.../blob/farenet/...` endpoint) that silently
-  doesn't render the search widget for an automated browser. Basic fingerprint masking
-  (`navigator.webdriver`, UA string -- confirmed with the user before trying, see chat history)
-  did **not** get past it. Going further (canvas/WebGL fingerprint spoofing, synthetic input
-  timing, etc.) would mean actively engineering to defeat a commercial bot-detection product,
-  which this project does not do. Calling the module today mostly returns `status="blocked"`.
-- **What does work**: a real, extension-driven browser tab is not caught by the same detection
-  (confirmed live -- see `browser-extension/`). That's the shipped path for "land on this exact
-  flight so I can buy it"; the Playwright module stays as a second, currently-blocked attempt at
-  a backend-only version, kept in case El Al's detection changes or a verifier provider (§5) is
-  wanted later.
+- The server had a Playwright script (`providers/elal_verify.py`) that searched El Al's own site for the real per-tier
+  price and baggage text. In practice El Al's third-party anti-bot vendor (`securitytrfx.com`) didn't render the search
+  widget for an automated browser, and basic fingerprint masking (agreed with the user) did not get past it; going
+  further would mean defeating a commercial bot-detection product, which this project does not do. It was retired
+  with the server.
+- **What works**: a real, extension-driven browser tab is not caught by the same detection (confirmed live, see
+  `browser-extension/`). That is the shipped path for "land on this exact flight so I can buy it".
 
 ### Browser extension (`browser-extension/`) -- built and verified end-to-end
 
@@ -422,8 +431,8 @@ Lets a flight row in the web UI open a new tab on the airline's own site with th
 searched and selected, for the person to finish booking themselves -- no payment or passenger
 data ever touches this app. Architecture: a content script (`content-bridge.js`) marks the page
 and relays a custom DOM event to a background service worker, which opens a tab and injects a
-per-airline driver script (`drivers/elal.js`, plain DOM automation, same selectors as
-`elal_verify.py`). Optional: `EXTENSION_DRIVERS` in `app.js` gates the button so it simply
+per-airline driver script (`drivers/elal.js`, plain DOM automation, selectors captured
+2026-09-23). Optional: `EXTENSION_DRIVERS` in `app.js` gates the button so it simply
 doesn't render without the extension installed. See `browser-extension/README.md` for load/test
 instructions. Only El Al wired up.
 - **Fixed after first real test**: the background service worker's message listener used to
@@ -467,6 +476,8 @@ element <role>?" and classify a page, but it cannot read a price, write a select
 | Bot check | not triggered | triggered; **not** bypassed -- no fingerprint masking (nothing was agreed for Wizz Air, unlike El Al above) |
 | Needs | Laya service running (`~/laya-service/start.sh`) | `flightagent[verify]`, Laya optional |
 | Laya's role | cookie button, fare-button check, page-type when no cards | page-type only |
+
+The Playwright variant was retired with the server on 2026-10-13.
 
 Not built: a form-driving variant (typing origin/destination, calendar). The direct URL makes it strictly more
 fragile (dates and airport suggestions are numbers/codes, where a classifier is weakest) for no gain on one-way
@@ -514,14 +525,13 @@ El Al and TAROM are bespoke drivers. Per airline `mode` says how to open a searc
 
 Jev (`typesafe/jev-1.13`, alias `~typesafe/jev-latest`) is TypeSafe's hosted "System One" model on OpenRouter: the same
 typed questions as Laya (choice / noul / score, `state` + `questions` -> probabilities), $0.042 per million input tokens,
-output free, 32k context, `POST https://openrouter.ai/api/alpha/decisions`. `src/flightagent/decide.py` adapts our
-Laya-style requests (wraps a string state, spells out noul true/false criteria) so **callers don't care which answers**.
-- **Key stays on the server** (Jev's docs: never in browser code): the extension calls this app's `POST /api/decide`, which
-  needs an `X-Skyhop: 1` header (a plain web page can't send it cross-origin, so it can't make the browser spend the key),
-  bounds each call (12k chars of state, 8 questions) and sums `usage.cost` (`GET /api/decide/health`). Key: `OPENROUTER_API_KEY`
-  or `OPENROUTER_KEY` in `.env`; model: `FLIGHTAGENT_JEV_MODEL`.
+output free, 32k context, `POST https://openrouter.ai/api/alpha/decisions`. The Worker adapts our Laya-style requests
+(wraps a string state, spells out noul true/false criteria) so **callers don't care which answers**.
+- **Key stays in the Worker** (Jev's docs: never in browser code): the extension calls the Worker's `POST /decide` with
+  the user's Google token (allowed accounts only). Key: the Worker secret `OPENROUTER_API_KEY`; model: the `JEV_MODEL`
+  variable (default `typesafe/jev-1.13`). Until 2026-10-13 the server's `POST /api/decide` (`decide.py`) did this.
 - **Switch:** the "🧠 Laya / 🧠 Jev" badge in the Skyhop header (shown when the extension is attached) -> stored in
-  `chrome.storage.local`; `FLIGHTAGENT_DECIDER=jev` does the same for the Python-side diagnostics (`laya_classify.py`).
+  `chrome.storage.local`.
 - **Measured on the cases Laya struggled with** (per-candidate noul, same wording): fare button -- Laya scored `Price per person`
   0.93 vs Jev 0.12, `Sign in` for "submit the search" 0.90 vs Jev 0.03; cookie decline -- Deny all 0.94 vs Accept all 0.03
   (Laya 0.83 / 0.01). Jev picks "Select" 0.78 and `€ 113.24` 0.65 (a price box). ~0.36 s per call (network) and about
@@ -543,7 +553,7 @@ unit (`inputsUnit`).
 ### Results screen ported from the Stitch design (Sept 2026)
 
 Design: `docs/stitch/DESIGN.md` ("Results screen rules"). What changed in the app:
-- **Server:** `SearchResult.cells` (`BestCell`: cheapest trip per destination x nights, at most 300, sent ordered by nights) so the page can
+- **Engine:** `SearchResult.cells` (`BestCell`: cheapest trip per destination x nights, at most 300, sent ordered by nights) so the page can
   show every trip length and destination, not one "cheapest".
 - **`web/compare.js`:** the trip-length x destination matrix (heat-tinted cells, multi-select to filter, nothing pre-selected, one "lowest"
   badge) and the trips table **grouped by trip length** (a band per length, every destination under it, cheapest of each band emphasised)
@@ -555,7 +565,7 @@ Design: `docs/stitch/DESIGN.md` ("Results screen rules"). What changed in the ap
 - **Airline names** are weight 800 (15px) in the table, Mix & match and trip cards; **"Check on <airline> site"** is a 44px bordered
   button (also in Mix & match rows next to "Select on site").
 - **Full screen:** the `max-width: 1480px` column on `main` is gone.
-- Tests: `tests/test_results_compare_ui.py` (drives the real page), `tests/test_engine.py` (cells), shared fixtures in `tests/conftest.py`.
+- Tests: `tests/test_results_compare_ui.py` (drives the real page), `tests/js/engine.test.js` (cells), shared fixtures in `tests/conftest.py`.
 - **Search form** (same design): From/To, then ONE row of five aligned fields (earliest departure, latest return, trip length with its
   Nights/Days switch, stops, currency), then adults and children, "More options", the estimate and "Find flights". Labels never wrap, and the row
   drops to 3 then 2 columns on narrower windows. A fresh page in simple mode no longer shows the false "length was set to fit" note.
@@ -591,12 +601,11 @@ Every airline gets the button, in the trips table, Mix & match, trip cards, the 
 - the extension can search this flight on the airline's site -> it does (English where the driver can choose, e.g. TAROM);
 - otherwise the airline's real site opens and the flight's details ("LH5429 TLV → IST, Wed 7 Oct 05:00") are copied to the clipboard, with a
   toast, to paste into the airline's own search (its search can't be driven for airlines outside the extension's list);
-- an airline not in our list (`AIRLINE_SITES`, 68 entries) is looked up by `airline_sites.py` via `GET /api/airline-site` (needs the `X-Skyhop`
-  header): Wikidata by IATA code (active airlines only) and exact name in ONE query; the label must share a word with the airline's name (a code
-  alone is not proof), the address must be https on a public host and must answer; found sites are cached 90 days in `airline_sites.json` next to
-  the price cache, real misses 3 days. While it runs the button says "Looking for X's website…"; if none exists it says "Couldn't find X's
+- an airline not in our list (`airline_sites` in `data/config.json`, 68 entries) is looked up in the page by `local/sites.js` (`GET /api/airline-site`):
+  Wikidata by IATA code (active airlines only) and exact name in ONE query; the label must share a word with the airline's name (a code
+  alone is not proof), the address must be https on a public host; found sites are kept 90 days in IndexedDB, real misses 3 days. While it runs the button says "Looking for X's website…"; if none exists it says "Couldn't find X's
   website" (not a link); if the lookup could not be made (Wikidata rate-limits: it answered 429 with Retry-After 1000 s after repeated testing) it
-  says "Couldn't check X's website right now. Try again" and is NOT cached as a miss, and the server backs off for the Retry-After time.
+  says "Couldn't check X's website right now. Try again" and is NOT cached as a miss.
 - Measured on 2026-09-26: Animawings resolves to animawings.com by name; TAP by code; a made-up airline to "no website".
 
 ### The "Select ... on site" auto-search is origin-agnostic (Sept 2026)
@@ -621,14 +630,14 @@ for results, now at a wider `main` max-width since the form no longer duplicates
 and full design notes: see the approved plan this was built from (steps, token decisions, what
 was deliberately reused vs. new).
 - **Per-route "cheapest"**: `res.daily`/`DailyBest` collapses every destination searched into one
-  global winner per calendar day (`engine.py::_daily()`, unchanged) -- a real bug behind "cheap
+  global winner per calendar day (`engine.py::_daily()` then, `daily()` in `engine.js` now; unchanged) -- a real bug behind "cheap
   should be per route, not just cheap". Frontend fix (no backend change): `routePicks()` in
   `app.js` groups `res.top` (already flat, already carries `.destination`) by destination for a
   "Cheapest by route" strip, with `top_n` bumped when multiple destinations are searched. Measured
   real limitation, not a bug: if one destination is cheaper than the others on *every single day*
   in the window, no client-side `top_n` fixes that -- the strip shows an honest explanation instead
   of silently disappearing or showing a misleading single-destination "comparison". Properly fixing
-  this needs `_daily()` to group by `(depart_date, destination)`, deferred as a fast-follow.
+  this needs `daily()` to group by `(depart_date, destination)`, deferred as a fast-follow.
 - **Mix & Match's airline filter unified**: it used to have its own independent, unsynced local
   hide-list (`mix.js`'s old `S.filters.hidden`) alongside the real shared filter -- removed. Found
   and fixed a second, deeper bug while verifying this: `S.q`/`S.row` (and therefore the flight-list
@@ -639,40 +648,48 @@ was deliberately reused vs. new).
 ### Current providers
 | Name | Source | Cost | Notes |
 |---|---|---|---|
-| `gflights` | Scrapes Google Flights (`primp` HTTP client, own query encoder and parser) | free | Accepts city codes. May break or be blocked; scraping may violate Google's terms. |
-| `serpapi` | SerpApi `engine=google_flights` | 1 credit per lookup; free plan 250/month | Needs `SERPAPI_API_KEY`. City codes are expanded to airport lists. |
-| `mock` | Deterministic fake fares | free | UI and reports are labelled DEMO DATA. |
+| `gflights` | Google Flights page fetched by the Worker (`GET /gflights`), parsed in the page (`local/gflights.js`) | free | Accepts city codes. May break or be blocked; scraping may violate Google's terms. |
+| `serpapi` | SerpApi `engine=google_flights` through the Worker (`GET /serpapi`) | 1 credit per lookup; free plan 250/month | Worker secret `SERPAPI_API_KEY`. City codes are expanded to airport lists. |
+| `mock` | Deterministic fake fares (`local/mock.js`) | free | Used when signed out or not allowed. UI labelled DEMO DATA. |
 
 Candidates (research as of Sept 2026, **not verified with our data**): Travelpayouts/Aviasales data API,
 FlightAPI.io, Skyscanner via RapidAPI. Not viable: Amadeus Self-Service (shut down 2026-07-17), Kiwi Tequila
 (invite-only), Duffel (sellers only).
 
-## 6. API (`api.py`)
+## 6. API (`web/local/backend.js`, answered inside the page)
 
-| Endpoint | Purpose |
+| Route | Purpose |
 |---|---|
-| `POST /search`, `/search/report` | Structured search; JSON or text report. |
-| `POST /search/simple` | Flat all-string form for LLM tool calls. Returns `{report}` or `{error}`, never an HTTP error for bad input. |
 | `POST /api/estimate` | Lookup count and cache state for a request. |
-| `POST /api/searches` | Start a background search, returns `{id}`. 422 if over budget. |
-| `GET /api/searches`, `/api/searches/{id}` | History list (light), or one search with progress, request and full result. |
-| `POST /api/searches/{id}/cancel` | Stop a running search; 409 if it isn't running. Lookups already made stay cached. |
+| `POST /api/searches` | Start a search in the page, returns `{id}`. Fails if over budget. |
+| `GET /api/searches`, `/api/searches/{id}` | History list (the 50 most recent, without results), or one search with progress, request and full result. |
+| `POST /api/searches/{id}/cancel` | Stop a running search. Lookups already made stay cached. |
+| `POST /api/searches/{id}/filter`, `/recheck` | Re-filter by airline from saved flights; ask again about unpriced flights. |
+| `GET /api/searches/{id}/flights`, `/bagfees` | All flights for one route and day of a search; bag fee estimates. |
 | `DELETE /api/searches/{id}` | Remove from history. |
-| `GET /api/config`, `/health` | Active provider chain and airline booking links; liveness. |
+| `GET /api/flights`, `POST /api/itinerary/check` | Trip builder: flights for a route and day; connection checks. |
+| `POST /api/roundtrip`, `/api/verify`, `/api/explore` | Round-trip price, second-source price check, airline finder. |
+| `POST /api/chat/complete` | One model turn for Ask Skyhop, sent to the Worker's `/chat`. |
+| `GET /api/config`, `/api/rates`, `/api/countries`, `/api/airline-site` | Airline links and the active provider; exchange rates; countries; an airline's website. |
 
-Jobs run as asyncio tasks; progress (`done/total` lookups) is written to `History`. Searches still `running`
-at startup are marked failed. The cache key is `provider|origin|dest|day|currency|adults|max_stops`, TTL 6 h.
+The Worker's own routes are in `worker/README.md`. The offer-cache key is
+`v4|provider|origin|dest|day|currency|adults-children-infants|bags|max_stops`, with a per-entry lifetime (section 5).
+The server's other routes (`/search`, `/search/simple`, `/search/report`, `/api/chat`, `/health`) were retired with it.
 
 ## 7. Configuration
 
-`.env` (loaded by Docker Compose): `FLIGHTAGENT_PROVIDER` (comma list = fallback order), `SERPAPI_API_KEY`,
-`FLIGHTAGENT_CACHE_TTL_HOURS`. The compose file pins `FLIGHTAGENT_CACHE_DB=/data/offers.sqlite` so the cache and
-`history.sqlite` live on the `flightagent-cache` volume. Never commit `.env`.
+No `.env` and no `FLIGHTAGENT_*` variables any more. Configuration is in three places:
+- **Build** (`tools/build_pages.py`, GitHub Actions variables): `SKYHOP_WORKER_URL` and `SKYHOP_GOOGLE_CLIENT_ID`,
+  written into `runtime.js`. Without them the page offers no sign-in and shows demo fares.
+- **Worker** (Cloudflare secrets and variables, set up as in `worker/README.md`): `SERPAPI_API_KEY`,
+  `OPENROUTER_API_KEY`, `APP_TOKEN`, `ALLOWED_EMAILS`, `CHAT_MODEL`, `JEV_MODEL`; who may spend the keys is the travel
+  apps' shared user list.
+- **Data** (`src/flightagent/data/config.json`): airline sites and search links, bag notes, city airport groups.
 
 ## 8. Price check by a second fare source (built Oct 2026, on demand)
 
 **What exists.** Each trip card has **Check price with a second source** (not on demo fares). `POST /api/verify`
-(`verify.py`; `web/local/verify.js` on Pages, parity-tested in `tests/test_verify.py`) looks every leg up again, uncached,
+(`web/local/verify.js`, tested in `tests/js/verify.test.js`) looks every leg up again, uncached,
 on the real-fare source that did *not* price it (`LegView.provider`: Google Flights <-> SerpApi), finds the same flights by
 airline + flight number + departure minute of every segment, and answers per leg `confirmed` (within max(3 %, 5)),
 `price_differs` (both prices shown), `not_found` (inconclusive, says which flight is missing) or `error` (the
@@ -681,7 +698,7 @@ no second source (mock, or a Worker without SerpApi) it says so. SerpApi costs o
 by itself. Both sources read Google Flights, so this catches parser and stale-cache errors, not Google's own.
 Not built from the proposal below: automatic checks of the top N trips, stored results, the conformance suite.
 
-Original proposal:
+Original proposal (written for the retired server; `FLIGHTAGENT_VERIFIER` and the stored results were never built):
 
 **Problem.** A provider can be wrong in ways we cannot see (a parser bug hid the cheapest fares for the
 scraper). A trip shown as "cheapest" is only trustworthy if a second, independent source agrees.
@@ -725,7 +742,7 @@ Manually comparing `gflights` and `serpapi` on TLV→FCO (2026-10-05) matched on
 
 ## 10. Reviewer checklist
 
-- [ ] Can a provider return `[]` for an error anywhere? (It must raise.)
+- [ ] Can a provider return `[]` for an error anywhere? (It must throw.)
 - [ ] Are empty results ever cached? (They must not be.)
 - [ ] Do durations use real minutes and not local time differences?
 - [ ] Do city codes work for every provider on the default path?
@@ -735,10 +752,14 @@ Manually comparing `gflights` and `serpapi` on TLV→FCO (2026-10-05) matched on
 ## 11. Layout
 
 ```
-src/flightagent/  api.py engine.py models.py history.py cache.py report.py cli.py links.py chat.py simple.py
-                  providers/{base,gflights,serpapi,mock,airports}.py   web/{index.html,style.css,app.js,airports.json}
-tests/            test_engine.py  fixtures/gflights_tlv_fco_2026-10-05.json
-docs/DESIGN.md    this file
+src/flightagent/web/    index.html style.css app.js chat.js trip.js builder.js mix.js compare.js mobile.js hub.js ...
+src/flightagent/web/local/  backend.js engine.js models.js itinerary.js geo.js polling.js gflights.js serpapi.js
+                        mock.js verify.js sites.js db.js account.js drive.js mymaps.js rng.js
+src/flightagent/data/   config.json airport_tz.json
+worker/                 the Cloudflare Worker (worker/README.md)
+tools/                  build_pages.py build_airports.py build_android.py sync_assist_manifest.py
+tests/                  js/ (engine, Node)  test_*_ui.py (Playwright)  fixtures/gflights_tlv_fco_2026-10-05.json
+docs/DESIGN.md          this file
 ```
 Airport data: `web/airports.json`, built by `tools/build_airports.py` from OpenFlights (ODbL: names, coordinates, time
 zones) and OurAirports (public domain, updated nightly). OurAirports supplies whether an airport has scheduled
@@ -749,5 +770,5 @@ Amravati.
 - **Country search** (fixed 2026-10-10: "portugal" showed Faro, Porto and unrelated "Port…" towns, not Lisbon or
   Madeira). A country's whole name, or 5+ letters of it, lists its airports with scheduled flights first. In a
   destination field it also offers one pick that adds the country's large airports, up to the field's 8; "Portugal"
-  adds LIS, OPO, FAO, FNC and PDL. The airline finder's country list (`geo.country_airports`, mirrored in
+  adds LIS, OPO, FAO, FNC and PDL. The airline finder's country list (`byCountry()` in
   `local/backend.js`) also keeps only airports with scheduled flights.

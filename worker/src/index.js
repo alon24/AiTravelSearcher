@@ -5,8 +5,8 @@
      GET  /gflights?origin&dest&... one one-way lookup straight from Google Flights (free; gflights.js)
      GET  /serpapi?origin&dest&...  one one-way Google Flights lookup through SerpApi (one credit)
                                     both shared from the edge cache for a while, with their age (farecache.js)
-     POST /decide                   a typed decision from Jev, as the Python service's /api/decide (decide.py)
-     POST /chat                     one model turn for the page's AI chat, as the Python service's /api/chat/complete
+     POST /decide                   a typed decision from Jev, for the Airline Assist extension
+     POST /chat                     one model turn for the page's AI chat (web/chat.js)
      /trips...                      shared trips: a group chat per trip (trips.js)
      GET|POST /links                airline search links the desktop extension learned, for phones (links.js) */
 
@@ -22,12 +22,12 @@ export { CITY_AIRPORTS };
 const SERPAPI_URL = "https://serpapi.com/search.json";
 const JEV_URL = "https://openrouter.ai/api/alpha/decisions";
 const DEFAULT_JEV_MODEL = "typesafe/jev-1.13";
-const MAX_STATE_CHARS = 12_000;      // as decide.py: bounds what one call can spend
+const MAX_STATE_CHARS = 12_000;      // bounds what one call can spend
 const MAX_QUESTIONS = 8;
 const MAX_BODY = 64_000;
 const CHAT_URL = "https://openrouter.ai/api/v1/chat/completions";
 const DEFAULT_CHAT_MODEL = "openai/gpt-4o-mini";
-const MAX_CHAT_MESSAGES = 80, MAX_CHAT_CHARS = 80_000, MAX_CHAT_TOOLS = 4, MAX_CHAT_OUTPUT_TOKENS = 800;   // as chat.py's MAX_RELAY_*
+const MAX_CHAT_MESSAGES = 80, MAX_CHAT_CHARS = 80_000, MAX_CHAT_TOOLS = 4, MAX_CHAT_OUTPUT_TOKENS = 800;   // bounds what one chat turn can spend
 const ROLES = new Set(["system", "user", "assistant", "tool"]);
 const CODE_RE = /^[A-Z]{3}$/;
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;

@@ -1,6 +1,5 @@
-/* The search request and flight shapes of models.py, as plain objects. Dates are "YYYY-MM-DD" strings and times are
-   naive local "YYYY-MM-DDTHH:MM:SS" strings, exactly as the server's JSON carries them, so results from the server and
-   from the browser are interchangeable. */
+/* The search request and flight shapes, as plain objects. Dates are "YYYY-MM-DD" strings and times are naive local
+   "YYYY-MM-DDTHH:MM:SS" strings. */
 (function (root) {
   "use strict";
   const L = (root.SkyhopLocal = root.SkyhopLocal || {});

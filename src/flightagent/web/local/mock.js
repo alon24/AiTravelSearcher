@@ -1,5 +1,5 @@
-/* providers/mock.py in the browser: the same deterministic fake fares, number for number (see rng.js), so the
-   GitHub Pages demo and the server's mock mode show the same flights. */
+/* Demo fares: deterministic fake flights (see rng.js), the same on every load, for signed-out visitors and tests.
+   Always labelled as demo in the page, never shown as real. */
 (function (root) {
   "use strict";
   const L = (root.SkyhopLocal = root.SkyhopLocal || {});

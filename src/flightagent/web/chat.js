@@ -304,7 +304,7 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
   }
 
   // ---------------------------------------------------------------- rendering
-  const needsSignIn = () => SkyhopLocal.backend.enabled() && !SkyhopLocal.account.signedIn();
+  const needsSignIn = () => !SkyhopLocal.account.signedIn();
   const routeLabel = a => `${a.origin || readForm().from[0] || "TLV"} → ${(a.destinations || []).join(", ")}`;
   const when = a => (a.window_start && a.window_end ? ` · ${fmtShort(day(a.window_start))} – ${fmtShort(day(a.window_end))}` : "")
     + (a.min_nights ? ` · ${a.min_nights === a.max_nights ? plural(a.min_nights, "night") : `${a.min_nights}–${a.max_nights} nights`}` : "");
@@ -474,7 +474,7 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
     setTimeout(() => { if (!opened) $("#chat").hidden = true; }, 220);
   }
   function init() {
-    if (SkyhopLocal.backend.enabled() && !SkyhopLocal.account.configured()) return;   // Pages without the Worker: no model to ask
+    if (!SkyhopLocal.account.configured()) return;   // no Worker configured: no model to ask
     els = { body: $("#chat-body"), form: $("#chat-form"), input: $("#chat-input"), send: $("#chat-send"), ask: $("#chat-ask"), signin: $("#chat-signin") };
     $("#chat-launch").hidden = false;
     $("#chat-launch").addEventListener("click", () => (opened ? close() : open()));

@@ -9,22 +9,27 @@ so any provider that can price a one-way flight works.
 > **Skyhop never books a flight, never takes payment, and never sees your card or passport details.**
 > Booking always happens on the airline's own site, in your own browser.
 
-**Web UI:** run `docker compose up -d --build`, then open http://localhost:8765/ (search form, live progress, past searches).
-**Installing on another computer (server + Chrome extension): [`docs/INSTALL.md`](docs/INSTALL.md)** (`tools/install.sh` on Linux/macOS).
-**Without a server (GitHub Pages):** every push to `main` also publishes a build that runs entirely in the browser
-(`.github/workflows/pages.yml`). It shows **demo fares** until you press **Sign in** (Google). One sign-in
-covers the suite: signing in to [Travel Hub AI](https://alon24.github.io/travel-hub/) or
-[MyMaps AI](https://alon24.github.io/mymaps-ai/) signs you in here too, and the other way round. Once you're signed in,
-searches use real Google Flights fares, on phones too. A small Cloudflare Worker fetches them from Google Flights for
-free, and uses SerpApi credits only if Google refuses it. The Worker also holds the keys; set it up once as described
-in [`worker/README.md`](worker/README.md). With the Airline Assist extension on desktop, Jev works on the web version
-too, through the same Worker, so no local server is needed. On a phone, airlines with a known results link get a
-**Search on <airline> site** button that opens their own search for that flight's route and day, including links your
-desktop extension learned. **Android app:** [`skyhop.apk`](https://github.com/alon24/AiTravelSearcher/releases/download/android-latest/skyhop.apk)
-(built from `android/`) is the same site with the airline's site in a second tab. There, **Select on site** has Jev find
-your flight, as the desktop extension does. Sign-in opens your phone's browser once and comes back to the app.
-One-time setup: Settings → Pages → Source: GitHub Actions. See
-"Hosting on GitHub Pages" in [`docs/DESIGN.md`](docs/DESIGN.md).
+**Open it:** https://alon24.github.io/AiTravelSearcher/ (on a phone too). That site is the only version of Skyhop: there is
+nothing to install. It is static files on GitHub Pages, and the search runs inside your browser. It shows **demo fares**
+until you press **Sign in** (Google). One sign-in covers the suite: signing in to
+[Travel Hub AI](https://alon24.github.io/travel-hub/) or [MyMaps AI](https://alon24.github.io/mymaps-ai/) signs you in
+here too, and the other way round. Signed in with an account on the travel apps' user list, searches use real Google
+Flights fares. A small Cloudflare Worker fetches them from Google Flights for free, and uses SerpApi credits only if
+Google refuses it. The Worker also holds the keys and runs the AI chat, Jev and shared trips; it is set up once as
+described in [`worker/README.md`](worker/README.md).
+
+**Chrome extension (desktop):** with the Airline Assist extension ([`browser-extension/`](browser-extension/README.md)),
+**Select on site** opens the airline's site and finds your flight. It attaches only to the live site. Jev goes through
+the same Worker with your Google sign-in; Laya is a separate local service on `127.0.0.1:8799`. On a phone, airlines
+with a known results link get a **Search on <airline> site** button that opens their own search for that flight's
+route and day, including links your desktop extension learned.
+
+**Android app:** [`skyhop.apk`](https://github.com/alon24/AiTravelSearcher/releases/download/android-latest/skyhop.apk)
+(built from `android/`) loads the live site, with the airline's site in a second tab. There, **Select on site** has Jev
+find your flight, as the desktop extension does. Sign-in opens your phone's browser once and comes back to the app.
+
+Until 2026-10-13 Skyhop also ran as a Docker / Python server on your own computer. That version was retired; it is in
+git history (see "2026-10-13: one version" in [`docs/DESIGN.md`](docs/DESIGN.md)).
 
 Docs: [`docs/DESIGN.md`](docs/DESIGN.md) architecture, provider contract and a price-verification proposal; [`docs/STITCH_BRIEF.md`](docs/STITCH_BRIEF.md) UI design brief for Google Stitch.
 
@@ -68,19 +73,22 @@ match are tabs, and a bar at the bottom holds Search, Trips, Days, Ask Skyhop an
 sequenceDiagram
     participant You
     participant Page as Skyhop page (your browser)
-    participant Server as Skyhop server (the Docker container)
-    participant Source as Flight data source (Google Flights, via gflights or SerpApi)
+    participant Engine as Search engine (inside the page)
+    participant Worker as Skyhop's Cloudflare Worker
+    participant Source as Google Flights (free), or SerpApi as backup
     You->>Page: Fill in the form, click "Find flights"
-    Page->>Server: POST /api/searches
-    Server-->>Page: a search id, status "running"
+    Page->>Engine: POST /api/searches (answered inside the page)
+    Engine-->>Page: a search id, status "running"
     loop while running (about once a second)
-        Page->>Server: GET /api/searches/{id}
-        Server-->>Page: progress (N of M lookups done)
+        Page->>Engine: GET /api/searches/{id}
+        Engine-->>Page: progress (N of M lookups done)
     end
-    Server->>Source: one one-way lookup per (origin, destination, day)
-    Source-->>Server: fares for that day
-    Server->>Server: cache each lookup, combine one-way fares into round trips
-    Server-->>Page: status "done" — the chart, matrix and table fill in
+    Engine->>Worker: one one-way lookup per (origin, destination, day), with your Google sign-in
+    Worker->>Source: fetch that day's fares
+    Source-->>Worker: fares for that day
+    Worker-->>Engine: fares (demo fares are made in the page instead when you're signed out)
+    Engine->>Engine: cache each lookup in your browser, combine one-way fares into round trips
+    Engine-->>Page: status "done": the chart, matrix and table fill in
     Page->>Page: this search is added to "Past searches" in the left sidebar
 ```
 
@@ -92,21 +100,21 @@ fetched are kept, so a narrower search right after reuses them.
 
 ```mermaid
 flowchart LR
-    subgraph Docker["Your computer, in the flightagent Docker container"]
-        DB[("SQLite file\noffers.sqlite\npast searches + price cache")]
+    subgraph Browser["Your browser, on this device"]
+        DB[("IndexedDB 'skyhop'\npast searches + fare cache")]
     end
-    Vol[("Docker volume\nflightagent-cache")]
-    DB --- Vol
     Sidebar["Left sidebar → Past searches\n(the 50 most recent)"] -->|reads| DB
-    Click["You click the × on a search"] -->|DELETE /api/searches/id| DB
-    WipeCmd["docker compose down -v"] -.erases everything in it.-> Vol
+    Click["You click the × on a search"] -->|deletes that one| DB
+    Wipe["Clearing this site's data\nin the browser"] -.erases everything in it.-> DB
 ```
 
-- **On this computer only.** Past searches live in the Docker volume on the machine running Skyhop — not in
-  any account, not in the cloud, and not shared with another computer unless you copy the volume yourself.
-- **Kept until you delete them.** Nothing expires automatically. The sidebar lists the 50 most recent; hover
-  a search and click the **×** to delete it, or run `docker compose down -v` to wipe everything at once
-  (this also erases the price cache, so the next search re-fetches everything).
+- **In your browser, on this device.** Past searches and the fare cache live in your browser's storage for the site
+  (IndexedDB), not in any account and not in the cloud. Another browser or device has its own list.
+- **Kept until you delete them.** Nothing expires automatically. The sidebar lists the 50 most recent; hover a
+  search and click the **×** to delete it. Clearing the site's data in your browser wipes them all, and the fare
+  cache with them, so the next search fetches everything again. A private window keeps them only until it closes.
+- **Keep the tab open while a search runs.** The search runs in the page; a search still running when the tab
+  closes shows as interrupted next time.
 - **A search result is a snapshot.** Prices can move after you searched; a stale result shows a "flight data
   from … ago, search again to refresh" note if it's more than 30 minutes old.
 
@@ -159,60 +167,72 @@ flowchart TD
     M --> Pick1["Click a row to expand the full itinerary"]
     T --> Pick1
     Pick1 --> MM["Add flights to Mix & match / Trip builder"]
-    MM --> Check["Server checks the gaps between your picked legs:\nsame airport? enough time? realistic transfer?"]
+    MM --> Check["Skyhop checks the gaps between your picked legs:\nsame airport? enough time? realistic transfer?"]
     Check --> Warn["Warnings shown inline\n(tight connection, long wait, different city)"]
-    MM -.stored in your browser only (localStorage).-> Local[("Not on the server —\nclearing browser data loses it")]
+    MM -.stored in your browser only (localStorage).-> Local[("Only in this browser:\nclearing browser data loses it")]
 ```
 
 The **Trip builder** (bottom-right floating button, or the sidebar) is where you assemble a custom itinerary
-by hand from flights you've picked — it is *not* saved on the server: it lives in your browser's local
-storage, so it follows this browser on this computer, not your Skyhop account (there is no account).
+by hand from flights you've picked. It is *not* saved online: it lives in your browser's local storage, so it
+follows this browser on this device, not your Google sign-in.
 
 ## Quick start for developers
 
-Everything above describes using the web app. The rest of this file is for working on Skyhop itself.
+Everything above describes using the web app. The rest of this file is for working on Skyhop itself. There is no
+server to run: the site is the files in `src/flightagent/web/`, and `/api` is answered inside the page by
+`web/local/backend.js` (the engine in JavaScript: `engine.js`, `models.js`, `itinerary.js`, `geo.js`, `polling.js`,
+providers `gflights.js`, `serpapi.js`, `mock.js`, storage `db.js`). Airline sites, bag notes and city airport groups
+are in `src/flightagent/data/config.json`.
 
 ```bash
-python -m venv .venv && .venv/bin/pip install -e '.[dev]'
-cp .env.example .env            # FLIGHTAGENT_PROVIDER=mock works offline, no key needed
-.venv/bin/flightagent --to ROM,PAR,LON --return-from BRU \
-    --from-date 2026-10-01 --to-date 2026-11-15 --nights 4-7 \
-    --self-transfer IST,ATH --connect --top 5        # add --json for machine output
-.venv/bin/uvicorn flightagent.api:app                 # POST /search, POST /search/report
-.venv/bin/pytest -n auto
+python3 tools/build_pages.py _site                # build the site (a plain copy, no bundler)
+python3 -m http.server -d _site 8080              # http://localhost:8080, demo fares
+SKYHOP_WORKER_URL=... SKYHOP_GOOGLE_CLIENT_ID=... python3 tools/build_pages.py _site   # with sign-in and real fares
+
+pip install -r requirements-dev.txt               # pytest, pytest-xdist, playwright: only for tests
+pytest -n auto                                    # Playwright UI tests against the built site, and the rest
+node --test tests/js/                             # the in-page engine
 node src/flightagent/web/airport-search.test.js   # typo/alias airport search (buka -> Bucharest)
-python tools/build_airports.py                    # regenerate web/airports.json and airport_coords.json (OpenFlights + OurAirports + aliases)
-python tools/build_pages.py _site                 # the server-less GitHub Pages build; serve _site/ with any static server
+node src/flightagent/web/hub.test.js              # Travel Hub link
+(cd worker && node --test)                        # the Worker
+python3 tools/sync_assist_manifest.py --check     # extension manifest matches airlines.json
+python3 tools/build_airports.py                   # regenerate web/airports.json and airport_coords.json (OpenFlights + OurAirports + aliases)
 ```
 
-## Providers
-| name | status |
+Every push runs the tests; a push to `main` also publishes the site and deploys the Worker
+(`.github/workflows/pages.yml`). One-time setup: Settings → Pages → Source: GitHub Actions, then the Worker steps in
+[`worker/README.md`](worker/README.md). See "Hosting on GitHub Pages" in [`docs/DESIGN.md`](docs/DESIGN.md).
+
+## Where fares come from
+| Source | When |
 |---|---|
-| `gflights` | **free**, scrapes Google Flights (no key). ~0.5 s per lookup at low concurrency |
-| `serpapi` | Google Flights via SerpApi (`SERPAPI_API_KEY`); free plan = 250 credits/month, 1 credit per (origin, dest, day) |
-| `mock` | deterministic fake fares, for development / tests |
+| Google Flights, **free** | Signed in with an account on the user list. The Worker fetches the Google Flights page (`GET /gflights`, no key) and the page reads it (`web/local/gflights.js`). The badge says LIVE. |
+| SerpApi | Only when Google refuses the Worker for a lookup, or the Worker has no free source. Same Google Flights data, through `GET /serpapi`; one credit per (origin, dest, day), free plan 250 credits/month. |
+| Demo fares | Signed out, signed in with an account that isn't on the list, or a build without a Worker. Made up in the page (`web/local/mock.js`) and labelled DEMO DATA. |
 
-`FLIGHTAGENT_PROVIDER` accepts a comma list as a fallback order. The default `gflights,serpapi`
-scrapes for free and only spends SerpApi credits if Google blocks or breaks the scraper.
+Nothing is silent: a lookup the backup answered is listed in the results with Google's reason, and when both fail the
+error names both. The Worker keeps each answer in Cloudflare's cache for a while, so the same route and day costs one
+lookup for everyone. A guest in a shared trip gets real fares only inside that trip, within its daily allowance.
 
-Scraper notes: it fetches with `primp`, a browser-impersonating HTTP client, and builds Google's `tfs`
-query and parses the page itself: the `fast-flights` library it started from drops Google's "best flights" block
-(often the cheapest fares), and since October 2026 Google answers its untyped airport codes with an empty landing
-page. It accepts city codes (`ROM`, `LON`) directly. Scraping may violate Google's terms, can be
-rate-limited or break when Google changes the page, so keep volume modest. `tests/fixtures/` holds a
-real captured payload so a layout change shows up as a failing test.
+Scraper notes: the Worker builds Google's `tfs` query itself and the page parses the result: the `fast-flights`
+library this started from drops Google's "best flights" block (often the cheapest fares), and since October 2026 Google
+answers its untyped airport codes with an empty landing page. City codes (`ROM`, `LON`) work directly. Scraping may
+violate Google's terms, can be rate-limited or break when Google changes the page, so keep volume modest.
+`tests/fixtures/` holds a real captured payload so a layout change shows up as a failing test, and a daily GitHub
+Actions probe (`gflights-probe.yml`) opens an issue when the Worker's scraper stops working.
 
-Amadeus Self-Service was shut down on 2026-07-17 and Kiwi Tequila is invite-only, so neither is
-implemented. Add a provider by implementing `FlightProvider.one_way` (`providers/base.py`).
+Amadeus Self-Service was shut down on 2026-07-17 and Kiwi Tequila is invite-only, so neither is implemented. A new
+source is a provider object with `oneWay(origin, dest, day, opts)` in `web/local/` (see `engine.js`), plus a Worker
+route if it needs a key.
 
 ## How the search algorithm works (internals; for the on-screen flow see "Using Skyhop" above)
 1. Enumerate (depart, return) pairs inside the window for the nights range.
 2. For each pair: round trips, open-jaw (`destinations` x (`destinations` + `return_airports`)),
-   and with `--connect` multi-stop `ORIGIN→D1→D2→ORIGIN` with every night split.
+   and with `connect_destinations` multi-stop `ORIGIN→D1→D2→ORIGIN` with every night split.
 3. Collect the distinct one-way (origin, dest, day) lookups, check the call budget
-   (`--max-calls`), fetch concurrently through a SQLite cache (TTL 6h).
+   (`max_api_calls`), fetch concurrently through the browser's fare cache (TTL 6h).
 4. Filter each leg (stops, layover min/max, max travel time). Self-transfer bundles two tickets
-   through a hub when the gap is at least `--buffer` hours.
+   through a hub when the gap is at least `self_transfer_buffer_min` minutes (4 h by default).
 5. Rank: `effective_cost = price + value_of_time x hours (+ self-transfer penalty)`. Reported per
    departure day as cheapest and best value, plus top-N with segments, deep links and warnings.
 
@@ -231,7 +251,7 @@ implemented. Add a provider by implementing `FlightProvider.one_way` (`providers
   Google's CO₂ estimate against the route's typical flight. "Check on `<Airline>` site" /
   "Select ... on site" go to the airline's own website (see "Using Skyhop" above) — never a search engine,
   and Skyhop itself never books or takes payment.
-- Providers return only what Google Flights shows; some low-cost carriers may be missing.
+- Fares are only what Google Flights shows; some low-cost carriers may be missing.
 
 ## Ask Skyhop: the AI chat in the app
 
@@ -245,19 +265,19 @@ in late November, direct only, no Ryanair, 2 adults and a 6-year-old"*.
   and keeps it on the device. From a brief you can:
   - **Continue** it later in a new chat, for example with new dates. The search is filled back in.
   - **Share** it. The brief includes a link that opens Skyhop with that search filled in.
-  - On the web version, signed in, **Save to Drive**. It is saved to a "Skyhop trip briefs" folder in your Google
+  - Signed in, **Save to Drive**. It is saved to a "Skyhop trip briefs" folder in your Google
     Drive, so it reaches your other devices.
 - With real fares, a search that needs more than 40 paid lookups is confirmed with you first.
-- **👥 Share** (web version, signed in) turns the conversation into a **shared trip**: a group chat with an invite
+- **👥 Share** (signed in) turns the conversation into a **shared trip**: a group chat with an invite
   link.
   - Friends open the link and sign in with Google, any account. They see the whole conversation and its searches,
     and can write to the group. Anyone can press **✨** to ask Skyhop, and its searches and answer are posted for
     everyone.
   - **Open results** on any search runs it on your own screen.
   - **Summarize** saves a brief that everyone in the trip sees.
-  - Friends who aren't on `ALLOWED_EMAILS` use the AI and real fares only inside the trip, within a daily allowance
+  - Friends who aren't on the travel apps' user list use the AI and real fares only inside the trip, within a daily allowance
     (60 AI turns and 300 fare lookups per trip per day). A shared link can never run up your bill.
-- **🗺 Map it** (web version, signed in) puts a search on a [MyMaps AI](https://alon24.github.io/mymaps-ai/) map:
+- **🗺 Map it** (signed in) puts a search on a [MyMaps AI](https://alon24.github.io/mymaps-ai/) map:
   home, each destination with its best fare, and a line to each. After a search over a country or several cities,
   Skyhop offers it.
   - Choose a **new map**, or **add** the search as a new layer to a map you already have.
@@ -265,26 +285,6 @@ in late November, direct only, no Ryanair, 2 adults and a 6-year-old"*.
   - The map is saved in the "MyMaps AI" folder of your Google Drive and opens in MyMaps AI. In a shared trip, the map
     link is posted for everyone.
 
-The model call needs an OpenRouter key: `OPENROUTER_API_KEY` in `.env` for Docker, or the Worker's secret on the web
-version. The model is set with `FLIGHTAGENT_CHAT_MODEL` (Worker: `CHAT_MODEL`).
-
-## Natural-language chat (built in, no n8n)
-
-Skyhop used to have this as an n8n workflow calling `POST /search/simple`; that external chat app has been
-removed and the same job is now done by the service itself (`src/flightagent/chat.py`), one call to a chat
-model to turn your sentence into search parameters, then the same deterministic search everything else uses.
-
-```bash
-flightagent-chat                              # a REPL on the command line
-curl -X POST localhost:8765/api/chat -H 'content-type: application/json' \
-     -d '{"message": "cheapest 5 nights in Rome, Paris or London, October"}'
-```
-
-Needs `OPENROUTER_API_KEY` (or `OPENROUTER_KEY`) in `.env` — the same account used for the Jev model (see
-`docs/DESIGN.md`). Model: `FLIGHTAGENT_CHAT_MODEL` (default `openai/gpt-4o-mini`). Pass back the response's
-`session_id` to continue the same conversation; it asks one short question if a required detail (dates,
-destinations, trip length) is missing, otherwise runs the search and summarises the report. Conversations
-live in memory only (lost on a restart) and are capped so a long-running server can't grow unbounded.
-
-Set `FLIGHTAGENT_PROVIDER=gflights,serpapi` in `.env` (then `docker compose up -d --build`) for real prices;
-with `mock` every report is labelled DEMO DATA. `GET /health` shows the active provider.
+The chat needs a Google sign-in. The model call goes through the Worker, which holds the OpenRouter key
+(`OPENROUTER_API_KEY`, a Worker secret) and sets the model (`CHAT_MODEL` in `worker/wrangler.toml`). The conversation
+and its searches run in your browser; only the model call leaves it.

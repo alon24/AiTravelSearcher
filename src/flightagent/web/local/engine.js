@@ -1,6 +1,5 @@
-/* engine.py in the browser: enumerate date pairs and route shapes, fetch the one-way fares they need (cached), then
-   filter, compose and rank trips. A line-for-line port: tests/test_browser_parity.py runs both on the same searches
-   and requires identical results. */
+/* The search engine: enumerate date pairs and route shapes, fetch the one-way fares they need (cached), then filter,
+   compose and rank trips. Tested in tests/js/. */
 (function (root) {
   "use strict";
   const L = (root.SkyhopLocal = root.SkyhopLocal || {});
@@ -8,7 +7,7 @@
   const LONG_LAYOVER_MIN = 8 * 60;
   const MAX_CELLS = 300;           // 10 destinations x 30 trip lengths
 
-  const CANCELLED = "Cancelled. Fares fetched before you stopped are saved, so searching again reuses them.";   // as api.py
+  const CANCELLED = "Cancelled. Fares fetched before you stopped are saved, so searching again reuses them.";
 
   class BudgetExceeded extends Error {
     constructor(needed, budget) {

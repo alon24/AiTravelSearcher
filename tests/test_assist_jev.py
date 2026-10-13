@@ -1,5 +1,5 @@
-"""The Airline Assist extension's Jev calls (browser-extension/background.js): through the local Skyhop server, or on
-the web version through the Cloudflare Worker the page handed over with its Google sign-in. Runs that part of
+"""The Airline Assist extension's Jev calls (browser-extension/background.js): through the Cloudflare Worker the Skyhop
+page handed over with its Google sign-in. Runs that part of
 background.js in Node with chrome.storage and fetch faked. Skipped without Node."""
 import json
 import shutil
@@ -52,14 +52,14 @@ def test_on_the_web_version_jev_goes_to_the_worker_with_the_sign_in():
     assert call["body"] == {"state": "a page", "questions": {"q": {"type": "noul"}}}
 
 
-def test_without_the_web_version_jev_goes_to_the_local_server():
+def test_without_a_sign_in_jev_says_to_sign_in_and_calls_nothing():
     r = run(local={"decider": "jev"})
-    assert r["calls"][0]["url"] == "http://127.0.0.1:8765/api/decide" and r["calls"][0]["auth"] is None
+    assert r["calls"] == [] and r["error"].startswith("sign in to Skyhop first")
 
 
 def test_an_expired_sign_in_is_not_used():
     r = run(route=live(until=1000), local={"decider": "jev"})
-    assert r["calls"][0]["url"].startswith("http://127.0.0.1:8765/")
+    assert r["calls"] == [] and r["error"].startswith("sign in to Skyhop first")
     assert run(route=live(until=1000))["decider"] == "laya"
 
 

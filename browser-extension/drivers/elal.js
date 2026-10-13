@@ -3,7 +3,7 @@
 // injected script -- so background.js injects the driver again on the results page:
 //   phase "search"  (host www.elal.com):     one-way, destination, date, confirm, search
 //   phase "select"  (host booking.elal.com): find the flight row and pick its cheapest fare
-// Selectors captured from the live site 2026-09-23/24 (same site as providers/elal_verify.py).
+// Selectors captured from the live site 2026-09-23/24.
 // This never touches passenger or payment fields: it stops at the fare/baggage choice.
 (async () => {
   // Details are set by background.js right before each injection (once on the search page, once

@@ -8,9 +8,7 @@ pytest.importorskip("playwright.sync_api")
 
 
 @pytest.fixture
-def pages(page, base_url):
-    if not base_url.endswith("/skyhop"):
-        pytest.skip("Pages build only")
+def pages(page):
     return page
 
 

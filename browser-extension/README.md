@@ -44,7 +44,7 @@ results -> LY383 selected at the cheapest fare, banner shown.
 **Diagnostics without DevTools:** the toolbar icon shows a green stage number -- 1 airline tab
 loaded, 2 search form driven, 3 results page reached and selection injected -- or a red `ERR`
 with the reason in the tooltip. Chrome's per-site "Site access" toggles must be on for
-www.elal.com, booking.elal.com and the Skyhop origin (`localhost:8765` / `127.0.0.1:8765`).
+www.elal.com, booking.elal.com and the Skyhop origin (`alon24.github.io`).
 
 ## TAROM (RO) -- v0.4.0
 
@@ -63,7 +63,7 @@ page says "Assist off", re-enable it in `chrome://extensions`.**
 1. Chrome -> `chrome://extensions`
 2. Toggle **Developer mode** on (top right)
 3. **Load unpacked** -> select this `browser-extension/` folder
-4. Open the Skyhop app at `http://localhost:8765` (or `127.0.0.1:8765`) -- reload the tab if it
+4. Open Skyhop at `https://alon24.github.io/AiTravelSearcher/` -- reload the tab if it
    was already open, so the content script attaches
 5. Run a search, open the "Flights listed without a price" panel (or wherever an El Al flight
    shows) -- if the extension is detected, a **"Select on LY site ↗"** button appears next to the
@@ -144,3 +144,7 @@ flight's route and day. You pick the flight and pay there.
 **v0.8.2: the same scripts run in the Android app** (`android/`, see docs/DESIGN.md). The results driver's banner now
 names the model that answered ("Skyhop Assist (Jev): …"). When it can't reach the model, it gives the reason the
 background script found. For example, it says the local Laya service isn't running and how to start it.
+
+**v0.9.0: the web version is the only Skyhop.** The local Skyhop server (Docker) was retired, so the extension no longer
+attaches to `localhost:8765` and no longer asks that server for Jev. Jev needs your Google sign-in on the site (an
+invited account); without it the badge says so. Laya, the separate local service on port 8799, is unchanged.

@@ -119,8 +119,7 @@ def main():
     tz.update(EXTRA_TZ)
     for code, (city, country_name) in GROUPS.items():
         out.append([code, city, "All airports", country_name, 2, ALIASES.get(code, []), 2])
-    sys.path.insert(0, str(OUT.parents[2]))
-    from flightagent.providers.airports import CITY_AIRPORTS
+    CITY_AIRPORTS = json.loads((TZ_OUT.parent / "config.json").read_text())["city_airports"]
     for code in GROUPS:
         first = CITY_AIRPORTS.get(code, "").split(",")[0]
         if first in coords:
