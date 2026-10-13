@@ -94,11 +94,11 @@ test("a flight Google lists without a fare is kept, flagged unpriced", () => {
 });
 
 // Pinned from the Python reader (gflights.parse_groups) on 2026-10-13.
-test("Google's groups read with the page link and usual price range, every field as the server read them", () => {
+test("Google's groups read with the page link, usual price range and nearby days' fares, every field as the server read them", () => {
   const groups = [...FIXTURE.best, ...FIXTURE.other];
   groups[1] = [groups[1][0], []];                                       // a flight Google lists without a fare
   const link = "https://www.google.com/travel/flights?tfs=GhoSCjIwMjYtMTAtMDU%3D&hl=en-US&curr=EUR";
-  const offers = L.gflights.parse(groups, "TLV", "FCO", "EUR", link, [60, 110]);
+  const offers = L.gflights.parse(groups, "TLV", "FCO", "EUR", link, [60, 110], [["2026-10-04", 63]]);
   const M = L.models;
   assert.deepEqual(offers.map(o => [o.priced, o.price, labels(o), M.duration(o), M.layovers(o), o.co2_g]), [
     [true, 161, "U8132", 225, [], 239000], [false, 0, "6H343", 225, [], 187000], [true, 190, "W46044", 230, [], 143000],
@@ -107,17 +107,17 @@ test("Google's groups read with the page link and usual price range, every field
   assert.deepEqual(offers[3].segments.map(s => [s.departs, s.arrives, s.duration_min, s.aircraft, s.legroom]), [
     ["2026-10-05T23:30:00", "2026-10-06T01:45:00", 135, "Airbus A320neo", "28 in"], ["2026-10-06T10:55:00", "2026-10-06T12:00:00", 125, "Airbus A320neo", "28 in"]]);
   assert.ok(offers.every(o => o.deep_links.join() === link && o.usual_price.join() === "60,110" && o.co2_typical_g === 200000
-    && o.currency === "EUR" && o.provider === "gflights"));
+    && JSON.stringify(o.nearby_fares) === '[["2026-10-04",63]]' && o.currency === "EUR" && o.provider === "gflights"));
 });
 
 test("Google Flights lookups send the whole search to the Worker and link each fare to the page that priced it", async () => {
   const url = "https://www.google.com/travel/flights?tfs=X&hl=en-US&curr=EUR", asked = [];
-  const p = L.gflights.provider(async path => { asked.push(path); return { groups: [...FIXTURE.best, ...FIXTURE.other], url, usual: [60, 110] }; });
+  const p = L.gflights.provider(async path => { asked.push(path); return { groups: [...FIXTURE.best, ...FIXTURE.other], url, usual: [60, 110], nearby: [["2026-10-06", 99]] }; });
   const offers = await p.oneWay("TLV", "FCO", "2026-10-05", { currency: "EUR", adults: 2, children: 1, maxStops: 0, checkedBags: 1 });
   assert.equal(asked.length, 1);
   assert.deepEqual(query(asked[0]), { origin: "TLV", dest: "FCO", date: "2026-10-05", currency: "EUR", adults: "2", max_stops: "0", children: "1",
     infants: "0", carry_on_bags: "0", checked_bags: "1" });
-  assert.ok(offers.length && offers.every(o => o.deep_links[0] === url && o.usual_price.join() === "60,110"));
+  assert.ok(offers.length && offers.every(o => o.deep_links[0] === url && o.usual_price.join() === "60,110" && o.nearby_fares[0][1] === 99));
 });
 
 test("a fare Google leaves out is asked for twice more, then the priced copy replaces the unpriced one", async () => {

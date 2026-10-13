@@ -244,7 +244,7 @@ route if it needs a key.
   trip has a "Compare with a round-trip ticket" link that opens Google Flights' round-trip search for the same dates
   and travellers, and **Check round-trip price**, which asks Google for its cheapest return ticket on those dates and
   says how it compares with the two one-ways. With the free Google Flights source each flight also shows the range
-  Google says that search usually costs.
+  Google says that search usually costs, and Google's fare on a nearby day when that day is cheaper.
 - Times shown are local. Durations use the provider's real flight times (mock data ignores time zones).
 - "Google Flights" deep links open the exact Google Flights search that priced the fare (same passengers, bags,
   stops and currency); with the free Google Flights source, each flight also shows its aircraft, legroom and

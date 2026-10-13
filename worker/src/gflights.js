@@ -56,7 +56,7 @@ export function gflightsQuery(q) {
 }
 
 /** Google's result groups from the page (gflights.parse_html): "best flights" then "other flights", and the range
-    Google says the search usually costs (gflights.usual_range). Throws with a reason when the page holds no results,
+    Google says the search usually costs (gflights.usual_range) with its fares on nearby days. Throws with a reason when the page holds no results,
     e.g. a consent wall or a robot check. */
 export function readPage(html) {
   const script = /<script[^>]*class="ds:1"[^>]*>([\s\S]*?)<\/script>/.exec(html);
@@ -66,14 +66,18 @@ export function readPage(html) {
   }
   const at = script[1].indexOf("data:");
   const raw = script[1].slice(at + 5, script[1].lastIndexOf(","));
-  if (at < 0 || raw.endsWith("errorHasStatus: true")) return { groups: [], usual: null };
+  if (at < 0 || raw.endsWith("errorHasStatus: true")) return { groups: [], usual: null, nearby: null };
   const payload = JSON.parse(raw);
   const groups = [2, 3].flatMap(i => (payload[i] && payload[i][0]) || []);
   if (!groups.length && /<title[^>]*>\s*Find Cheap Flights/.test(html))   // Google's start page (gflights.LANDING_TITLE)
     throw new Error("Google returned its landing page instead of results (it did not understand the query)");
   const insight = Array.isArray(payload[5]) ? payload[5] : [];
   const low = insight[4]?.[1], high = insight[5]?.[1];
-  return { groups, usual: typeof low === "number" && typeof high === "number" ? [low, high] : null };
+  // gflights.nearby_dates: payload[6] entries [depart, return or null, [[_, price], ...]]; one-way ones only
+  const nearby = (Array.isArray(payload[6]) ? payload[6] : [])
+    .filter(e => Array.isArray(e) && typeof e[0] === "string" && e[1] === null && typeof e[2]?.[0]?.[1] === "number")
+    .map(e => [e[0], e[2][0][1]]).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] - b[1]));
+  return { groups, usual: typeof low === "number" && typeof high === "number" ? [low, high] : null, nearby: nearby.length ? nearby : null };
 }
 export const resultGroups = html => readPage(html).groups;
 

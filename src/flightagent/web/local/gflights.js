@@ -14,8 +14,9 @@
   const stamp = (ymd, hm) => `${ymd[0]}-${pad(ymd[1])}-${pad(ymd[2])}T${time(hm)}`;
 
   /** gflights.parse_groups: one Offer per group; a flight Google lists without a fare is kept, marked unpriced.
-      `link` is the Google Flights page the fares came from (the Worker's `url`), `usual` its "usually costs" range. */
-  function parse(groups, origin, dest, currency, link, usual) {
+      `link` is the Google Flights page the fares came from (the Worker's `url`), `usual` its "usually costs" range,
+      `nearby` its fares on nearby days. */
+  function parse(groups, origin, dest, currency, link, usual, nearby) {
     return groups.map(entry => {
       const flight = entry[0];
       let price = null;
@@ -29,7 +30,7 @@
       return L.models.offer({ origin: segments[0].origin, destination: segments[segments.length - 1].destination, price: Number(price || 0),
         currency, segments, provider: "gflights", priced: !!price,
         deep_links: [link || L.mock.googleFlightsLink(origin, dest, segments[0].departs.slice(0, 10))],
-        co2_g: co2, co2_typical_g: co2 == null ? null : typical, usual_price: usual || null });
+        co2_g: co2, co2_typical_g: co2 == null ? null : typical, usual_price: usual || null, nearby_fares: nearby || null });
     });
   }
 
@@ -50,7 +51,7 @@
       const once = async () => {
         const r = await get(`/gflights?${q}`);
         if (r.fetched_at) fetchedAt = Math.min(fetchedAt ?? r.fetched_at, r.fetched_at);
-        return parse(r.groups, origin, dest, currency, r.url, r.usual);
+        return parse(r.groups, origin, dest, currency, r.url, r.usual, r.nearby);
       };
       let offers = await once();
       // Google sometimes omits a fare it shows on the next request: ask again for unpriced flights 
