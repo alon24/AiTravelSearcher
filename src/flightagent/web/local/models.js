@@ -96,7 +96,7 @@
   function offer(o) {
     return { origin: o.origin, destination: o.destination, price: o.price, currency: o.currency, segments: o.segments,
       deep_links: o.deep_links || [], provider: o.provider || "", priced: o.priced ?? true, self_transfer: !!o.self_transfer, hub: o.hub ?? null,
-      co2_g: o.co2_g ?? null, co2_typical_g: o.co2_typical_g ?? null, usual_price: o.usual_price ?? null };
+      co2_g: o.co2_g ?? null, co2_typical_g: o.co2_typical_g ?? null, usual_price: o.usual_price ?? null, nearby_fares: o.nearby_fares ?? null };
   }
   const departs = o => o.segments[0].departs;
   const arrives = o => o.segments[o.segments.length - 1].arrives;
@@ -111,7 +111,7 @@
   function legView(o) {
     return { origin: o.origin, destination: o.destination, airlines: airlines(o), segments: o.segments, stops: stops(o),
       layovers_min: layovers(o), duration_min: duration(o), price: o.price, self_transfer: o.self_transfer, deep_links: o.deep_links, priced: o.priced,
-      co2_g: o.co2_g, co2_typical_g: o.co2_typical_g, usual_price: o.usual_price, provider: o.provider || "", hub: o.hub ?? null };
+      co2_g: o.co2_g, co2_typical_g: o.co2_typical_g, usual_price: o.usual_price, nearby_fares: o.nearby_fares, provider: o.provider || "", hub: o.hub ?? null };
   }
 
   function segment(x) {

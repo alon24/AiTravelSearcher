@@ -353,6 +353,17 @@ def test_gflights_reads_googles_usual_price_range():
     assert {tuple(o.usual_price) for o in parse_html(html, "TLV", "FCO", "USD")} == {(60.0, 110.0)}
 
 
+def test_gflights_reads_googles_fares_on_nearby_days():
+    """payload[6] lists the search's cheapest fare on nearby days (shape read from a live page on 2026-10-11); a
+    round-trip entry (with a return date) does not belong to a one-way search."""
+    from flightagent.providers.gflights import nearby_dates
+
+    grid = [["2026-10-28", None, [[None, 70], "tok"], [1, 1]], ["2026-10-26", None, [[None, 63], "tok"]],
+            ["2026-10-26", "2026-10-31", [[None, 126], "tok"]], ["2026-10-25", None, [None]]]
+    assert nearby_dates([None] * 6 + [grid]) == [("2026-10-26", 63.0), ("2026-10-28", 70.0)]
+    assert nearby_dates([None] * 5) is None and nearby_dates([None] * 6 + [[]]) is None
+
+
 def test_fallback_provider_and_selection(monkeypatch):
     from flightagent.providers import FallbackProvider, get_provider
 

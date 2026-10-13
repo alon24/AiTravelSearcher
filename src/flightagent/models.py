@@ -138,6 +138,7 @@ class Offer(BaseModel):
     co2_g: int | None = None          # Google's CO2 estimate for the itinerary, grams per passenger
     co2_typical_g: int | None = None  # Google's typical figure for the route, which its "+20% emissions" compares to
     usual_price: list[float] | None = None  # Google's "usually costs between" [low, high] for the search that found it
+    nearby_fares: list[tuple[str, float]] | None = None  # Google's cheapest fare for that search on nearby days
 
     @property
     def departs(self) -> datetime:
@@ -193,6 +194,7 @@ class LegView(BaseModel):
     co2_g: int | None = None
     co2_typical_g: int | None = None
     usual_price: list[float] | None = None
+    nearby_fares: list[tuple[str, float]] | None = None
     provider: str = ""                # the fare source that priced it (verify.py checks it against the other)
     hub: str | None = None            # where a self-transfer's two tickets meet
 

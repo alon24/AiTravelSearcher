@@ -1277,6 +1277,14 @@ function co2Note(leg) {
   return h("div", { class: "seg-meta co2", title: "Google Flights' estimate per passenger" }, `${kg} kg CO₂${vs}`);
 }
 
+/** Google's cheapest fare on another nearby day for the same search, when it beats this flight's price. */
+function cheaperDayNote(leg, cur) {
+  const today = leg.segments[0].departs.slice(0, 10);
+  const best = (leg.nearby_fares || []).filter(([d, p]) => d !== today && p < leg.price).sort((a, b) => a[1] - b[1])[0];
+  return best ? h("div", { class: "seg-meta cheaper-day", title: "Google Flights' cheapest fare for the same search on that day" },
+    `Google: ${money(best[1], cur)} if you fly ${fmtDay(day(best[0]))}`) : null;
+}
+
 function legCard(leg, title, cur) {
   const first = leg.segments[0], seen = new Map();
   leg.segments.forEach(s2 => { if (!seen.has(s2.airline_code)) seen.set(s2.airline_code, airlineName(s2.airline_code, s2.airline)); });
@@ -1311,6 +1319,7 @@ function legCard(leg, title, cur) {
       h("strong", { title: isConverted(cur) ? `Originally ${fmtMoney(leg.price, cur)}` : null }, money(leg.price, cur))),
     leg.usual_price ? h("div", { class: "seg-meta usual", title: "Google Flights' price insight for this search" },
       `Google: this search usually costs ${money(leg.usual_price[0], cur)}–${money(leg.usual_price[1], cur)}`) : null,
+    cheaperDayNote(leg, cur),
     legTimes(leg),
     rows, co2Note(leg), h("div", { class: "actions" }, autoSelect, links, direct, Mobile.isPhone() ? h("details", { class: "more-acts" }, h("summary", {}, "More"), h("div", { class: "actions" }, extra)) : extra));
 }

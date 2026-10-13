@@ -32,9 +32,9 @@ def _at(value, *path):
 
 
 def parse_groups(groups: list[list], origin: str, dest: str, currency: str, link: str | None = None,
-                 usual: list[float] | None = None) -> list[Offer]:
+                 usual: list[float] | None = None, nearby: list[tuple[str, float]] | None = None) -> list[Offer]:
     """`link` is the Google Flights page the fares came from, so "Google Flights" opens the very same search;
-    `usual` is that page's "usually costs between" range."""
+    `usual` is that page's "usually costs between" range and `nearby` its fares on nearby days."""
     offers = []
     for entry in groups:
         flight = entry[0]
@@ -59,7 +59,7 @@ def parse_groups(groups: list[list], origin: str, dest: str, currency: str, link
             origin=segs[0].origin, destination=segs[-1].destination, price=float(price or 0),
             currency=currency, segments=segs, provider="gflights", priced=priced,
             deep_links=[link or google_flights_link(origin, dest, segs[0].departs.date())],
-            co2_g=co2, co2_typical_g=typical if co2 is not None else None, usual_price=usual,
+            co2_g=co2, co2_typical_g=typical if co2 is not None else None, usual_price=usual, nearby_fares=nearby,
         ))
     return offers
 
@@ -69,6 +69,15 @@ def usual_range(payload: list) -> list[float] | None:
     low-high is the range Google says the search usually costs."""
     low, high = _at(payload, 5, 4, 1), _at(payload, 5, 5, 1)
     return [float(low), float(high)] if isinstance(low, (int, float)) and isinstance(high, (int, float)) else None
+
+
+def nearby_dates(payload: list) -> list[tuple[str, float]] | None:
+    """Google's "cheaper nearby dates", payload[6] (read 2026-10-11): entries [depart, return or null, [[_, price], ...]].
+    Only one-way entries (no return date) belong to a one-way search."""
+    out = [(e[0], float(p)) for e in (_at(payload, 6) or [])
+           if isinstance(e, list) and len(e) > 2 and isinstance(e[0], str) and e[1] is None
+           and isinstance(p := _at(e, 2, 0, 1), (int, float))]
+    return sorted(out) or None
 
 
 def parse_html(html: str, origin: str, dest: str, currency: str, link: str | None = None) -> list[Offer]:
@@ -94,7 +103,7 @@ def parse_html(html: str, origin: str, dest: str, currency: str, link: str | Non
     title = tree.css_first("title")
     if not groups and title is not None and title.text().startswith(LANDING_TITLE):
         raise RuntimeError("Google returned its landing page instead of results (it did not understand the query)")
-    return parse_groups(groups, origin, dest, currency, link, usual_range(payload))
+    return parse_groups(groups, origin, dest, currency, link, usual_range(payload), nearby_dates(payload))
 
 
 # ------------------------------------------------------------------------------- the `tfs` query (a protobuf)

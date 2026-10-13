@@ -49,6 +49,13 @@ test("the page's price insight gives the range Google says the search usually co
   assert.equal(readPage(page(PAYLOAD)).usual, null);
 });
 
+test("the page's nearby-days fares are read as gflights.nearby_dates reads them", () => {
+  const grid = [["2026-10-28", null, [[null, 70], "tok"], [1, 1]], ["2026-10-26", null, [[null, 63], "tok"]],
+                ["2026-10-26", "2026-10-31", [[null, 126], "tok"]], ["2026-10-25", null, [null]]];
+  assert.deepEqual(readPage(page([null, null, [FIXTURE.best], [FIXTURE.other], null, null, grid])).nearby, [["2026-10-26", 63], ["2026-10-28", 70]]);
+  assert.equal(readPage(page(PAYLOAD)).nearby, null);
+});
+
 test("Google's landing page is an error, not 'no flights'", () => {
   const script = `<script class="ds:1">AF_initDataCallback({key: 'ds:1', data:[null,null,null,null], sideChannel: {}});</script>`;
   assert.throws(() => resultGroups(`<html><head><title>Find Cheap Flights Worldwide & Track Prices</title></head><body>${script}</body></html>`), /landing page/);
