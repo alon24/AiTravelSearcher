@@ -1,0 +1,11 @@
+{
+  "note": "Contract with Skyhop (alon24/AiTravelSearcher tests/fixtures/travel-hub-search.json is the same file): what the hub sends, and the form Skyhop must fill from it. \"3,4 nights, in portugal, 4 people, 1 of them is 16 yo girl\".",
+  "query": {
+    "from": "TLV", "to": "LIS,OPO,FAO", "start": "2026-11-10", "end": "2026-11-20", "nights": "3-4",
+    "adults": "3", "children": "16", "trip": "trip_x", "hub": "https://x.test/hub/"
+  },
+  "form": {
+    "from": ["TLV"], "to": ["LIS", "OPO", "FAO"], "back": [], "start": "2026-11-10", "end": "2026-11-20",
+    "adults": 3, "kids": [16], "nmin": 3, "nmax": 4, "lenMode": "range", "unit": "nights"
+  }
+}

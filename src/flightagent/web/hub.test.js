@@ -51,4 +51,7 @@ assert.strictEqual(H.fromParams("?from=TLV&to=LIS,BAD1&start=2026-11-13&end=2026
 assert.strictEqual(H.fromParams("?app-sign-in=1"), null);
 assert.strictEqual(H.fromParams("?from=TLV&to=LIS&start=2026-11-13&end=bad"), null);
 assert.strictEqual(H.fromParams("?from=TLV&to=LIS&start=2026-11-13&end=2026-11-22&hub=javascript:x").context.hub, H.DEFAULT_HUB);
+// the same link the hub's own test builds (tests/fixtures/travel-hub-search.json = the hub's src/test/fixtures/skyhop-search-link.json)
+const link = JSON.parse(fs.readFileSync(path.join(__dirname, "../../../tests/fixtures/travel-hub-search.json"), "utf8"));
+assert.deepStrictEqual(H.fromParams("?" + new URLSearchParams(link.query)).form, link.form);
 console.log("hub.js ok");
