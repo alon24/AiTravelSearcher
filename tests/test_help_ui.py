@@ -62,7 +62,49 @@ def test_the_tour_spotlights_each_element_and_can_be_skipped(fresh):
     assert fresh.inner_text(".tour-tip h3") == "Welcome to Skyhop"
     fresh.click(".tour-skip")
     assert fresh.locator(".tour").count() == 0
-    assert fresh.evaluate("JSON.parse(localStorage.getItem('skyhop.tour'))") == "seen"
+    fresh.reload()
+    fresh.wait_for_selector(".tour")   # Skip only closes it: it comes back next visit
+
+
+def test_dont_show_again_stops_the_welcome_tour(fresh):
+    fresh.wait_for_selector(".tour")
+    fresh.click(".tour-next")
+    fresh.click(".tour-never")
+    assert fresh.locator(".tour").count() == 0
+    fresh.reload()
+    fresh.wait_for_function("typeof Help === 'object' && !!ac.from")
+    fresh.wait_for_timeout(700)
+    assert fresh.locator(".tour").count() == 0
+    fresh.click(".main-head .help-btn")
+    auto = fresh.locator(".help-auto")
+    assert not auto.is_checked(), "Help shows it is off, and can turn it back on"
+    fresh.locator(".help-auto-row").click()
+    fresh.reload()
+    fresh.wait_for_selector(".tour")
+
+
+def test_a_hebrew_browser_gets_the_tour_in_hebrew_and_can_switch(base_url):
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        p = b.new_context(locale="he-IL", viewport={"width": 1400, "height": 900}).new_page()
+        p.goto(base_url + "/")
+        p.wait_for_selector(".tour")
+        tip = p.locator(".tour-tip")
+        assert tip.get_attribute("dir") == "rtl" and p.inner_text(".tour-tip h3") == "ברוכים הבאים ל-Skyhop"
+        assert p.text_content(".tour-count").endswith(" מתוך 10")
+        p.click(".tour-next")
+        assert p.inner_text(".tour-tip h3") == "לאן"
+        p.click(".tour-tip .help-lang [lang=en]")
+        assert p.inner_text(".tour-tip h3") == "Where", "switching language keeps the step"
+        assert p.locator(".tour-tip").get_attribute("dir") == "ltr"
+        p.keyboard.press("Escape")
+        p.click(".main-head .help-btn")
+        assert p.locator(".help").get_attribute("dir") == "ltr", "the choice is remembered"
+        p.click(".help .help-lang [lang=he]")
+        assert p.locator(".help").get_attribute("dir") == "rtl" and "סיור במסך הזה" in p.inner_text(".help-tour.here")
+        assert p.locator(".help-faq summary").first.inner_text() == "המחירים אמיתיים?"
+        b.close()
 
 
 def test_escape_closes_the_tour(fresh):
@@ -71,6 +113,7 @@ def test_escape_closes_the_tour(fresh):
     assert fresh.inner_text(".tour-tip h3") == "Where"
     fresh.keyboard.press("Escape")
     assert fresh.locator(".tour").count() == 0
+    assert fresh.evaluate("localStorage.getItem('skyhop.tour')") is None, "Escape is a skip, not a 'never'"
 
 
 @pytest.mark.parametrize("link", ["?from=TLV&to=LIS&start=2026-11-13&end=2026-11-22&nights=3", "#trip=abc123"], ids=["travel-hub", "invite"])
@@ -104,8 +147,8 @@ def test_after_a_search_help_tours_the_results(page):
     assert "Reading the results" in page.inner_text(".help-tour.here")
     page.click(".help-tour.here")
     titles = _titles(page)
-    assert titles[:2] == ["Your search", "Jump around"]
-    assert {"Airlines", "The best picks", "Price by departure day", "Mix & match", "Book it"} <= set(titles)
+    assert titles[:2] == ["Your search", "Three views"]
+    assert {"Airlines", "The best picks", "More trips", "Book it"} <= set(titles)
 
 
 def test_the_trip_builder_tour_opens_the_builder(page):
@@ -121,15 +164,29 @@ def test_escape_closes_the_help_panel(page):
     assert page.locator(".help-wrap").count() == 0
 
 
-def test_jump_to_reaches_each_part_of_the_results(page):
+def test_desktop_results_are_three_tabs_with_the_top_trips_as_rows(page):
     _search(page)
-    jump = page.locator(".res-jump")
-    assert jump.inner_text().split("\n")[0].upper() == "JUMP TO"
-    assert [b.inner_text() for b in jump.locator("button").all()] == ["↑ Top", "Compare", "Price by day", "Mix & match", "Selected day", "Top picks overall"]
-    jump.locator("button", has_text="Mix & match").click()
-    page.wait_for_function("""() => { const t = document.querySelector('.res-mix').getBoundingClientRect().top,
-                                         s = document.querySelector('#air-sticky').getBoundingClientRect().bottom;
-                                   return t >= s && t < s + 40; }""", timeout=5000)
+    tabs = page.locator("#air-sticky .res-tabs [role=tab]")
+    assert [t.inner_text() for t in tabs.all()] == ["Trips", "Price by day", "Mix & match"]
+    assert page.locator(".res-pane:not([hidden])").get_attribute("data-pane") == "trips"
+    assert page.locator(".res-chart").is_hidden() and page.locator(".res-mix").is_hidden()
+    assert page.locator(".top-trips .trips > article.trip").count() == 3, "the best three trips in full"
+    row = page.locator(".trip-row").first
+    assert row.locator("article.trip").count() == 0, "a row's full card is built when it opens"
+    row.locator("summary").click()
+    row.locator("article.trip .hub-save").wait_for(timeout=3000)   # the card is built on the toggle event, just after the click
+    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+    tabs.nth(1).click()
+    assert page.locator(".res-chart").is_visible() and page.locator(".top-trips").is_hidden()
+    assert page.evaluate("document.querySelector('.res-chart').getBoundingClientRect().top") < 600, "switching tabs scrolls back up to the results"
+    assert page.locator("#finder").is_hidden(), "the airline finder is out of the way while reading results"
+
+
+def test_the_tab_survives_a_redraw(page):
+    _search(page)
+    page.click("[data-tab=mix]")
+    page.evaluate("renderResult(currentRow, { keepScroll: true })")
+    assert page.locator(".res-pane:not([hidden])").get_attribute("data-pane") == "mix"
 
 
 def test_on_a_phone_the_tour_follows_the_wizard_and_bottom_bar(base_url):

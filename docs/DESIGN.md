@@ -595,9 +595,10 @@ unchanged; turning the window wide or narrow re-renders the results):
   the source of truth, and replaces those floating buttons on phones.
 - Tests: `tests/test_mobile_ui.py`.
 
-### Help, guided tours and "Jump to" (2026-10-14)
+### Help, guided tours and results tabs (2026-10-14)
 
-ilan: help on every screen, maybe a wizard that explains how to do things, and a way to find your way around the screens.
+ilan: help on every screen, maybe a wizard that explains how to do things, a way to find your way around the screens, and
+"it is very hard to work with".
 `web/help.js`:
 - **? button** in the top bar (phone) and page header (desktop) opens a Help panel: "Tour this screen" for the screen you are
   on (search, results, Trip builder, Ask Skyhop), the other tours, and quick answers (demo vs real prices, booking happens on
@@ -605,11 +606,18 @@ ilan: help on every screen, maybe a wizard that explains how to do things, and a
 - **Tours** are lists of steps pointing at real elements (spotlight + bubble, Back/Next, arrows and Escape). A step whose
   element isn't on screen right now (hidden wizard page, the phone's off-canvas side bar, chat not configured) is skipped, so
   one script serves desktop and phone, before and after a search. The Trip builder and chat tours open their drawer first.
-- **Welcome tour** starts once on a first plain visit (`localStorage["skyhop.tour"]`). A Travel Hub or shared link (any
+- **English or Hebrew** (ilan, 2026-10-14): the browser's language by default, or the one picked in Help or on a tour bubble
+  (`localStorage["skyhop.helpLang"]`); Hebrew is right-to-left. Only Help and the tours are translated, not the app itself.
+- **Welcome tour** starts on a plain visit until it is finished (Done) or turned off: Skip and Escape only close it for now,
+  "Don't show this again" stops it, and a switch in Help turns it back on (`localStorage["skyhop.tour"]`). A Travel Hub or shared link (any
   `?query` or `#hash`) opens straight on its search, so the cross-app flow and the Hub demo recorder are not interrupted.
   Tests set that key in `conftest.py` (`TOUR_SEEN`).
-- **Jump to:** the desktop results run to ~16,000px for a two-city search (measured 2026-10-14). A row of links in the sticky
-  airline strip reaches Compare / Best picks, Price by day, Mix & match, Selected day and Top picks overall.
+- **Results tabs (desktop):** the results were one page of ~16,000px for a two-city search (picks or the compare matrix,
+  chart, Mix & match, selected day, then 17 full trip cards of ~700px). Now three tabs, like the phone's: Trips (picks or the
+  compare matrix, the top 3 trips in full, the rest as one-line `details.trip-row` that build their card when opened), Price by
+  day (chart + selected day) and Mix & match. The tab bar sits in the sticky airline strip; the tab is kept per search
+  (`view.deskTab`) across redraws. Same search: 5,400px; one destination: 10,100px → 3,700px. The airline finder hides
+  while results are shown.
 - Tests: `tests/test_help_ui.py`.
 
 ### "Check on <airline> site" for every airline (Sept 2026)

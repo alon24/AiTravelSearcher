@@ -777,8 +777,24 @@ td.air-names { white-space: normal; min-width: 110px; }
 
 /* ---- help: the ? panel and guided tours (help.js) */
 .help-btn { font-weight: 800; font-size: 17px; }
-.res-jump { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.air-sticky .ab + .res-jump { margin-top: 10px; }
+.air-sticky .ab + .res-tabs { margin-top: 10px; }
+.res-tabs { display: flex; gap: 4px; padding: 4px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); width: fit-content; }
+.res-tabs button { border: 0; background: transparent; padding: 9px 22px; border-radius: 10px; font: inherit; font-weight: 800; font-size: 14.5px; color: var(--ink-2); cursor: pointer; }
+.res-tabs button:hover { color: var(--accent-ink); }
+.res-tabs button[aria-selected="true"] { background: var(--accent); color: var(--on-accent); }
+.res-pane { display: grid; gap: 18px; }
+.res-pane[hidden] { display: none; }
+main:has(.res-head) #finder { display: none; }   /* "Which airlines fly to…?" is for planning, not for reading results */
+.trip-rows { display: grid; gap: 8px; }
+.trip-row { background: var(--card); border: 1px solid var(--line); border-radius: 16px; }
+.trip-row[open] { border-color: var(--accent); }
+.trip-row summary { display: grid; grid-template-columns: minmax(90px, auto) 1fr 1.4fr auto; gap: 14px; align-items: center; padding: 12px 16px; cursor: pointer; list-style: none; }
+.trip-row summary::-webkit-details-marker { display: none; }
+.trip-row summary:hover { background: var(--accent-soft); border-radius: 16px; }
+.tr-dest { font-weight: 800; } .tr-when { font-weight: 600; } .tr-air { color: var(--ink-2); font-size: 13.5px; }
+.tr-price { font-weight: 800; font-size: 18px; text-align: right; }
+.trip-row > div { padding: 0 10px 10px; }
+@media (max-width: 1000px) { .trip-row summary { grid-template-columns: 1fr auto; } .tr-when, .tr-air { grid-column: 1 / -1; } }
 .help-wrap .tb-scrim { z-index: 85; }
 .tb.help { z-index: 86; width: min(460px, 100vw); }
 .help-tour { display: grid; gap: 3px; text-align: left; border: 1.5px solid var(--line-2); background: var(--card); border-radius: 16px; padding: 13px 15px; color: var(--ink); font: inherit; cursor: pointer; }
@@ -804,3 +820,13 @@ td.air-names { white-space: normal; min-width: 110px; }
 .topbar .icon-btn { flex: none; }
 @media (max-width: 440px) { .topbar:has(.account-btn:not([hidden])) .brand span:last-child { display: none; } }
 @media (max-width: 380px) { .topbar .brand span:last-child { display: none; } .topbar .icon-btn { width: 36px; height: 36px; } }
+.tour-top, .help-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.help-row .help-h { margin: 0; }
+.help-lang { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--line-2); border-radius: 999px; background: var(--card-2); }
+.help-lang button { border: 0; background: transparent; border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 12.5px; font-weight: 700; color: var(--ink-2); cursor: pointer; }
+.help-lang button[aria-checked="true"] { background: var(--accent); color: var(--on-accent); }
+.tour-never { justify-self: center; border: 0; background: none; padding: 2px; font: inherit; font-size: 13px; color: var(--muted); text-decoration: underline; cursor: pointer; }
+.tour-never:hover { color: var(--accent-ink); }
+.help-auto-row { font-size: 13.5px; font-weight: 600; color: var(--ink-2); }
+[dir="rtl"] .help-tour, [dir="rtl"] .help-faq { text-align: right; }
+[dir="rtl"] .tour-nav > :first-child { margin-right: 0; margin-left: auto; }
