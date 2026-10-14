@@ -20,7 +20,7 @@ window.SKYHOP_HE = {
     // ---- the page (index.html)
     "＋ New search": "＋ חיפוש חדש", "🧳 Trip builder · mix & match": "🧳 בונה הטיולים · ערבוב והתאמה",
     "Trip": "טיול", "Airlines": "חברות תעופה", "Compare": "השוואה", "Run a search to compare": "הריצו חיפוש כדי להשוות",
-    "Past searches": "חיפושים קודמים", "Fly somewhere": "הטיסה הכי זולה,", "for less.": "בלי לחפש יום אחרי יום",
+    "Past searches": "חיפושים קודמים", "Fly somewhere": "טסים בחכמה,", "for less.": "ולא משלמים יותר",
     "Fill in a few cities and a flexible window below. Skyhop checks every day, mixes airlines and finds the cheapest trip.": "מלאו כמה ערים וחלון תאריכים גמיש. Skyhop בודק כל יום, מערבב חברות תעופה ומוצא את הטיול הזול ביותר.",
     "From": "מאיפה", "To": "לאן", "· add several to compare": "· אפשר להוסיף כמה להשוואה", "Earliest departure": "יציאה מוקדמת ביותר",
     "Latest return": "חזרה מאוחרת ביותר", "Trip length": "אורך הטיול", "Nights": "לילות", "Days": "ימים", "Expert mode": "מצב מומחה",
