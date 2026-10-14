@@ -607,7 +607,16 @@ ilan: help on every screen, maybe a wizard that explains how to do things, a way
   element isn't on screen right now (hidden wizard page, the phone's off-canvas side bar, chat not configured) is skipped, so
   one script serves desktop and phone, before and after a search. The Trip builder and chat tours open their drawer first.
 - **English or Hebrew** (ilan, 2026-10-14): the browser's language by default, or the one picked in Help or on a tour bubble
-  (`localStorage["skyhop.helpLang"]`); Hebrew is right-to-left. Only Help and the tours are translated, not the app itself.
+  (`localStorage["skyhop.helpLang"]`); Hebrew is right-to-left. Changing it reloads the page (the language is fixed per load);
+  `sessionStorage["skyhop.helpReopen"]` reopens Help or the welcome tour afterwards.
+- **Whole-app Hebrew** (ilan, 2026-10-14): `i18n.js` + the table `i18n-he.js`. The English text in the code is the key:
+  `tr(s)` exact lookup, `tx("{n} x", {n})` for strings with values, `plural(n, "night")` ("1 night"/"3 nights"; Hebrew has its own
+  one/many words), `tw(s)` for sentences the engine or Worker produce (ordered regexes, `HE.patterns`; the engine itself stays
+  English so node tests run without I18n). `h()` in `app.js` translates string children and title/aria-label/placeholder/alt as it
+  builds; `I18n.apply(root)` translates the static `index.html` once. Dates use `I18n.locale`. `<html>` gets `lang="he" dir="rtl"`.
+  A string missing from the table shows in English, so a gap is ugly but never breaks. `tests/test_hebrew_ui.py` checks the table's
+  placeholders, that every static label in `index.html` has an entry, and a Hebrew search end to end. Not translated: airport and
+  city names, airline fare names ("Economy Light").
 - **Welcome tour** starts on a plain visit until it is finished (Done) or turned off: Skip and Escape only close it for now,
   "Don't show this again" stops it, and a switch in Help turns it back on (`localStorage["skyhop.tour"]`). A Travel Hub or shared link (any
   `?query` or `#hash`) opens straight on its search, so the cross-app flow and the Hub demo recorder are not interrupted.

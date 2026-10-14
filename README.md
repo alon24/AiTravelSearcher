@@ -68,7 +68,8 @@ direct flights. Tap a card for its flights and booking buttons; Back returns to 
 match are tabs, and a bar at the bottom holds Search, Trips, Days, Ask Skyhop and the Trip builder.
 
 **Lost? Press ?** (top of every screen). It opens Help: a guided tour of the screen you are on, tours of the others
-(results, Trip builder, Ask Skyhop) and quick answers, in English or Hebrew (from your browser, or pick one). The welcome
+(results, Trip builder, Ask Skyhop) and quick answers. **The whole app is in English or Hebrew** (from your browser's language, or pick one in Help; Hebrew
+is right-to-left, prices and airport codes stay as they are). The welcome
 tour opens by itself until you finish it or press "Don't show this again"; Skip just closes it for now.
 
 **On a computer** the results are three tabs, kept at the top while you scroll: **Trips** (the best picks or the

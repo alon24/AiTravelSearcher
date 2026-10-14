@@ -36,9 +36,9 @@ const Builder = (() => {
   function addFlight(view, meta = {}) {
     const first = view.segments[0];
     addLeg({ from: view.origin, to: view.destination, date: first.departs.slice(0, 10), flight: view, pax: meta.pax || "", currency: meta.currency || "USD" });
-    afterChange(); toast("Added to Trip builder");
+    afterChange(); toast(tr("Added to Trip builder"));
   }
-  function addTrip(trip, meta = {}) { trip.legs.forEach(v => addLeg({ from: v.origin, to: v.destination, date: v.segments[0].departs.slice(0, 10), flight: v, pax: meta.pax || "", currency: meta.currency || "USD" })); afterChange(); toast(`Added ${plural(trip.legs.length, "flight")} to Trip builder`); }
+  function addTrip(trip, meta = {}) { trip.legs.forEach(v => addLeg({ from: v.origin, to: v.destination, date: v.segments[0].departs.slice(0, 10), flight: v, pax: meta.pax || "", currency: meta.currency || "USD" })); afterChange(); toast(tx("Added {n} to Trip builder", { n: plural(trip.legs.length, "flight") })); }
   function afterChange() { save(); runCheck(); render(); }
 
   // ---------------------------------------------------------------- analysis (server owns time zones + transfer estimates)
@@ -48,7 +48,7 @@ const Builder = (() => {
     try {
       const r = await post("/api/itinerary/check", { legs: fl.map(l => l.flight), currency: fl[0].currency || "USD" });
       if (seq === checkSeq) { check = r; render(); }
-    } catch (e) { if (seq === checkSeq) { check = { error: e.message }; render(); } }
+    } catch (e) { if (seq === checkSeq) { check = { error: tw(e.message) }; render(); } }
   }
   const gapBetween = (a, b) => {
     if (!check || check.error) return null;
@@ -60,13 +60,13 @@ const Builder = (() => {
   // ---------------------------------------------------------------- flight options for one leg
   async function findFlights(leg) {
     const d = drafts[leg.id];
-    if (!d.from || !d.to || !d.date) { options[leg.id] = { error: "Pick where from, where to and a date." }; render(); return; }
+    if (!d.from || !d.to || !d.date) { options[leg.id] = { error: tr("Pick where from, where to and a date.") }; render(); return; }
     Object.assign(leg, { from: d.from, to: d.to, date: d.date });
     options[leg.id] = { loading: true }; render();
     const f = readForm();
     const qs = new URLSearchParams({ origin: d.from, dest: d.to, date: d.date, adults: f.adults, children_ages: f.kids.join(","), currency: f.currency, max_stops: 2 });
     try { options[leg.id] = await api(`/api/flights?${qs}`); }
-    catch (e) { options[leg.id] = { error: e.message }; }
+    catch (e) { options[leg.id] = { error: tw(e.message) }; }
     render();
   }
   function choose(leg, flight) {
@@ -89,22 +89,22 @@ const Builder = (() => {
     return h("div", { class: "fs" },
       h("div", { class: "fs-times" },
         h("div", {}, h("div", { class: "big" }, fmtTime(e.dep)), h("div", { class: "ap" }, e.from), h("div", { class: "dt" }, fmtDay(e.dep))),
-        h("div", { class: "lt-mid" }, h("span", {}, hm(f.duration_min)), h("span", { class: "line", "aria-hidden": "true" }), h("span", {}, f.stops === 0 ? "direct" : plural(f.stops, "stop"))),
+        h("div", { class: "lt-mid" }, h("span", {}, hm(f.duration_min)), h("span", { class: "line", "aria-hidden": "true" }), h("span", {}, stopsText(f.stops))),
         h("div", { class: "r" }, h("div", { class: "big" }, fmtTime(e.arr), sh > 0 ? h("sup", {}, `+${sh}`) : null), h("div", { class: "ap" }, e.to), h("div", { class: "dt" }, fmtDay(e.arr)))),
       h("div", { class: "fs-meta" }, h("span", { class: "fs-air" }, names.join(" · ")), h("span", { class: "fs-codes" }, f.segments.map(s => `${s.airline_code}${s.flight_number}`).join(" + ")),
-        f.layovers_min.length ? h("span", { class: "badge ok" }, f.layovers_min.map((m, i) => `${hm(m)} in ${f.segments[i].destination}`).join(", ")) : null),
+        f.layovers_min.length ? h("span", { class: "badge ok" }, f.layovers_min.map((m, i) => tx("{t} in {a}", { t: hm(m), a: f.segments[i].destination })).join(", ")) : null),
       cur ? h("div", { class: "fs-price" + (f.priced === false ? " np" : "") }, f.priced === false ? "No price shown" : money(f.price, cur), f.priced === false ? null : origNote(f.price, cur, "orig block")) : null);
   }
 
   function gapBlock(g) {
     if (!g) return h("div", { class: "gap idle" }, "Pick a flight for both legs to check the time between them.");
-    const label = { ok: "OK", tight: "Tight", impossible: "Not enough time" }[g.status];
+    const label = tr({ ok: "OK", tight: "Tight", impossible: "Not enough time" }[g.status]);
     return h("div", { class: `gap ${g.status}` },
-      h("div", { class: "gap-h" }, h("span", { class: "pill" }, label), h("span", {}, g.headline)),
-      g.detail ? h("div", { class: "gap-d" }, g.detail) : null,
-      h("div", { class: "gap-m" }, h("span", {}, `⏱ ${g.gap_text}`),
-        g.transfer_min != null ? h("span", {}, `🚕 ~${g.transfer_min} min between airports (estimate)`) : null,
-        g.needed_min != null && g.gap_min < 1440 ? h("span", {}, `needs ≥ ${hm(g.needed_min)}`) : null,
+      h("div", { class: "gap-h" }, h("span", { class: "pill" }, label), h("span", {}, tw(g.headline))),
+      g.detail ? h("div", { class: "gap-d" }, tw(g.detail)) : null,
+      h("div", { class: "gap-m" }, h("span", {}, `⏱ ${tw(g.gap_text)}`),
+        g.transfer_min != null ? h("span", {}, tx("🚕 ~{n} min between airports (estimate)", { n: g.transfer_min })) : null,
+        g.needed_min != null && g.gap_min < 1440 ? h("span", {}, tx("needs ≥ {t}", { t: hm(g.needed_min) })) : null,
         g.arrive_airport !== g.depart_airport ? h("span", {}, `${g.arrive_airport} → ${g.depart_airport}`) : null));
   }
 
@@ -137,7 +137,7 @@ const Builder = (() => {
         h("label", { class: "switch mini-sw" }, h("input", { type: "checkbox", checked: f.nonstop, onchange: e => { f.nonstop = e.target.checked; render(); } }), "Nonstop only")),
       h("div", { class: "tb-air" }, [...airlines].map(([code, name]) => h("button", { type: "button", class: "pill" + (f.hidden.has(code) ? " off" : ""), "aria-pressed": String(!f.hidden.has(code)),
         title: f.hidden.has(code) ? "Excluded: click to include" : "Click to exclude", onclick: () => { f.hidden.has(code) ? f.hidden.delete(code) : f.hidden.add(code); render(); } }, name))),
-      h("div", { class: "hint" }, `${plural(list.length, "flight")} · ${o.travellers} · prices are totals`),
+      h("div", { class: "hint" }, tx("{n} · {pax} · prices are totals", { n: plural(list.length, "flight"), pax: tw(o.travellers) })),
       list.length ? list.map((x, i) => h("button", { type: "button", class: "opt", onclick: () => choose(leg, x) }, flightSummary(x, o.currency),
         i === 0 && f.sort === "price" ? h("span", { class: "badge ok tag" }, "cheapest") : null)) : h("div", { class: "note" }, "No flights match these filters."));
   }
@@ -147,23 +147,23 @@ const Builder = (() => {
     return h("div", { class: "tb-leg" + (editing ? " editing" : "") },
       h("div", { class: "tb-leg-h" },
         h("span", { class: "num" }, i + 1),
-        h("div", { class: "route" }, `${leg.from ? place(leg.from) : "Where from?"} → ${leg.to ? place(leg.to) : "Where to?"}`, h("small", {}, leg.date ? fmtDay(day(leg.date)) : "No date yet")),
+        h("div", { class: "route" }, `${leg.from ? place(leg.from) : tr("Where from?")} → ${leg.to ? place(leg.to) : tr("Where to?")}`, h("small", {}, leg.date ? fmtDay(day(leg.date)) : tr("No date yet"))),
         h("div", { class: "actions" },
-          h("button", { type: "button", class: "btn small", onclick: () => { editingId = editing ? null : leg.id; delete drafts[leg.id]; render(); } }, editing ? "Close" : leg.flight ? "Change" : "Pick a flight"),
-          h("button", { type: "button", class: "btn small ghost", "aria-label": `Remove leg ${i + 1}`, onclick: () => removeLeg(leg.id) }, "✕"))),
+          h("button", { type: "button", class: "btn small", onclick: () => { editingId = editing ? null : leg.id; delete drafts[leg.id]; render(); } }, tr(editing ? "Close" : leg.flight ? "Change" : "Pick a flight")),
+          h("button", { type: "button", class: "btn small ghost", "aria-label": tx("Remove leg {n}", { n: i + 1 }), onclick: () => removeLeg(leg.id) }, "✕"))),
       leg.flight && !editing ? h("div", { class: "tb-chosen" }, flightSummary(leg.flight, leg.currency),
-        h("div", { class: "actions" }, airlinesOfSegments(leg.flight.segments).map(([code, name, segs]) => siteButton(code, name, segs)), (leg.flight.deep_links || []).map((u, k) => h("a", { class: "btn small", href: u, target: "_blank", rel: "noopener noreferrer" }, leg.flight.deep_links.length > 1 ? `Google Flights · ticket ${k + 1} ↗` : "Google Flights ↗")))) : null,
+        h("div", { class: "actions" }, airlinesOfSegments(leg.flight.segments).map(([code, name, segs]) => siteButton(code, name, segs)), (leg.flight.deep_links || []).map((u, k) => h("a", { class: "btn small", href: u, target: "_blank", rel: "noopener noreferrer" }, leg.flight.deep_links.length > 1 ? tx("Google Flights · ticket {n} ↗", { n: k + 1 }) : "Google Flights ↗")))) : null,
       editing ? editor(leg) : null);
   }
 
   function summaryText() {
     const fl = flightLegs(), pax = [...new Set(fl.map(l => l.pax).filter(Boolean))];
-    const lines = [`Skyhop trip${pax.length ? ` · ${pax.join(" / ")}` : ""} · total ${fmtMoney(totalOf(fl), displayCurrency)}${originalTotals(fl) ? ` (originally ${originalTotals(fl)})` : ""}${fl.some(l => l.flight.priced === false) ? " + unpriced flight(s)" : ""}`];
+    const lines = [`Skyhop ${tr("trip")}${pax.length ? ` · ${pax.join(" / ")}` : ""} · ${tr("total")} ${fmtMoney(totalOf(fl), displayCurrency)}${originalTotals(fl) ? ` (${tx("originally {p}", { p: originalTotals(fl) })})` : ""}${fl.some(l => l.flight.priced === false) ? ` + ${tr("unpriced flight(s)")}` : ""}`];
     fl.forEach((l, i) => {
       const f = l.flight, e = legEnds(f);
-      lines.push(`${i + 1}) ${fmtDay(e.dep)}  ${e.from} ${fmtTime(e.dep)} → ${e.to} ${fmtTime(e.arr)}  ${[...new Set(f.segments.map(s => airlineName(s.airline_code, s.airline)))].join(" + ")} ${f.segments.map(s => s.airline_code + s.flight_number).join("+")}  ${f.priced === false ? "price not shown" : money(f.price, l.currency)}`);
+      lines.push(`${i + 1}) ${fmtDay(e.dep)}  ${e.from} ${fmtTime(e.dep)} → ${e.to} ${fmtTime(e.arr)}  ${[...new Set(f.segments.map(s => airlineName(s.airline_code, s.airline)))].join(" + ")} ${f.segments.map(s => s.airline_code + s.flight_number).join("+")}  ${f.priced === false ? tr("price not shown") : money(f.price, l.currency)}`);
       const g = fl[i + 1] ? gapBetween(l, fl[i + 1]) : null;
-      if (g) lines.push(`   ↳ ${g.headline}${g.detail ? " " + g.detail : ""}`);
+      if (g) lines.push(`   ↳ ${tw(g.headline)}${g.detail ? " " + tw(g.detail) : ""}`);
     });
     return lines.join("\n");
   }
@@ -182,7 +182,7 @@ const Builder = (() => {
           canStart ? h("button", { type: "button", class: "btn primary small-primary", onclick: () => {
             const back = new Date(day(f.start)); back.setDate(back.getDate() + Math.max(1, f.nmin || 4));
             const a = addLeg({ from: f.from[0], to: f.to[0], date: f.start }), b = addLeg({ from: f.to[0], to: f.from[0], date: iso(back) });
-            editingId = a.id; render(); } }, `Round trip ${f.from[0]} ⇄ ${f.to[0]} from my search`) : null,
+            editingId = a.id; render(); } }, tx("Round trip {a} ⇄ {b} from my search", { a: f.from[0], b: f.to[0] })) : null,
           h("button", { type: "button", class: "btn", onclick: () => { const l = addLeg({ from: f.from[0] || "" }); editingId = l.id; render(); } }, "Start with an empty leg"))));
     }
     legs.forEach((leg, i) => {
@@ -196,19 +196,19 @@ const Builder = (() => {
         editingId = l.id; render();
       } }, "＋ Add another leg"));
     }
-    if (check && check.error) body.push(h("div", { class: "note bad" }, `Could not check the gaps: ${check.error}`));
+    if (check && check.error) body.push(h("div", { class: "note bad" }, tx("Could not check the gaps: {m}", { m: check.error })));
     els.body.replaceChildren(...body);
     const pax = [...new Set(fl.map(l => l.pax).filter(Boolean))];
     els.foot.replaceChildren(
-      h("div", { class: "tb-total" }, h("div", { class: "k" }, `Total for ${plural(fl.length, "flight")}`), h("div", { class: "v" }, fl.length ? fmtMoney(total, displayCurrency) : "—"),
-        originalTotals(fl) ? h("div", { class: "pax" }, `originally ${originalTotals(fl)}`) : null,
-        unp ? h("div", { class: "pax" }, `+ ${plural(unp, "flight")} with no price shown: check the airline's site`) : null,
-        pax.length ? h("div", { class: "pax" }, pax.join(" / ") + (pax.length > 1 ? " (legs priced for different travellers!)" : "")) : null),
-      check && !check.error && check.warnings.length ? h("div", { class: "warn info" }, h("span", { "aria-hidden": "true" }, "ℹ"), check.warnings[0]) : null,
+      h("div", { class: "tb-total" }, h("div", { class: "k" }, tx("Total for {n}", { n: plural(fl.length, "flight") })), h("div", { class: "v" }, fl.length ? fmtMoney(total, displayCurrency) : "—"),
+        originalTotals(fl) ? h("div", { class: "pax" }, tx("originally {p}", { p: originalTotals(fl) })) : null,
+        unp ? h("div", { class: "pax" }, tx("+ {n} with no price shown: check the airline's site", { n: plural(unp, "flight") })) : null,
+        pax.length ? h("div", { class: "pax" }, pax.map(tw).join(" / ") + (pax.length > 1 ? ` ${tr("(legs priced for different travellers!)")}` : "")) : null),
+      check && !check.error && check.warnings.length ? h("div", { class: "warn info" }, h("span", { "aria-hidden": "true" }, "ℹ"), tw(check.warnings[0])) : [],
       h("div", { class: "actions" },
         h("button", { type: "button", class: "btn small accent hub-save", disabled: !fl.length, title: "Put these flights on your trip in Travel Hub", onclick: () => saveToHub(fl.map(l => ({ ...l.flight, currency: l.currency }))) }, hubLabel()),
-        h("button", { type: "button", class: "btn small", disabled: !fl.length, onclick: async () => { try { await navigator.clipboard.writeText(summaryText()); toast("Trip summary copied"); } catch { toast("Could not copy"); } } }, "Copy summary"),
-        h("button", { type: "button", class: "btn small ghost", disabled: !legs.length, onclick: () => { if (confirm("Remove all legs from the Trip builder?")) { legs = []; check = null; editingId = null; save(); render(); } } }, "Clear all")));
+        h("button", { type: "button", class: "btn small", disabled: !fl.length, onclick: async () => { try { await navigator.clipboard.writeText(summaryText()); toast(tr("Trip summary copied")); } catch { toast(tr("Could not copy")); } } }, "Copy summary"),
+        h("button", { type: "button", class: "btn small ghost", disabled: !legs.length, onclick: () => { if (confirm(tr("Remove all legs from the Trip builder?"))) { legs = []; check = null; editingId = null; save(); render(); } } }, "Clear all")));
   }
 
   // ---------------------------------------------------------------- open / close

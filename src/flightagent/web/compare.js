@@ -13,7 +13,6 @@ const Compare = (() => {
   // Airlines of a trip, in flight order: [[code, name], ...]
   const airlinesOf = t => [...new Map(t.legs.flatMap(l => l.segments).map(s => [s.airline_code, nameOfCode(s.airline_code, s)])).entries()];
   const legNames = leg => [...new Map(leg.segments.map(s => [s.airline_code, nameOfCode(s.airline_code, s)])).values()];
-  const stopsText = n => (n === 0 ? "direct" : plural(n, "stop"));
   const lenWord = n => (unit === "days" ? plural(n + 1, "day") : plural(n, "night"));   // `unit` is app.js's nights/days switch
   const heat = (p, lo, hi) => (hi > lo ? (p - lo) / (hi - lo) : 0);
 
@@ -64,7 +63,7 @@ const Compare = (() => {
     if (lens.length > MAX_LENGTH_ROWS) {
       const bestOf = n => Math.min(...cells.filter(c => c.nights === n).map(c => c.cheapest.price));
       const keep = new Set([...lens].sort((a, b) => bestOf(a) - bestOf(b)).slice(0, MAX_LENGTH_ROWS));
-      lensNote = `Showing the ${MAX_LENGTH_ROWS} cheapest of ${lens.length} trip lengths. Use the length chips below to look at any other.`;
+      lensNote = tx("Showing the {n} cheapest of {m} trip lengths. Use the length chips below to look at any other.", { n: MAX_LENGTH_ROWS, m: lens.length });
       lens = lens.filter(n => keep.has(n));
     }
     const shown = cells.filter(c => lens.includes(c.nights));
@@ -80,7 +79,7 @@ const Compare = (() => {
           h("div", { class: "cmp-legend", "aria-hidden": "true" }, "Lowest price", h("i", { class: "h0" }), h("i", { class: "h1" }), h("i", { class: "h2" }), h("i", { class: "h3" }), "Higher price")),
         comboCells && comboCells < allCells.length ? h("label", { class: "cmp-check cmp-combos" }, h("input", { type: "checkbox", checked: st.combos,
           onchange: e => { st.combos = e.target.checked; st.dests.clear(); st.sel.clear(); render(host, { res, q, cur, pax, state: st }); } }),
-          `Also show open-jaw and multi-city combinations (${comboCells})`) : null,
+          tx("Also show open-jaw and multi-city combinations ({n})", { n: comboCells })) : null,
         matrixHost, lensNote ? h("div", { class: "note" }, lensNote) : null),
       h("div", { class: "card panel cmp-card" }, tableHost));
 
@@ -92,13 +91,13 @@ const Compare = (() => {
         const rowCells = present.map(d => byKey.get(CELL(d, n)));
         const best = allCells.filter(c => c.nights === n).reduce((a, b) => (b.cheapest.price < a.cheapest.price ? b : a));   // over EVERYTHING, combos included
         return h("div", { class: "cmp-row", style: `--cols:${present.length}` },
-          h("div", { class: "cmp-rh" }, h("b", {}, lenWord(n)), h("span", {}, `from ${money(best.cheapest.price, cur)}`)),
-          h("div", { class: "cmp-best" }, h("b", {}, money(best.cheapest.price, cur)), h("span", {}, `${best.destination}${isCombo(best.cheapest) ? " (open-jaw)" : ""} · ${airlinesOf(best.cheapest).map(a => a[1]).slice(0, 2).join(" / ")}`)),
+          h("div", { class: "cmp-rh" }, h("b", {}, lenWord(n)), h("span", {}, tx("from {p}", { p: money(best.cheapest.price, cur) }))),
+          h("div", { class: "cmp-best" }, h("b", {}, money(best.cheapest.price, cur)), h("span", {}, `${best.destination}${isCombo(best.cheapest) ? ` ${tr("(open-jaw)")}` : ""} · ${airlinesOf(best.cheapest).map(a => a[1]).slice(0, 2).join(" / ")}`)),
           rowCells.map((c, i) => {
             if (!c) return h("div", { class: "cmp-cell empty" }, h("span", {}, "no trip"));
             const t = c.cheapest, key = CELL(c.destination, c.nights), on = st.sel.has(key);
             return h("button", { type: "button", class: "cmp-cell" + (on ? " sel" : "") + (c === lowest ? " lowest" : ""), "aria-pressed": String(on),
-              style: `--heat:${heat(t.price, lo, hi).toFixed(3)}`, title: `${present[i]} · ${lenWord(c.nights)} · ${c.trips} trip${c.trips === 1 ? "" : "s"} compared`,
+              style: `--heat:${heat(t.price, lo, hi).toFixed(3)}`, title: tx("{dest} · {len} · {n} compared", { dest: present[i], len: lenWord(c.nights), n: plural(c.trips, "trip") }),
               onclick: () => { toggle(st.sel, key); drawMatrix(); drawTable(); } },
               h("span", { class: "p" }, money(t.price, cur), c === lowest ? h("em", {}, "lowest") : null),
               h("span", { class: "a" }, airlinesOf(t).map(a => a[1]).slice(0, 2).join(" / "), ` · ${stopsText(t.stops)}`),
@@ -128,7 +127,7 @@ const Compare = (() => {
         h("td", { class: "c-dates" }, h("div", {}, `${fmtDay(day(t.depart_date))} → ${fmtDay(day(t.return_date))}`), h("div", { class: "sub" }, lenWord(t.nights))),
         h("td", { class: "c-price" + (t.price === groupMin ? " low" : "") }, money(t.price, cur), origNote(t.price, cur, "orig block")),
         h("td", {}, legInfo(out)), h("td", {}, legInfo(back)),
-        h("td", { class: "c-info" }, h("div", { class: t.stops === 0 ? "ok" : "warn" }, t.stops === 0 ? "Nonstop" : plural(t.stops, "stop")),
+        h("td", { class: "c-info" }, h("div", { class: t.stops === 0 ? "ok" : "warn" }, t.stops === 0 ? tr("Nonstop") : plural(t.stops, "stop")),
           h("div", { class: "sub" }, `${hm(out.duration_min)} / ${hm(back.duration_min)}`)),
         h("td", { class: "c-act" }, siteButtons(t)));
       return open ? [tr, h("tr", { class: "cmp-detail" }, h("td", { colspan: "7" }, tripCard(t, cur, pax)))] : [tr];
@@ -149,7 +148,7 @@ const Compare = (() => {
         const count = st.group === "length" ? new Set(g.map(t => t.destination)).size : new Set(g.map(t => t.nights)).size;
         return [label ? h("tr", { class: "cmp-grp" }, h("td", { colspan: "7" },
           st.group === "destination" ? h("i", { style: `background:${colorOf(k)}`, "aria-hidden": "true" }) : h("span", { "aria-hidden": "true" }, "☾"),
-          h("b", {}, `${label} · from ${money(min, cur)}`), h("span", { class: "n" }, plural(count, unitWord)))) : null,
+          h("b", {}, tx("{label} · from {p}", { label, p: money(min, cur) })), h("span", { class: "n" }, plural(count, unitWord)))) : null,
           ...g.flatMap(t => tripRow(t, min))].filter(Boolean);
       });
       const total = st.show === "best" ? cells.length : daily.length;
@@ -164,10 +163,10 @@ const Compare = (() => {
           h("span", { class: "cmp-lbl" }, "Group by"), segmented("Group by", [["none", "None"], ["destination", "Destination"], ["length", "Length"]], st.group, v => { st.group = v; drawTable(); })),
         h("div", { class: "cmp-tools" },
           h("label", { class: "cmp-check" }, h("input", { type: "checkbox", checked: st.nonstop, onchange: e => { st.nonstop = e.target.checked; drawTable(); } }), "Nonstop only"),
-          h("label", { class: "cmp-sort" }, "Sort by ", h("select", { onchange: e => { st.sort = e.target.value; drawTable(); } },
+          h("label", { class: "cmp-sort" }, tr("Sort by"), " ", h("select", { onchange: e => { st.sort = e.target.value; drawTable(); } },
             [["price", "Price (lowest)"], ["best", "Best value"], ["stops", "Fewest stops"], ["travel", "Shortest travel time"]].map(([v, t]) => h("option", { value: v, selected: st.sort === v }, t)))),
-          h("span", { class: "badge run" }, rows.length === total ? plural(rows.length, "trip") : `${rows.length} of ${total} trips`),
-          st.sel.size ? h("button", { type: "button", class: "btn small ghost", onclick: () => { st.sel.clear(); drawMatrix(); drawTable(); } }, `Clear ${plural(st.sel.size, "selected cell")}`) : null),
+          h("span", { class: "badge run" }, rows.length === total ? plural(rows.length, "trip") : tx("{n} of {m} trips", { n: rows.length, m: total })),
+          st.sel.size ? h("button", { type: "button", class: "btn small ghost", onclick: () => { st.sel.clear(); drawMatrix(); drawTable(); } }, tx("Clear {n}", { n: plural(st.sel.size, "selected cell") })) : null),
         rows.length ? h("div", { class: "cmp-scroll" }, h("table", { class: "cmp-table" },
           h("colgroup", {}, ["10%", "14%", "8%", "18%", "18%", "12%", "20%"].map(w => h("col", { style: `width:${w}` }))),
           h("thead", {}, h("tr", {}, ["Destination", "Dates", "Total", "Outbound", "Return", "Trip info", ""].map((t, i) => h("th", { class: i === 2 ? "r" : "" }, t)))),

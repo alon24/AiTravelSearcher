@@ -43,7 +43,7 @@ const MixMatch = (() => {
     S.lists[k] = { loading: true };
     const start = S.key;
     api(`/api/searches/${S.row.id}/flights?${new URLSearchParams({ origin: o, dest: d, date, ...(S.showAll ? { all: 1 } : {}) })}`)
-      .then(r => { S.lists[k] = r; }).catch(e => { S.lists[k] = { error: e.message }; })
+      .then(r => { S.lists[k] = r; }).catch(e => { S.lists[k] = { error: tw(e.message) }; })
       .finally(() => { if (S.key === start) draw(host); });
     return S.lists[k];
   }
@@ -52,7 +52,7 @@ const MixMatch = (() => {
     const k = lk(o, d, date), start = S.key;
     S.fees[k] = { loading: true }; draw(host);
     try { S.fees[k] = await api(`/api/searches/${S.row.id}/bagfees?${new URLSearchParams({ origin: o, dest: d, date })}`); }
-    catch (e) { S.fees[k] = { error: e.message }; }
+    catch (e) { S.fees[k] = { error: tw(e.message) }; }
     if (S.key === start) draw(host);
   }
 
@@ -67,11 +67,11 @@ const MixMatch = (() => {
     if (e && fees.available) {
       // 0 means "Google added nothing": the bag may be included, or Google has no fee for it. Never show that as "free".
       for (const [name, v] of [["cabin bag", e.cabin], ["checked bag", e.checked]]) {
-        chips.push(v > 0 ? h("span", { class: "bag" }, `🧳 ${name} +${money(v, fees.currency)}`)
-          : h("span", { class: "bag dim", title: "Google added no fee for this bag: it may be included in the fare, or Google may have no fee data for this airline. Check the airline's baggage page." }, `🧳 ${name}: no estimate`));
+        chips.push(v > 0 ? h("span", { class: "bag" }, `🧳 ${tr(name)} +${money(v, fees.currency)}`)
+          : h("span", { class: "bag dim", title: "Google added no fee for this bag: it may be included in the fare, or Google may have no fee data for this airline. Check the airline's baggage page." }, `🧳 ${tr(name)}: ${tr("no estimate")}`));
       }
     }
-    if (note) chips.push(h("span", { class: "bag dim", title: `${note} General policy from published summaries, not from Google and not per fare: confirm on the airline's site.` }, `🧳 ${(config.bag_short || {})[f.segments[0].airline_code] || "bags usually extra"}`));
+    if (note) chips.push(h("span", { class: "bag dim", title: `${tr(note)} ${tr("General policy from published summaries, not from Google and not per fare: confirm on the airline's site.")}` }, `🧳 ${tr((config.bag_short || {})[f.segments[0].airline_code] || "bags usually extra")}`));
     return chips;
   }
 
@@ -89,20 +89,20 @@ const MixMatch = (() => {
         onclick: onPick, onkeydown: ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); onPick(); } } },
       h("div", { class: "mm-times" }, h("b", {}, fmtTime(e.dep)), h("span", { class: "ap" }, e.from), h("span", { class: "arrow" }, "→"), h("b", {}, fmtTime(e.arr), sh > 0 ? h("sup", {}, `+${sh}`) : null), h("span", { class: "ap" }, e.to)),
       h("div", { class: "mm-meta" }, h("span", { class: "mm-air" }, names.join(" · ")), h("span", { class: "mm-code" }, f.segments.map(s => `${s.airline_code}${s.flight_number}`).join(" + ")),
-        h("span", {}, `${hm(f.duration_min)} · ${f.stops === 0 ? "direct" : plural(f.stops, "stop")}`),
-        f.layovers_min.length ? h("span", { class: "badge ok" }, f.layovers_min.map((m, i) => `${hm(m)} in ${f.segments[i].destination}`).join(", ")) : null),
+        h("span", {}, `${hm(f.duration_min)} · ${stopsText(f.stops)}`),
+        f.layovers_min.length ? h("span", { class: "badge ok" }, f.layovers_min.map((m, i) => tx("{t} in {a}", { t: hm(m), a: f.segments[i].destination })).join(", ")) : null),
       h("div", { class: "mm-bags" }, bagChips(f, fees)),
       h("div", { class: "mm-price" }, f.priced === false ? h("span", { class: "np" }, "No price shown") : [money(f.price, cur), origNote(f.price, cur, "orig block")]),
       siteLinks(f).length || autoSeg ? h("div", { class: "mm-actions" }, siteLinks(f), autoSeg ? h("button", { type: "button", class: "btn small accent", title: "Opens a new tab, searches and selects this flight on the airline's own site (you finish the booking there)",
         onclick: ev => { ev.stopPropagation(); autoSearch(); } },
-        `✈ Select ${autoSeg.airline_code}${autoSeg.flight_number} on site ↗`) : null) : null);
+        tx("✈ Select {f} on site ↗", { f: `${autoSeg.airline_code}${autoSeg.flight_number}` })) : null) : null);
   }
 
   function column(host, title, o, d, date, kind) {
     const list = ensure(host, o, d, date), k = lk(o, d, date), fees = S.fees[k];
     const head = h("div", { class: "mm-head" }, h("div", {}, h("div", { class: "mm-title" }, title), h("div", { class: "mm-sub" }, `${fmtDay(day(date))} · ${o} → ${d}`)),
       h("button", { type: "button", class: "btn small", disabled: !!(fees && fees.loading), title: "Asks Google what it would add for a cabin bag and a checked bag. Only available where Google has fee data.",
-        onclick: () => loadFees(host, o, d, date) }, fees && fees.loading ? "Checking bags…" : fees && fees.fees ? "Bag fees ✓" : "Show bag fees"));
+        onclick: () => loadFees(host, o, d, date) }, tr(fees && fees.loading ? "Checking bags…" : fees && fees.fees ? "Bag fees ✓" : "Show bag fees")));
     let body;
     if (list.loading) body = h("div", { class: "tb-loading" }, h("span", { class: "plane", "aria-hidden": "true" }, "✈️"), "Loading flights…");
     else if (list.error) body = h("div", { class: "note bad" }, list.error);
@@ -125,16 +125,16 @@ const MixMatch = (() => {
     if (!S.check) {
       const start = S.key, pair = [out, ret];
       S.check = { loading: true };
-      post("/api/itinerary/check", { legs: pair, currency: cur }).then(r => { if (S.key === start && S.out === pair[0] && S.ret === pair[1]) S.check = r; }).catch(e => { S.check = { error: e.message }; }).finally(() => { if (S.key === start) draw(host); });
+      post("/api/itinerary/check", { legs: pair, currency: cur }).then(r => { if (S.key === start && S.out === pair[0] && S.ret === pair[1]) S.check = r; }).catch(e => { S.check = { error: tw(e.message) }; }).finally(() => { if (S.key === start) draw(host); });
     }
     const g = S.check && S.check.gaps ? S.check.gaps[0] : null;
     const label = f => `${[...new Set(f.segments.map(s => airlineName(s.airline_code, s.airline)))].join("+")} ${tmShort(f)}`;
     return h("div", { class: "mm-sum" },
-      h("div", { class: "mm-total" }, h("div", { class: "k" }, "Your combination"), h("div", { class: "v" }, fmtMoney(total, shownCur(cur)), isConverted(cur) ? h("small", { class: "orig block" }, `originally ${fmtMoney(orig, cur)}`) : null),
+      h("div", { class: "mm-total" }, h("div", { class: "k" }, "Your combination"), h("div", { class: "v" }, fmtMoney(total, shownCur(cur)), isConverted(cur) ? h("small", { class: "orig block" }, tx("originally {p}", { p: fmtMoney(orig, cur) })) : null),
         priced.length < 2 ? h("div", { class: "pax" }, "One flight has no price shown: check the airline's site") : null),
-      h("div", { class: "mm-pick" }, h("div", {}, h("b", {}, "Out "), label(out)), h("div", {}, h("b", {}, "Back "), label(ret)),
-        S.check && S.check.error ? h("div", { class: "note bad" }, `Couldn't check the time between these flights: ${S.check.error}`) : null,
-        g ? h("div", { class: `gap ${g.status}` }, h("div", { class: "gap-h" }, h("span", { class: "pill" }, { ok: "OK", tight: "Tight", impossible: "Not enough time" }[g.status]), h("span", {}, g.headline)), g.detail ? h("div", { class: "gap-d" }, g.detail) : null) : null),
+      h("div", { class: "mm-pick" }, h("div", {}, h("b", {}, tr("Out"), " "), label(out)), h("div", {}, h("b", {}, tr("Back"), " "), label(ret)),
+        S.check && S.check.error ? h("div", { class: "note bad" }, tx("Couldn't check the time between these flights: {m}", { m: S.check.error })) : null,
+        g ? h("div", { class: `gap ${g.status}` }, h("div", { class: "gap-h" }, h("span", { class: "pill" }, tr({ ok: "OK", tight: "Tight", impossible: "Not enough time" }[g.status])), h("span", {}, tw(g.headline))), g.detail ? h("div", { class: "gap-d" }, tw(g.detail)) : null) : null),
       h("div", { class: "actions" },
         h("button", { type: "button", class: "btn small", onclick: () => { Builder.addFlight(out, { pax: S.ctx.paxLabel, currency: cur }); Builder.addFlight(ret, { pax: S.ctx.paxLabel, currency: cur }); } }, "＋ Add both to Trip builder"),
         (out.deep_links || []).slice(0, 1).map(u => h("a", { class: "btn small", href: u, target: "_blank", rel: "noopener noreferrer" }, "Google Flights (out) ↗")),
@@ -150,10 +150,10 @@ const MixMatch = (() => {
     const select = (opts, value, onChange, label) => h("select", { class: "input mini", "aria-label": label, onchange: e => onChange(e.target.value) }, opts.map(([v, t]) => h("option", { value: v, selected: v === value }, t)));
     const F = S.filters;
     const controls = h("div", { class: "mm-controls" },
-      q.destinations.length > 1 ? h("label", {}, "Fly out to ", select(q.destinations.map(d => [d, d]), S.dest, v => { S.dest = v; S.out = null; S.check = null; draw(host); }, "Destination")) : null,
-      h("label", {}, "Outbound day ", select((ctx.days || [outDate]).map(d => [d, fmtDay(day(d))]), outDate, v => ctx.onPickDay(v), "Outbound day")),
-      retFroms.length > 1 ? h("label", {}, "Fly home from ", select(retFroms.map(d => [d, d]), S.back, v => { S.back = v; S.ret = null; S.check = null; draw(host); }, "Return airport")) : null,
-      h("label", {}, "Return day ", select(retDates.map(d => [d, `${fmtDay(day(d))} · ${tripLen(Math.round((day(d) - day(outDate)) / 864e5))}`]), S.retDate, v => { S.retDate = v; S.ret = null; S.check = null; draw(host); }, "Return day")));
+      q.destinations.length > 1 ? h("label", {}, tr("Fly out to"), " ", select(q.destinations.map(d => [d, d]), S.dest, v => { S.dest = v; S.out = null; S.check = null; draw(host); }, "Destination")) : null,
+      h("label", {}, tr("Outbound day"), " ", select((ctx.days || [outDate]).map(d => [d, fmtDay(day(d))]), outDate, v => ctx.onPickDay(v), "Outbound day")),
+      retFroms.length > 1 ? h("label", {}, tr("Fly home from"), " ", select(retFroms.map(d => [d, d]), S.back, v => { S.back = v; S.ret = null; S.check = null; draw(host); }, "Return airport")) : null,
+      h("label", {}, tr("Return day"), " ", select(retDates.map(d => [d, `${fmtDay(day(d))} · ${tripLen(Math.round((day(d) - day(outDate)) / 864e5))}`]), S.retDate, v => { S.retDate = v; S.ret = null; S.check = null; draw(host); }, "Return day")));
     const filters = h("div", { class: "mm-filters" },
       select([["price", "Cheapest first"], ["time", "Fastest first"], ["early", "Earliest first"]], F.sort, v => { F.sort = v; draw(host); }, "Sort"),
       h("label", { class: "switch mini-sw" }, h("input", { type: "checkbox", checked: F.nonstop, onchange: e => { F.nonstop = e.target.checked; draw(host); } }), "Nonstop only"));
@@ -164,8 +164,8 @@ const MixMatch = (() => {
     // a pill that could be mistaken for a second filter control.
     const banner = inc.length || exc.length ? h("div", { class: "note af-banner" },
       h("label", { class: "switch mini-sw" }, h("input", { type: "checkbox", checked: S.showAll, onchange: e => { S.showAll = e.target.checked; draw(host); } }), "Ignore my airline filter for this comparison"),
-      S.showAll ? " Showing every airline, including ones your filter removes from the results above."
-        : ` Airline filter on (${inc.length ? "only " + inc.map(nameOf).join(", ") : "excluding " + exc.map(nameOf).join(", ")}, set in Step 2 on the left). ${hidden ? `${plural(hidden, "flight")} from other airlines ${hidden === 1 ? "is" : "are"} hidden here.` : "Nothing is hidden on these days."}`) : null;
+      S.showAll ? ` ${tr("Showing every airline, including ones your filter removes from the results above.")}`
+        : ` ${tx("Airline filter on ({which}, set in Step 2 on the left).", { which: inc.length ? `${tr("only")} ${inc.map(nameOf).join(", ")}` : `${tr("excluding")} ${exc.map(nameOf).join(", ")}` })} ${hidden ? tx(hidden === 1 ? "{n} from other airlines is hidden here." : "{n} from other airlines are hidden here.", { n: plural(hidden, "flight") }) : tr("Nothing is hidden on these days.")}`) : null;
     host.replaceChildren(...[banner, controls, filters, cols, summary(host)].filter(Boolean));
   }
   return { render };
