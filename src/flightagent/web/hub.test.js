@@ -40,6 +40,9 @@ const p = H.fromParams("?from=tlv&to=LIS&back=OPO&start=2026-11-13&end=2026-11-2
 assert.deepStrictEqual(p.form, { from: ["TLV"], to: ["LIS"], back: ["OPO"], start: "2026-11-13", end: "2026-11-22", adults: 3, kids: [7],
   nmin: 3, nmax: 3, lenMode: "exact", unit: "nights" });
 assert.deepStrictEqual(p.context, { trip: "trip_ab12", hub: "https://example.org/hub/" });
+// a night range (the hub's "3 or 4 nights") searches both ends
+const range = H.fromParams("?from=TLV&to=LIS&start=2026-11-13&end=2026-11-22&nights=3-4").form;
+assert.deepStrictEqual([range.nmin, range.nmax, range.lenMode], [3, 4, "range"]);
 // A whole country from the hub: several airports to fly into (and home from)
 const many = H.fromParams("?from=TLV&to=LIS,opo,%20FAO,LIS&back=MAD,BCN&start=2026-11-13&end=2026-11-22");
 assert.deepStrictEqual([many.form.to, many.form.back], [["LIS", "OPO", "FAO"], ["MAD", "BCN"]]);
