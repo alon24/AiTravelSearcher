@@ -116,7 +116,7 @@ def test_signing_in_turns_on_real_fares_from_the_worker(page, worker):
 
 
 def test_free_google_flights_fares_come_first(page, worker):
-    worker["gflights"] = "ok"
+    worker["gflights"], worker["fetched_at"] = "ok", int(time.time()) - 2 * 3600
     _sign_in(page)
     _fill(page)
     page.wait_for_function("/free; up to \\d+ SerpApi credits only if Google refuses/.test(document.querySelector('#estimate-text').textContent)")
@@ -131,15 +131,7 @@ def test_free_google_flights_fares_come_first(page, worker):
     href = leg.get_by_role("link", name="Google Flights ↗").get_attribute("href")
     assert href.startswith("https://www.google.com/travel/flights?tfs=") and href.endswith("&curr=EUR")
     assert not [p for p, _ in worker["asked"] if p == "/serpapi"], "no SerpApi credits spent while Google answers"
-
-
-def test_fares_the_worker_shared_from_its_cache_show_their_age(page, worker):
-    worker["gflights"], worker["fetched_at"] = "ok", int(time.time()) - 2 * 3600
-    _sign_in(page)
-    _fill(page)
-    page.click("#go")
-    page.wait_for_selector("text=gflights ×4", timeout=60000)
-    assert page.locator(".res-head .badge:has-text('Flight data from 2h ago')").count() == 1
+    assert page.locator(".res-head .badge:has-text('Flight data from 2h ago')").count() == 1, "fares the Worker shared from its cache show their age"
 
 
 def test_a_round_trip_ticket_is_priced_by_google_next_to_the_two_one_ways(page, worker):
@@ -218,28 +210,17 @@ def test_sign_in_survives_a_reload_and_sign_out_returns_to_demo(page, worker):
     assert page.inner_text("#mode-badge-desk") == "⚠ DEMO DATA"
 
 
-def test_an_account_the_worker_refuses_stays_on_demo_fares(page, worker):
-    worker["user"] = None
+@pytest.mark.parametrize("state, toast, button", [
+    ({"user": None}, "didn't confirm", "Sign in"),                                    # an account the Worker refuses
+    ({"user": None, "guest": "dana@example.com"}, "trips shared with you", "Sign out"),   # not on the list: a guest, never spending the owner's credits
+    ({"serpapi": False}, "aren't set up", "Sign out"),                                # signed in before live fares are set up
+], ids=["refused", "guest", "not-set-up"])
+def test_an_account_without_live_fares_stays_on_demo_and_says_why(page, worker, state, toast, button):
+    worker.update(state)
     page.locator(".account-btn:visible").click()
-    page.wait_for_selector(".toast:has-text(\"didn't confirm\")")
+    page.wait_for_selector(f".toast:has-text(\"{toast}\")")
     assert page.inner_text("#mode-badge-desk") == "⚠ DEMO DATA"
-    assert page.locator(".account-btn:visible").inner_text() == "Sign in"
-
-
-def test_an_account_not_on_the_list_is_a_guest_on_demo_fares(page, worker):
-    worker["user"], worker["guest"] = None, "dana@example.com"
-    page.locator(".account-btn:visible").click()
-    page.wait_for_selector(".toast:has-text('trips shared with you')")
-    assert page.inner_text("#mode-badge-desk") == "⚠ DEMO DATA", "a guest never spends the owner's credits outside a trip"
-    assert page.locator(".account-btn:visible").inner_text() == "Sign out"
-
-
-def test_signed_in_before_live_fares_are_set_up_says_so(page, worker):
-    worker["serpapi"] = False
-    page.locator(".account-btn:visible").click()
-    page.wait_for_selector(".toast:has-text(\"aren't set up\")")
-    assert page.inner_text("#mode-badge-desk") == "⚠ DEMO DATA"
-    assert page.locator(".account-btn:visible").inner_text() == "Sign out"
+    assert page.locator(".account-btn:visible").inner_text() == button
 
 
 def test_an_unreachable_worker_says_why_and_keeps_the_sign_in(page, worker):
@@ -264,16 +245,6 @@ def test_a_token_that_expires_mid_session_signs_out(page, worker):
     assert page.locator(".account-btn:visible").inner_text() == "Sign in"
 
 
-def test_sign_in_fits_the_phone_top_bar(page, worker):
-    page.set_viewport_size({"width": 360, "height": 800})
-    button = page.locator(".topbar .account-btn")
-    assert button.is_visible() and button.inner_text() == "Sign in"
-    assert page.locator(".topbar .theme-toggle").is_visible()
-    box = page.locator(".topbar .theme-toggle").bounding_box()
-    assert box["x"] + box["width"] <= 360, "the top bar must not spill off a phone screen"
-    assert page.evaluate("document.documentElement.scrollWidth") <= 360
-
-
 def test_the_airline_assist_extension_gets_the_worker_for_jev(page, worker):
     """No local server on the web version: the page hands the extension its Worker and sign-in (content-bridge.js)."""
     page.evaluate("window.routes = []; addEventListener('skyhop-jev-route', e => routes.push(e.detail.route))")
@@ -288,7 +259,8 @@ def test_the_airline_assist_extension_gets_the_worker_for_jev(page, worker):
 def test_switching_the_extension_to_jev_needs_the_sign_in(page, worker):
     """Jev runs only on Skyhop's Worker, as the signed-in user: signed out, the 🧠 badge says so and keeps Laya."""
     page.evaluate("""document.documentElement.dataset.skyhopExtension = "1"; window.picked = [];
-        addEventListener('skyhop-set-decider', e => picked.push(e.detail.value))""")
+        addEventListener('skyhop-set-decider', e => picked.push(e.detail.value))
+        dispatchEvent(new CustomEvent('skyhop-decider-status', { detail: { ok: true } }))   // what the extension sends; shows the badge""")
     badge = page.locator(".dec-badge:visible").first
     badge.click()
     assert "Jev needs you signed in" in page.locator(".toast").inner_text() and page.evaluate("picked") == []

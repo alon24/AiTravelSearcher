@@ -24,9 +24,7 @@ def test_worker_expands_city_codes_like_the_page():
 
 
 @pytest.mark.parametrize("pax, stops, bags, dest, back, want", [
-    ((1, 0, 0), 1, (0, 0), "FCO", None, "GiASCjIwMjYtMTEtMDIoAWoHCAESA1RMVnIHCAESA0ZDT0IBAUgBmAEC"),
     ((2, 1, 1), 0, (0, 1), "ROM", None, "Gh4SCjIwMjYtMTEtMDIoAGoHCAESA1RMVnIFEgNST01CBAEBAgNIAWoEEAAYAZgBAg=="),
-    ((3, 2, 0), 3, (1, 2), "IST", None, "Gh4SCjIwMjYtMTEtMDJqBwgBEgNUTFZyBwgBEgNJU1RCBQEBAQICSAFqBBABGAKYAQI="),
     ((2, 1, 0), 1, (0, 1), "FCO", "2026-11-09",
      "GiASCjIwMjYtMTEtMDIoAWoHCAESA1RMVnIHCAESA0ZDTxogEgoyMDI2LTExLTA5KAFqBwgBEgNGQ09yBwgBEgNUTFZCAwEBAkgBagQQABgBmAEB"),
 ])

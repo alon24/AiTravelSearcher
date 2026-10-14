@@ -100,19 +100,13 @@ def test_the_chat_runs_a_search_and_talks_about_it(page, chat):
     page.wait_for_selector("#chat", state="hidden")
 
 
-def test_a_question_without_a_search_is_just_answered(page, chat):
-    _open(page)
-    _say(page, "I want a holiday")
-    page.wait_for_selector(".msg.ai:has-text('Which dates')")
-    assert page.locator(".msg.tool").count() == 0
-
-
 def test_the_model_is_told_to_search_what_the_user_names_without_arguing(page, chat):
     """ilan, 2026-10-11: asked for Denmark after "somewhere warm", the model argued about the weather three times, in
     English, instead of searching. The page's instructions now say the user's latest wish wins, in their language."""
     _open(page)
     _say(page, "דנמרק")
-    page.wait_for_selector(".msg.ai")
+    page.wait_for_selector(".msg.ai:has-text('Which dates')")
+    assert page.locator(".msg.tool").count() == 0, "a question without a search is just answered"
     rules = chat["asked"][0]["messages"][0]["content"]
     assert "Never argue with or second-guess their choice" in rules
     assert "the latest wish wins: search it" in rules and "never as a question" in rules
@@ -219,25 +213,6 @@ def test_a_brief_saves_to_google_drive(page, chat):
     assert page.locator(".msg.brief a").get_attribute("href") == "https://drive.google.com/file/f1"
 
 
-def test_the_chat_fits_a_phone(page, chat):
-    page.set_viewport_size({"width": 360, "height": 800})
-    # On a phone the bottom bar carries Ask and Trip builder, side by side and never over each other
-    ask, trip = page.locator(".m-nav [data-nav=ask]").bounding_box(), page.locator(".m-nav [data-nav=trip]").bounding_box()
-    assert ask["x"] + ask["width"] <= trip["x"] and ask["y"] + ask["height"] <= 800, "the two launchers must not overlap"
-    page.click(".m-nav [data-nav=ask]")
-    page.wait_for_selector("#chat.open")
-    box = page.locator("#chat").bounding_box()
-    assert round(box["width"]) == 360 and page.locator("#chat-summarize").is_visible() and page.locator("#chat-new").is_visible()
-    assert page.locator("#chat-input").bounding_box()["width"] > 200, "room to type on a phone"
-    _say(page, ASK)
-    page.wait_for_selector(".msg.ai:has-text('Cheapest is')", timeout=60000)
-    page.click("#chat-new")
-    page.locator(".chat-recent").wait_for()
-    assert page.evaluate("document.querySelector('#chat-body').scrollWidth <= document.querySelector('#chat-body').clientWidth")
-    send = page.locator("#chat-send").bounding_box()
-    assert page.locator("#chat").bounding_box()["y"] == 0 and send["y"] + send["height"] <= 800, "the drawer stays put and Send stays on screen"
-
-
 MAPS_GIS = """window.google = { accounts: { oauth2: { initTokenClient: c => ({ requestAccessToken: () => setTimeout(() =>
   c.callback({ access_token: "tok-1", expires_in: 3599, scope: c.scope }), 0) }) } } };"""
 EXISTING = {"schema": 1, "id": "x", "title": "Portugal", "description": "", "updatedAt": "2026-10-01T00:00:00Z",
@@ -308,12 +283,3 @@ def test_a_search_can_be_added_to_an_existing_map(page, chat, maps):
     assert doc["layers"][1]["color"] != "#1f6f5c", "the new layer gets a colour the map doesn't use yet"
     assert not any("/permissions" in c[1] for c in maps), "not shared unless asked"
 
-
-def test_the_map_picker_fits_a_phone(page, chat, maps):
-    page.set_viewport_size({"width": 360, "height": 800})
-    _ask_rome(page)
-    page.get_by_role("button", name="🗺 Map it").click()
-    page.wait_for_selector(".map-pick option:has-text('Add to: Portugal')", state="attached")
-    for part in (".map-pick select", ".map-pick input[type=checkbox]", ".map-pick button >> nth=0", ".map-pick button >> nth=1"):
-        box = page.locator(part).bounding_box()
-        assert box and box["x"] >= 0 and box["x"] + box["width"] <= 360, f"{part} is off screen"

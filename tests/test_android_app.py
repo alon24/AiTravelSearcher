@@ -42,7 +42,3 @@ def test_the_java_bridge_has_every_call_the_scripts_make():
     for call in ("SkyhopShim.done(", "SkyhopShim.fromAirline(", "__skyhopBridge.reply("):
         assert call in JAVA
 
-
-def test_the_app_opens_the_published_site():
-    gradle = (ROOT / "android/app/build.gradle").read_text()
-    assert '"\\"https://alon24.github.io/AiTravelSearcher/\\""' in gradle

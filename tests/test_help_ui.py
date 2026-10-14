@@ -52,7 +52,7 @@ def test_a_first_visit_opens_the_welcome_tour_once(fresh):
     assert fresh.locator(".tour").count() == 0, "shown once, not on every visit"
 
 
-def test_the_tour_spotlights_each_element_and_can_be_skipped(fresh):
+def test_the_tour_spotlights_each_element_and_skip_or_escape_only_close_it(fresh):
     fresh.wait_for_selector(".tour")
     fresh.click(".tour-next")
     assert fresh.inner_text(".tour-tip h3") == "Where"
@@ -64,6 +64,11 @@ def test_the_tour_spotlights_each_element_and_can_be_skipped(fresh):
     assert fresh.locator(".tour").count() == 0
     fresh.reload()
     fresh.wait_for_selector(".tour")   # Skip only closes it: it comes back next visit
+    fresh.keyboard.press("ArrowRight")
+    assert fresh.inner_text(".tour-tip h3") == "Where"
+    fresh.keyboard.press("Escape")
+    assert fresh.locator(".tour").count() == 0
+    assert fresh.evaluate("localStorage.getItem('skyhop.tour')") is None, "Escape is a skip, not a 'never'"
 
 
 def test_dont_show_again_stops_the_welcome_tour(fresh):
@@ -107,15 +112,6 @@ def test_a_hebrew_browser_gets_the_tour_in_hebrew_and_can_switch(base_url):
         b.close()
 
 
-def test_escape_closes_the_tour(fresh):
-    fresh.wait_for_selector(".tour")
-    fresh.keyboard.press("ArrowRight")
-    assert fresh.inner_text(".tour-tip h3") == "Where"
-    fresh.keyboard.press("Escape")
-    assert fresh.locator(".tour").count() == 0
-    assert fresh.evaluate("localStorage.getItem('skyhop.tour')") is None, "Escape is a skip, not a 'never'"
-
-
 @pytest.mark.parametrize("link", ["?from=TLV&to=LIS&start=2026-11-13&end=2026-11-22&nights=3", "#trip=abc123"], ids=["travel-hub", "invite"])
 def test_a_travel_hub_or_invite_link_opens_without_the_tour(base_url, link):
     from playwright.sync_api import sync_playwright
@@ -130,6 +126,9 @@ def test_a_travel_hub_or_invite_link_opens_without_the_tour(base_url, link):
 
 
 def test_help_offers_a_tour_of_the_search_screen(page):
+    page.click(".main-head .help-btn")
+    page.keyboard.press("Escape")
+    assert page.locator(".help-wrap").count() == 0
     page.click(".main-head .help-btn")
     here = page.locator(".help-tour.here")
     assert "Welcome to Skyhop" in here.inner_text()
@@ -158,12 +157,6 @@ def test_the_trip_builder_tour_opens_the_builder(page):
     assert _titles(page) == ["Trip builder", "Legs", "Total and next steps"]
 
 
-def test_escape_closes_the_help_panel(page):
-    page.click(".main-head .help-btn")
-    page.keyboard.press("Escape")
-    assert page.locator(".help-wrap").count() == 0
-
-
 def test_desktop_results_are_three_tabs_with_the_top_trips_as_rows(page):
     _search(page)
     tabs = page.locator("#air-sticky .res-tabs [role=tab]")
@@ -180,13 +173,9 @@ def test_desktop_results_are_three_tabs_with_the_top_trips_as_rows(page):
     assert page.locator(".res-chart").is_visible() and page.locator(".top-trips").is_hidden()
     assert page.evaluate("document.querySelector('.res-chart').getBoundingClientRect().top") < 600, "switching tabs scrolls back up to the results"
     assert page.locator("#finder").is_hidden(), "the airline finder is out of the way while reading results"
-
-
-def test_the_tab_survives_a_redraw(page):
-    _search(page)
     page.click("[data-tab=mix]")
     page.evaluate("renderResult(currentRow, { keepScroll: true })")
-    assert page.locator(".res-pane:not([hidden])").get_attribute("data-pane") == "mix"
+    assert page.locator(".res-pane:not([hidden])").get_attribute("data-pane") == "mix", "the tab survives a redraw"
 
 
 def test_on_a_phone_the_tour_follows_the_wizard_and_bottom_bar(base_url):
