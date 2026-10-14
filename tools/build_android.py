@@ -7,6 +7,7 @@ extension's airline list and drivers inside it (the airline tab runs them).
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -30,6 +31,7 @@ def bundle() -> str:
 (function () {{
   if (window !== window.top || window.SkyhopShim || !window.SkyhopNative) return;
   window.SKYHOP_APP = true;
+  window.SKYHOP_BUILD = {json.dumps(os.environ.get("GITHUB_SHA", "local")[:7])};   // the commit this APK was built from
 {(WEB / "app-shim.js").read_text()}
   window.SkyhopShim = skyhopAppShim({json.dumps(files())}, window.SkyhopNative);
   (function (chrome) {{

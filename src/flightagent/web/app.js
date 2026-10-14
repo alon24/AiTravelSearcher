@@ -1455,6 +1455,17 @@ function saveToHub(offers) {
   location.assign(SkyhopHub.handoffUrl(ctx.hub || SkyhopHub.DEFAULT_HUB, data));
 }
 
+/** In the Android app: the page knows the commit it was packed from (build_android.py); the newest APK's release notes name
+    the commit it was built from. A different one means the phone has an old app, so say so (the APK never updates itself). */
+async function checkAppVersion() {
+  if (!window.SKYHOP_APP || !window.SKYHOP_BUILD) return;
+  try {
+    const r = await fetch("https://api.github.com/repos/alon24/AiTravelSearcher/releases/tags/android-latest");
+    const built = /built from ([0-9a-f]{7})/.exec((await r.json()).body || "");
+    if (built && built[1] !== window.SKYHOP_BUILD) toast(tr("A newer Skyhop app is out: download skyhop.apk again to update"), 15000);
+  } catch { /* offline or GitHub is down: nothing to say */ }
+}
+
 async function init() {
   const saved = store.get("skyhop.theme"); if (saved) document.documentElement.dataset.theme = saved;
   $$(".theme-toggle").forEach(b => b.addEventListener("click", () => {
@@ -1541,6 +1552,7 @@ async function init() {
   showOriginal = !!store.get("skyhop.showOriginal");
   $("#orig-toggle").checked = showOriginal;
   $("#orig-toggle").addEventListener("change", e => setShowOriginal(e.target.checked));
+  checkAppVersion();
   await loadAirports();
   const cfg = { onChange: onFormChange };
   ac = {
