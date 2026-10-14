@@ -36,7 +36,7 @@ Docs: [`docs/DESIGN.md`](docs/DESIGN.md) architecture, provider contract and a p
 ## With Travel Hub
 
 [Travel Hub](https://github.com/alon24/travel-hub) keeps a whole vacation as one Trip. Its **Find flights in Skyhop** button opens
-Skyhop with the trip filled in (`?from=TLV&to=LIS&back=OPO&start=…&end=…&nights=3&adults=3&trip=…&hub=…`). Every result card and the
+Skyhop with the trip filled in (`?from=TLV&to=LIS,OPO,FAO&back=MAD&start=…&end=…&nights=3&adults=3&trip=…&hub=…`; `to` and `back` may list several airports). Every result card and the
 Trip builder then have **✈ Save to Travel Hub**, which sends the picked flights back to that trip (`web/hub.js`; the JSON contract is
 pinned by `tests/fixtures/travel-hub-handoff.json`, the same file the hub tests). Skyhop still never books: the hub only keeps the flights.
 
