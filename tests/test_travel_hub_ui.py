@@ -26,6 +26,13 @@ def test_the_hub_link_fills_the_search(page, base_url):
     assert page.evaluate("JSON.parse(localStorage.getItem('skyhop.hub'))") == {"trip": "trip_abc123", "hub": HUB}
 
 
+def test_a_whole_country_from_the_hub_searches_all_its_airports(page, base_url):
+    page.goto(base_url + "/?from=TLV&to=LIS,OPO,FAO&start=2026-11-13&end=2026-11-22&nights=3&adults=2")
+    page.wait_for_function("typeof readForm === 'function' && !!ac.from && readForm().to.length > 0")
+    f = page.evaluate("readForm()")
+    assert (f["to"], f["back"]) == (["LIS", "OPO", "FAO"], [])
+
+
 @pytest.mark.parametrize("size", [(1280, 720), (390, 844)])
 def test_find_flights_is_ready_to_press_when_you_arrive_from_the_hub(page, base_url, size):
     page.set_viewport_size({"width": size[0], "height": size[1]})

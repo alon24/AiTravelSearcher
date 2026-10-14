@@ -1,7 +1,7 @@
 "use strict";
 /* Travel Hub link (alon24/travel-hub): the hub opens Skyhop with a search filled in, and Skyhop sends the flights
    the person picked back to the hub's Trip.
-     in:  ?from=TLV&to=LIS&back=OPO&start=2026-11-13&end=2026-11-22&nights=3&adults=3&children=7,9&trip=<id>&hub=<hub url>
+     in:  ?from=TLV&to=LIS,OPO,FAO&back=MAD&start=2026-11-13&end=2026-11-22&nights=3&adults=3&children=7,9&trip=<id>&hub=<hub url>
      out: <hub url>#/handoff/<base64url JSON>   (contract v1; the hub validates it with zod, see its src/model/handoff.ts)
    Pure functions here (tested by hub.test.js under node); app.js wires them to the form and the result cards. */
 (function (root) {
@@ -22,11 +22,13 @@
   function fromParams(search) {
     const q = new URLSearchParams(search);
     const code = k => (q.get(k) || "").toUpperCase();
-    if (!IATA.test(code("from")) || !IATA.test(code("to")) || !DAY.test(q.get("start") || "") || !DAY.test(q.get("end") || "")) return null;
+    // "to" and "back" may list several airports ("a whole country": LIS,OPO,FAO); a bad code drops the whole list
+    const codes = k => { const c = code(k).split(",").map(x => x.trim()).filter(Boolean); return c.length && c.every(x => IATA.test(x)) ? [...new Set(c)].slice(0, 8) : []; };
+    if (!IATA.test(code("from")) || !codes("to").length || !DAY.test(q.get("start") || "") || !DAY.test(q.get("end") || "")) return null;
     const nights = Math.max(1, Math.min(60, parseInt(q.get("nights"), 10) || 0));
     const adults = Math.max(1, Math.min(9, parseInt(q.get("adults"), 10) || 1));
     const kids = (q.get("children") || "").split(",").filter(Boolean).map(Number).filter(a => Number.isInteger(a) && a >= 0 && a <= 17);
-    const form = { from: [code("from")], to: [code("to")], back: IATA.test(code("back")) ? [code("back")] : [], start: q.get("start"), end: q.get("end"), adults, kids };
+    const form = { from: [code("from")], to: codes("to"), back: codes("back"), start: q.get("start"), end: q.get("end"), adults, kids };
     if (q.get("nights")) Object.assign(form, { nmin: nights, nmax: nights, lenMode: "exact", unit: "nights" });
     const trip = (q.get("trip") || "").match(/^[\w-]{1,64}$/) ? q.get("trip") : null;
     return { form, context: { trip, hub: safeHub(q.get("hub") || "") || DEFAULT_HUB } };
