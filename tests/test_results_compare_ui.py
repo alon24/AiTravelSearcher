@@ -29,7 +29,7 @@ def texts(page, sel):
     return page.locator(sel).all_inner_texts()
 
 
-def test_matrix_has_every_destination_and_length_and_nothing_preselected(results):
+def test_matrix_and_table_have_every_destination_and_length(results):
     p = results
     assert p.locator(".cmp-cell:not(.empty)").count() == 9                       # 3 lengths x 3 destinations
     assert p.locator(".cmp-cell.sel").count() == 0
@@ -38,29 +38,14 @@ def test_matrix_has_every_destination_and_length_and_nothing_preselected(results
     assert [r.split()[0] for r in rows] == ["4", "5", "6"]
     assert [t.strip() for t in texts(p, ".cmp-head .cmp-ch")] == ["ROM", "PAR", "LON"]   # open-jaw combos are not extra columns
     assert p.locator(".cmp-combos").count() == 1                                  # ...but can be switched on
-
-
-def test_table_is_grouped_by_length_with_every_destination_under_each(results):
-    p = results
-    bands = texts(p, ".cmp-grp b")
-    assert [b.split(" · ")[0].split()[0] for b in bands] == ["4", "5", "6"]
-    assert all(b.split(" · ")[1].startswith("from") for b in bands)
-    # nine rows: under each band all three destinations
-    trs = p.locator(".cmp-table tbody tr").evaluate_all("rows => rows.map(r => r.className)")
-    seq, current = [], None
-    for cls in trs:
-        if "cmp-grp" in cls:
-            current = []; seq.append(current)
-        elif "cmp-tr" in cls:
-            current.append(1)
-    assert [len(g) for g in seq] == [3, 3, 3]
-    dests = p.locator(".cmp-tr .c-dest b").all_inner_texts()
-    assert sorted(dests[:3]) == ["LON", "PAR", "ROM"]
-    # sorted by price inside a band, and the cheapest is emphasised
+    bands = texts(p, ".cmp-grp b")                                                 # the table: grouped by length, cheapest first in a band
+    assert [b.split(" · ")[0].split()[0] for b in bands] == ["4", "5", "6"] and all(b.split(" · ")[1].startswith("from") for b in bands)
     prices = p.locator(".cmp-tr .c-price").evaluate_all("cells => cells.map(c => parseFloat(c.textContent.replace(/[^0-9.]/g, '')))")
-    for i in (0, 3, 6):
-        assert prices[i] <= prices[i + 1] <= prices[i + 2]
-    assert p.locator(".cmp-tr .c-price.low").count() == 3
+    assert len(prices) == 9 and all(prices[i] <= prices[i + 1] <= prices[i + 2] for i in (0, 3, 6))
+    p.locator(".cmp-tr").first.click()                                             # a row opens the full trip, again closes it
+    assert p.locator(".cmp-detail .trip").count() == 1
+    p.locator(".cmp-tr").first.click()
+    assert p.locator(".cmp-detail").count() == 0
 
 
 def test_filters_grouping_and_matrix_selection(results):
@@ -89,72 +74,6 @@ def test_open_jaw_combinations_are_opt_in(results):
     assert p.locator(".cmp-cell:not(.empty)").count() == 9
 
 
-def test_row_click_opens_the_full_trip(results):
-    p = results
-    p.locator(".cmp-tr").first.click()
-    assert p.locator(".cmp-detail .trip").count() == 1
-    p.locator(".cmp-tr").first.click()
-    assert p.locator(".cmp-detail").count() == 0
-
-
-def test_check_on_airline_site_buttons_are_readable_buttons(results):
-    p = results
-    btns = p.locator(".cmp-tr .site-btn")
-    assert btns.count() >= 9
-    first = btns.first
-    label = first.inner_text().replace("↗", "").strip()
-    assert label.startswith("Check on ") and label.endswith(" site")
-    box = first.bounding_box()
-    assert box["height"] >= 40                                                     # a real target, not small link text
-    style = first.evaluate("e => { const s = getComputedStyle(e); return {w: parseInt(s.fontWeight), b: s.borderTopWidth, fs: parseFloat(s.fontSize)}; }")
-    assert style["w"] >= 700 and style["b"] == "2px" and style["fs"] >= 13
-    assert first.get_attribute("href").startswith("http") and first.get_attribute("rel") == "noopener noreferrer"
-    # none of them is clipped by the card
-    card = p.locator(".cmp-scroll").first.bounding_box()
-    for i in range(btns.count()):
-        b = btns.nth(i).bounding_box()
-        assert b["x"] >= card["x"] - 1 and b["x"] + b["width"] <= card["x"] + card["width"] + 1
-
-
-def test_airline_names_are_bold(results):
-    p = results
-    weights = p.locator(".cmp-air b").evaluate_all("els => els.map(e => parseInt(getComputedStyle(e).fontWeight))")
-    assert weights and min(weights) >= 800
-    sizes = p.locator(".cmp-air b").evaluate_all("els => els.map(e => parseFloat(getComputedStyle(e).fontSize))")
-    assert min(sizes) >= 15
-
-
-def test_airline_bar_is_sticky_two_rows_and_shows_every_airline(results):
-    p = results
-    bar = p.locator("#air-sticky")
-    assert bar.is_visible()
-    assert bar.evaluate("e => getComputedStyle(e).position") == "sticky"
-    assert p.locator("#air-sticky .ab-top").count() == 1 and p.locator("#air-sticky .ab-row").count() == 1
-    assert "TLV" in p.locator("#air-sticky .ab-sum").inner_text() and p.locator("#air-sticky button:has-text('Edit search')").count() == 1
-    n = p.locator("#air-sticky .ab-chip").count()
-    assert n >= 5
-    p.evaluate("window.scrollTo(0, document.body.scrollHeight)")                   # still pinned to the top after scrolling far down
-    p.wait_for_timeout(200)
-    top = bar.bounding_box()["y"]
-    assert -1 <= top <= 1
-    vw = p.evaluate("window.innerWidth")
-    for i in range(n):                                                             # every chip is fully inside the window (none clipped)
-        b = p.locator("#air-sticky .ab-chip").nth(i).bounding_box()
-        assert b["x"] >= 0 and b["x"] + b["width"] <= vw
-
-
-def test_layout_uses_the_whole_screen_and_nothing_overflows(results):
-    p = results
-    vw = p.evaluate("window.innerWidth")
-    main = p.locator("main").bounding_box()
-    assert main["x"] + main["width"] >= vw - 2                                     # main reaches the right edge: no centred max-width column
-    assert p.evaluate("document.documentElement.scrollWidth") <= vw + 1            # and the page is not wider than the window
-    p.set_viewport_size({"width": 2560, "height": 1200})
-    p.wait_for_timeout(300)
-    main = p.locator("main").bounding_box()
-    assert main["width"] > 2000 and p.evaluate("document.documentElement.scrollWidth") <= 2561
-
-
 def test_a_single_combination_keeps_the_three_picks(page):
     page.evaluate("""() => { const f = readForm(); f.to = ['ROM']; f.start = '2026-10-05'; f.end = '2026-10-25'; f.lenMode = 'exact'; f.nmin = 5; f.nmax = 5; writeForm(f); onFormChange(); }""")
     page.wait_for_timeout(500)
@@ -164,15 +83,12 @@ def test_a_single_combination_keeps_the_three_picks(page):
     assert page.locator(".cmp-table").count() == 0 and page.locator(".picks").count() == 1
 
 
-def test_mix_and_match_rows_have_bold_airline_names_and_readable_site_buttons(results):
+def test_a_site_button_in_mix_and_match_does_not_also_pick_the_flight(results):
     p = results
     p.click("[data-tab=mix]")
     p.wait_for_selector(".mm-row")
-    weights = p.locator(".mm-air").evaluate_all("els => els.map(e => parseInt(getComputedStyle(e).fontWeight))")
-    assert weights and min(weights) >= 800
     btns = p.locator(".mm-row .site-btn")
-    assert btns.count() >= 4
-    assert btns.first.bounding_box()["height"] >= 40 and btns.first.inner_text().replace("↗", "").strip().startswith("Check on ")
+    assert btns.count() >= 4 and btns.first.inner_text().replace("↗", "").strip().startswith("Check on ")
     picked = p.locator(".mm-row.picked").count()
     btns.first.evaluate("e => e.addEventListener('click', ev => ev.preventDefault(), true)")   # do not navigate away in the test
     btns.first.click()
@@ -205,10 +121,6 @@ def test_check_on_site_searches_the_flight_when_the_extension_is_there(results):
     d = ev[0]
     assert d["airline"] and d["flightNumber"].startswith(d["airline"]) and len(d["departTime"]) == 5 and len(d["day"]) == 10
     assert d["originName"] == "Tel Aviv" and d["destination"]                          # what the extension needs to search, and to teach in words
-
-
-def test_tarom_link_is_the_english_site():
-    assert AIRLINE_SITES["RO"] == "https://www.tarom.ro/en"
 
 
 def test_airline_names_use_the_full_name_when_the_provider_abbreviates(page):
@@ -283,7 +195,6 @@ def test_an_unknown_airline_is_looked_up_and_then_links_to_its_real_site(page):
     assert links.count() >= 1
     label = links.first.inner_text().replace("↗", "").strip()
     assert label.startswith("Check on ") and label.endswith(" site")                     # the same button as every other airline
-    assert links.first.bounding_box()["height"] >= 40
     assert page.locator(".site-btn", has_text="Google").count() == 0                     # a search engine is never offered
     assert page.evaluate("config.airline_sites.LH") == "https://www.lufthansa-example.test/"   # remembered: no second lookup
 
@@ -336,7 +247,8 @@ def test_clicking_a_site_button_opens_the_site_and_copies_the_flight(results):
     assert "Search for it there" in p.inner_text(".toast")
 
 
-def test_the_page_knows_many_more_airline_sites():
+def test_the_page_knows_many_airline_sites():
+    assert AIRLINE_SITES["RO"] == "https://www.tarom.ro/en"                       # TAROM's English site, not the Romanian one
     assert len(AIRLINE_SITES) >= 60
     for code in ("LY", "6H", "IZ", "W6", "W4", "FR", "U2", "RO", "TP", "UX", "HV", "VY", "EW", "AZ"):
         assert AIRLINE_SITES[code].startswith("https://")

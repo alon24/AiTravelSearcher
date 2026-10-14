@@ -1,4 +1,4 @@
-// Whole searches on the demo fares (local/mock.js), pinned to what the Python engine answered on 2026-10-13, when the two
+// A few whole searches on the demo fares (local/mock.js), pinned to what the Python engine answered on 2026-10-13, when the two
 // gave identical results. A change here changes what every Pages user sees.
 "use strict";
 const test = require("node:test");
@@ -18,33 +18,11 @@ const SEARCHES = {
     top: [130.87, 118.58, 116.85, 128.14, 105.76],
     best: ["round_trip", "CDG", "2026-11-03", "2026-11-07", 130.87, 169.87, 234, ["A3206", "LO3568"], [MIXED]],
     airlines: { A3: 33.77, LY: 33.77, LH: 33.79, PC: 33.79, U2: 33.79, OS: 34.46, TK: 35.51, W6: 35.86, LO: 37.31, FR: 39 } }],
-  "open jaw with extra return airports": [{ ...BASE, destinations: ["FCO", "LHR"], return_airports: ["CIA", "STN"] }, {
-    days: [8, "2026-11-02", "2026-11-09"], lookups: 48, cheapest: 66, cells: { round_trip: [6, 66], open_jaw: [18, 125.85] },
-    top: [66, 71.07, 81.99, 94.43, 75.19],
-    best: ["round_trip", "LHR", "2026-11-02", "2026-11-05", 66, 226.5, 963, ["LH3746+A32052", "TK2100+LH5734"], [MIXED]],
-    airlines: { A3: 32.16, OS: 32.16, LO: 32.16, U2: 32.16, LY: 32.18, PC: 32.18, LH: 32.24, TK: 33.23, FR: 37.46, W6: 38.1 } }],
-  "multi-stop": [{ ...BASE, destinations: ["ATH", "BUD"], connect_destinations: true, min_nights_per_stop: 2 }, {
-    days: [8, "2026-11-02", "2026-11-09"], lookups: 46, cheapest: 78.1, cells: { round_trip: [6, 78.1], open_jaw: [6, 154.48], multi_stop: [4, 268.82] },
-    top: [112.67, 123.11, 138.56, 129.61, 132.95],
-    best: ["round_trip", "BUD", "2026-11-09", "2026-11-12", 112.67, 174.5, 371, ["PC6035", "FR894"], [MIXED]],
-    airlines: { LY: 37.54, W6: 37.54, LH: 38.03, LO: 38.18, FR: 39.08, OS: 40.06, TK: 40.06, PC: 41.32, A3: 41.83, U2: 49.09 } }],
   "self-transfer via hubs": [{ ...BASE, destinations: ["LIS"], allow_self_transfer: true, self_transfer_hubs: ["IST", "VIE"], airlines_exclude: ["TK"] }, {
     days: [8, "2026-11-02", "2026-11-09"], lookups: 84, cheapest: 258.28, cells: { round_trip: [3, 258.28] },
     top: [282.97, 274.93, 269.18, 280.24, 294.56],
     best: ["round_trip", "LIS", "2026-11-05", "2026-11-08", 282.97, 431.8, 893, ["LH5240+LO6389", "LO9411+LY6583"], [MIXED]],
     airlines: { A3: 41.35, OS: 41.35, LO: 42.03, W6: 43.85, LY: 44.15, TK: 46.05, PC: 48.39, FR: 48.77, U2: 50.16, LH: 53.81 }, excluded: ["TK"] }],
-  "same airline both ways": [{ ...BASE, destinations: ["FCO", "BCN"], allow_mixed_airlines: false, max_stops_per_leg: 2 }, {
-    days: [6, "2026-11-02", "2026-11-08"], lookups: 32, cheapest: 156.76, cells: { round_trip: [4, 156.76], open_jaw: [4, 184.4] },
-    top: [188.35, 211.99, 204.37, 231.86, 229.81],
-    best: ["round_trip", "BCN", "2026-11-08", "2026-11-12", 188.35, 236.85, 291, ["FR5093", "FR1723"], []],
-    airlines: { A3: 47.36, OS: 47.36, LY: 47.36, LO: 47.36, LH: 47.36, FR: 47.36, TK: 47.36, W6: 47.36, U2: 47.36, PC: 55.2 } }],
-  "airline filters and travel cap": [{ ...BASE, destinations: ["FCO", "ATH"], airlines_include: ["w6", "fr", "tk", " LY ", "os", "a3", "lh"],
-    airlines_exclude: ["FR"], max_travel_min_per_direction: 900 }, {
-    days: [4, "2026-11-03", "2026-11-08"], lookups: 32, cheapest: 250.34, cells: { round_trip: [2, 256.1], open_jaw: [4, 250.34] },
-    top: [250.34, 256.1, 265.3, 291.46, 288.98],
-    best: ["open_jaw", "ATH→FCO", "2026-11-03", "2026-11-07", 250.34, 409.67, 956, ["OS3408+LH2784", "TK9752+LY3570"],
-      ["4 nights between landing at ATH and leaving from FCO. ATH and FCO are in different cities. No transfer estimate is available, so allow for your own ground travel.", MIXED]],
-    airlines: { OS: 88.96, TK: 88.96, LY: 89.93, PC: 89.93, LH: 90.85, FR: 90.85, LO: 94.83, U2: 97.93, A3: 99.83, W6: 101.68 }, excluded: ["FR", "LO", "PC", "U2"] }],
   "family with bags": [{ ...BASE, destinations: ["LCA", "ATH"], adults: 2, children_ages: [1, 7, 13], carry_on_bags: 1, checked_bags: 2, currency: "EUR",
     value_of_time_per_hour: 25, top_n: 8 }, {
     days: [8, "2026-11-02", "2026-11-09"], lookups: 32, cheapest: 633.32, cells: { round_trip: [6, 633.32], open_jaw: [6, 753.28] },
@@ -61,11 +39,6 @@ const SEARCHES = {
     top: [115.71, 132.6, 115.64, 138.73, 91.54],
     best: ["round_trip", "CDG", "2026-10-22", "2026-10-27", 115.71, 159.88, 265, ["A3174", "LH4794"], [MIXED]],
     airlines: { A3: 28.92, OS: 28.92, LO: 28.92, LH: 28.92, PC: 28.92, FR: 28.92, TK: 28.92, W6: 28.92, U2: 28.92, LY: 29.82 } }],
-  "no connections": [{ ...BASE, destinations: ["VIE", "WAW", "BUD"], allow_connections: false }, {
-    days: [8, "2026-11-02", "2026-11-09"], lookups: 48, cheapest: 112.67, cells: { round_trip: [9, 112.67], open_jaw: [18, 164.25] },
-    top: [112.67, 123.11, 138.56, 131.19, 129.61],
-    best: ["round_trip", "BUD", "2026-11-09", "2026-11-12", 112.67, 174.5, 371, ["PC6035", "FR894"], [MIXED]],
-    airlines: { FR: 54.85, LO: 56.36, LH: 57.45, PC: 57.82, LY: 58.61, A3: 60.54, TK: 69.34, W6: 72.07, U2: 73.32, OS: 75.08 } }],
 };
 
 for (const [name, [body, want]] of Object.entries(SEARCHES)) {

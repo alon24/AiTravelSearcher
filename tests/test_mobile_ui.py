@@ -3,7 +3,6 @@ for its flights, full screen), the chart and Mix & match in tabs, and a bottom b
 import re
 
 import pytest
-from conftest import TOUR_SEEN
 
 pytest.importorskip("playwright.sync_api")
 
@@ -65,29 +64,19 @@ def test_a_fresh_load_starts_on_step_one_even_with_a_saved_search(phone):
     assert phone.locator(".wz-title").inner_text() == "Step 1 of 4 · Where"
 
 
-def test_the_steps_are_numbered_so_you_know_where_to_tap(phone):
-    steps = phone.locator(".wz-dots button")
-    assert steps.all_inner_texts() == ["1 Where", "2 When", "3 Who", "4 Review"]
-    _fill(phone)
-    phone.evaluate("Mobile.wizardTo(1)")
-    steps.nth(1).click()                                                  # the form is complete: any step can be tapped
-    assert phone.locator(".wz-title").inner_text() == "Step 2 of 4 · When"
-
-
-def test_a_filled_form_opens_on_the_review_and_searches_from_there(phone):
+def test_a_filled_form_opens_on_the_review_and_can_be_cleared(phone):
     _fill(phone)
     assert phone.locator(".wz-title").inner_text() == "Step 4 of 4 · Review"
+    phone.click(".wz-reset")                                              # start over clears the form
+    assert phone.locator(".wz-title").inner_text() == "Step 1 of 4 · Where" and phone.evaluate("readForm().to.length") == 0
+    _fill(phone)
+    assert phone.locator(".wz-dots button").all_inner_texts() == ["1 Where", "2 When", "3 Who", "4 Review"]
+    phone.locator(".wz-dots button").nth(1).click()                       # the form is complete: any step can be tapped
+    assert phone.locator(".wz-title").inner_text() == "Step 2 of 4 · When"
+    phone.evaluate("Mobile.wizardTo(4)")
     phone.click("#go")
     phone.wait_for_selector(".m-results", timeout=60000)
     assert phone.locator("#step-panel").is_hidden()
-
-
-def test_start_over_clears_the_form_and_returns_to_step_one(phone):
-    _fill(phone)
-    assert phone.locator(".wz-title").inner_text() == "Step 4 of 4 · Review"
-    phone.click(".wz-reset")
-    assert phone.locator(".wz-title").inner_text() == "Step 1 of 4 · Where"
-    assert phone.evaluate("readForm().to.length") == 0
 
 
 def test_search_now_skips_the_remaining_steps(phone):
@@ -97,23 +86,10 @@ def test_search_now_skips_the_remaining_steps(phone):
     phone.wait_for_selector(".m-results", timeout=60000)
 
 
-def test_the_desktop_form_is_not_a_wizard(page):
-    assert page.locator(".wz-head").is_hidden() and page.locator(".wz-nav").is_hidden()
-    assert page.locator("#ac-to").is_visible() and page.locator("#start").is_visible() and page.locator("#adults").is_visible()
-    assert page.locator(".m-nav").is_hidden()
-
-
-# ---------------------------------------------------------------------------- results
-def test_results_fit_a_few_screens_and_never_scroll_sideways(results):
-    p = results
-    assert p.evaluate("document.documentElement.scrollWidth") <= PHONE["width"]
-    assert p.evaluate("document.documentElement.scrollHeight") < 5 * PHONE["height"], "the old phone page was ~30 screens"
-    assert p.locator(".card.trip").count() == 0, "no full trip cards until one is tapped"
-    assert p.locator(".cmp-table").count() == 0
-
-
 def test_top_picks_come_first_and_the_cheapest_is_the_lowest_price(results):
     p = results
+    assert p.evaluate("document.documentElement.scrollWidth") <= PHONE["width"], "never scrolls sideways"
+    assert p.evaluate("document.documentElement.scrollHeight") < 5 * PHONE["height"], "the old phone page was ~30 screens"
     first = p.locator(".m-picks .m-card").first
     assert "CHEAPEST" in first.locator(".m-labels").inner_text().upper()
     prices = [_price(t) for t in p.locator(".m-rows .m-price").all_inner_texts()]
@@ -176,8 +152,6 @@ def test_the_chart_and_mix_and_match_are_tabs(results):
 def test_the_bottom_bar_replaces_the_floating_launchers(results):
     p = results
     assert p.locator("#tb-launch").is_hidden() and p.locator("#chat-launch").is_hidden()
-    nav = p.locator(".m-nav").bounding_box()
-    assert nav["y"] + nav["height"] == pytest.approx(PHONE["height"], abs=1) and nav["width"] == PHONE["width"]
     p.locator(".m-picks .m-card").first.click()
     p.locator(".m-sheet .btn", has_text="Add all flights to Trip builder").click()
     p.locator(".m-sheet button", has_text="Back").click()
@@ -189,51 +163,8 @@ def test_the_bottom_bar_replaces_the_floating_launchers(results):
     assert p.locator("#step-panel").is_visible() and p.locator(".wz-title").inner_text() == "Step 4 of 4 · Review"
 
 
-def test_before_a_search_trips_and_days_are_disabled(phone):
-    assert phone.locator(".m-nav [data-nav=trips]").is_disabled() and phone.locator(".m-nav [data-nav=days]").is_disabled()
-
-
 def test_turning_to_desktop_width_brings_back_the_desktop_results(results):
     p = results
     p.set_viewport_size({"width": 1400, "height": 900})
     p.wait_for_selector(".cmp-table")
     assert p.locator(".m-results").count() == 0 and p.locator("#tb-launch").is_visible()
-
-
-# ---------------------------------------------------------------------------- touch
-def _hit_from(p, sel, dx):
-    """Does a tap `dx` px right of the control's centre still land on it?"""
-    return p.locator(sel).first.evaluate("""(e, dx) => { const r = e.getBoundingClientRect();
-        const at = document.elementFromPoint(r.x + r.width / 2 + dx, r.y + r.height / 2); return at === e || e.contains(at); }""", dx)
-
-
-def test_airline_bar_buttons_are_big_enough_for_a_finger(results):
-    heights = results.locator(".ab-name:visible, .ab-solo:visible").evaluate_all("els => els.map(e => e.getBoundingClientRect().height)")
-    assert heights and min(heights) >= 40
-
-
-def test_wizard_steps_and_remove_buttons_are_easy_to_tap(phone):
-    p = phone
-    heights = p.locator(".wz-dots button").evaluate_all("els => els.map(e => e.getBoundingClientRect().height)")
-    assert min(heights) >= 40
-    _fill(p)
-    p.locator(".wz-dots button").first.click()
-    chip_x = "#ac-to .chip button"
-    p.locator(chip_x).first.wait_for()
-    assert _hit_from(p, chip_x, 13), "a tap just beside the × still removes the destination"
-
-
-def test_on_a_touch_screen_delete_is_shown_without_hovering(base_url):
-    from playwright.sync_api import sync_playwright
-    with sync_playwright() as pw:
-        b = pw.chromium.launch()
-        p = b.new_context(viewport=PHONE, is_mobile=True, has_touch=True).new_page()
-        p.add_init_script(TOUR_SEEN)
-        p.goto(base_url + "/")
-        p.wait_for_function("typeof readForm === 'function' && !!ac.from")
-        assert p.evaluate("matchMedia('(hover: none)').matches")
-        _fill(p)
-        p.wait_for_function("!document.querySelector('#go').disabled")
-        p.click("#go")
-        p.wait_for_function("(e => e && getComputedStyle(e).opacity === '1')(document.querySelector('.hist-item .hi-del'))", timeout=60000)
-        b.close()

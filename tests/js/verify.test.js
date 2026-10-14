@@ -24,30 +24,18 @@ function check(lg, offers, errors = {}) {
 const OUT = [seg("TLV", "FCO", 8)];
 const VIA = [seg("TLV", "IST", 6, "TK", "785"), seg("IST", "FCO", 11, "W6", "4001")];
 
-test("the same flight within a few dollars is confirmed", () => {
-  assert.deepEqual(check(leg(OUT, 161), [offer(OUT, 163)]), { status: "confirmed", price: 161, seen_price: 163, note: "" });
-});
-
-test("the same flight at another price differs", () => {
-  const r = check(leg(OUT, 161), [offer(OUT, 175)]);
-  assert.deepEqual([r.status, r.seen_price], ["price_differs", 175]);
-});
-
-test("of two fares for the same flight, the closer one counts", () => {
-  assert.equal(check(leg(OUT, 161), [offer(OUT, 240), offer(OUT, 160)]).status, "confirmed");
-});
-
-test("another flight at the same price is not a match", () => {
-  assert.deepEqual(check(leg(OUT, 161), [offer([seg("TLV", "FCO", 9)], 161)]),
+test("flights are matched by airline, number and departure, never by price", () => {
+  assert.deepEqual(check(leg(OUT, 161), [offer(OUT, 163)]), { status: "confirmed", price: 161, seen_price: 163, note: "" });   // within a few dollars
+  const far = check(leg(OUT, 161), [offer(OUT, 175)]);
+  assert.deepEqual([far.status, far.seen_price], ["price_differs", 175]);
+  assert.equal(check(leg(OUT, 161), [offer(OUT, 240), offer(OUT, 160)]).status, "confirmed", "of two fares for one flight, the closer counts");
+  assert.deepEqual(check(leg(OUT, 161), [offer([seg("TLV", "FCO", 9)], 161)]),                                                  // another flight, same price
     { status: "not_found", price: 161, seen_price: null, note: "serpapi doesn't list LY381" });
+  assert.equal(check(leg(OUT, 161), [offer([seg("TLV", "FCO", 8, "LY", "0381")], 161)]).status, "confirmed", "a leading zero is the same flight");
 });
 
 test("a flight listed without a price is not found, and says why", () => {
   assert.equal(check(leg(OUT, 161), [offer(OUT, 0, false)]).note, "serpapi doesn't list LY381 (listed without a price)");
-});
-
-test("a flight number written with a leading zero is the same flight", () => {
-  assert.equal(check(leg(OUT, 161), [offer([seg("TLV", "FCO", 8, "LY", "0381")], 161)]).status, "confirmed");
 });
 
 test("a self-transfer is checked as its two tickets, split at the hub", () => {

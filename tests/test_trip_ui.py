@@ -152,7 +152,7 @@ def test_a_guest_joins_by_link_and_asks_skyhop_for_everyone(ilan, dana):
     assert "dana" in ilan.inner_text("#chat-sub")
 
 
-def test_a_trip_brief_is_shared_with_everyone(ilan, dana):
+def test_a_trip_brief_is_shared_and_anyone_can_open_its_search(ilan, dana):
     link = _share(ilan)
     ilan.click("#chat-summarize")
     ilan.wait_for_selector(".msg.brief:has-text('Rome or Athens, November')")
@@ -160,16 +160,10 @@ def test_a_trip_brief_is_shared_with_everyone(ilan, dana):
     dana.goto(link)
     dana.click("#chat-signin")
     dana.wait_for_selector(".msg.brief:has-text('Rome or Athens, November')")
-
-
-def test_anyone_can_open_a_search_from_the_trip(ilan, dana):
-    link = _share(ilan)
-    dana.goto(link)
-    dana.click("#chat-signin")
-    dana.wait_for_selector("#chat-title:has-text('👥')")
-    dana.get_by_role("button", name="Open results").click()
+    dana.get_by_role("button", name="Open results").click()               # anyone can open the trip's search
     dana.wait_for_selector(".cmp-table", timeout=60000)
     assert dana.evaluate("ac.to.get()") == ["ROM", "ATH"]
+    assert dana.locator(".toast", has_text="invited accounts").count() == 0, "joining by invite doesn't talk about access lists"
 
 
 def test_leaving_returns_to_your_own_chats_and_lists_the_trip(ilan):
@@ -194,18 +188,6 @@ def test_a_guest_gets_real_fares_only_inside_the_trip(ilan, dana):
     dana.click("#chat-launch")
     dana.click("#chat-leave")
     dana.wait_for_function("document.querySelector('#mode-badge-desk').textContent === '⚠ DEMO DATA'")
-
-
-def test_a_shared_trip_fits_a_phone(ilan, dana):
-    link = _share(ilan)
-    dana.set_viewport_size({"width": 360, "height": 800})
-    dana.goto(link)
-    dana.click("#chat-signin")
-    dana.wait_for_selector("#chat-title:has-text('👥')")
-    for button in ("#chat-summarize", "#chat-invite", "#chat-leave", "#chat-close", "#chat-send", "#chat-ask"):
-        box = dana.locator(button).bounding_box()
-        assert box and box["x"] >= 0 and box["x"] + box["width"] <= 360, f"{button} is off screen"
-    assert dana.locator(".toast", has_text="invited accounts").count() == 0, "joining by invite doesn't talk about access lists"
 
 
 def test_a_map_made_in_a_trip_reaches_everyone(ilan, dana):

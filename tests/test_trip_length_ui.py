@@ -50,7 +50,7 @@ def test_expert_exactly_and_between(page):
     assert "Between 4–6 nights" in page.inner_text("#nights-hint")
 
 
-def test_to_can_never_be_lower_than_from(page):
+def test_the_length_is_always_valid(page):
     set_dates(page, "2026-10-01", "2026-10-21")
     page.check("#expert")
     commit(page, "#nmin", 5)
@@ -61,11 +61,7 @@ def test_to_can_never_be_lower_than_from(page):
     assert form(page) == {"nmin": 9, "nmax": 9, "mode": "range"}
     page.click("[data-for=nmax][data-step='-1']")                      # the stepper cannot go below "from" either
     assert form(page)["nmax"] == 9
-
-
-def test_changing_the_dates_revalidates_the_length(page):
-    set_dates(page, "2026-10-01", "2026-10-21")
-    page.check("#expert")
+    commit(page, "#nmin", 1)                                           # dates changing re-validate the length
     commit(page, "#nmin", 10)
     commit(page, "#nmax", 14)
     set_dates(page, "2026-10-01", "2026-10-06")                        # only 5 nights now
