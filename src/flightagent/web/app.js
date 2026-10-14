@@ -660,16 +660,17 @@ function renderResult(row, opts = {}) {
   // With several destinations and/or trip lengths there is no single "cheapest trip": show the trip-length x destination matrix
   // and the grouped trips table (compare.js). One combination only (or a search saved before `cells` existed) keeps the three picks.
   const useCompare = (res.cells || []).length > 1;
+  const tripsTab = [];   // desktop "Trips" tab: the picks (or the compare matrix) and the top trips
   if (phone) {
     // Mobile.results() below shows the picks and every trip as compact rows instead
   } else if (useCompare) {
     const cmpHost = h("div", { class: "cmp" });
-    box.append(cmpHost);
+    tripsTab.push(cmpHost);
     Compare.render(cmpHost, { res, q, cur, pax: paxCount(q), state: (view.cmp ||= {}) });
   } else {
-    box.append(h("div", { class: "picks" }, pickBtns, direct ? null : h("div", { class: "pick static" }, h("span", { class: "k" }, "Direct flights"), h("span", { class: "v" }, "None"), h("span", { class: "s" }, "No nonstop trips in this window."))), pickDetail);
+    tripsTab.push(h("div", { class: "picks" }, pickBtns, direct ? null : h("div", { class: "pick static" }, h("span", { class: "k" }, "Direct flights"), h("span", { class: "v" }, "None"), h("span", { class: "s" }, "No nonstop trips in this window."))), pickDetail);
     const routePicksEl = routePicks(res, cur, paxCount(q), q.destinations.length);
-    if (routePicksEl) box.append(routePicksEl);
+    if (routePicksEl) tripsTab.push(routePicksEl);
   }
   function syncPicks() {
     pickBtns.forEach(b => {
@@ -710,17 +711,13 @@ function renderResult(row, opts = {}) {
 
   const mixHost = h("div", { class: "mm" });
   const mixPanel = h("div", { class: "card panel res-mix" }, h("div", { class: "panel-head" }, h("div", {}, h("h3", {}, "Mix & match flights"),
-    h("p", {}, "Every flight for the day you picked on the chart. Choose any outbound with any return: the total and the time between them update."))));
+    h("p", {}, "Every flight for one day: pick the day here or on Price by day. Choose any outbound with any return: the total and the time between them update."))));
   const detailHost = h("div", { class: "trips" });
   const selectedDay = h("div", {}, h("h3", { class: "sec-h" }, "Selected day"), detailHost);
   if (phone) Mobile.results(box, { res, q, cur, pax: paxCount(q), state: (view.mobile ||= {}), days: [chartPanel, selectedDay], mix: [mixPanel, mixHost] });
   else {
-    box.append(chartPanel, mixPanel, mixHost, selectedDay);
-    const topAll = res.top.length ? h("div", {}, h("h3", { class: "sec-h" }, "Top picks overall"),
-      h("div", { class: "trips" }, res.top.map(t => tripCard(t, cur, paxCount(q))))) : null;
-    if (topAll) box.append(topAll);
-    jumpBar([[$(".picks, .cmp", box), useCompare ? "Compare" : "Best picks"], [chartPanel, "Price by day"], [mixPanel, "Mix & match"],
-      [selectedDay, "Selected day"], [topAll, "Top picks overall"]]);
+    if (res.top.length) tripsTab.push(topTrips(res.top, cur, paxCount(q), 3));
+    resultTabs(box, view, [["trips", "Trips", tripsTab], ["days", "Price by day", [chartPanel, selectedDay]], ["mix", "Mix & match", [mixPanel, mixHost]]]);
   }
 
   function select(date) { view.sel = date; if (view.pickOpen) { view.pickOpen = null; syncPicks(); } redraw(); drawDetail(); }
@@ -751,14 +748,38 @@ function renderResult(row, opts = {}) {
   if (!opts.keepScroll) box.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
-// Desktop results run to many screens: a "Jump to" row in the sticky strip (with the airline chips) reaches each part.
-function jumpBar(parts) {
+// Desktop results used to be one ~16,000px page (picks, chart, Mix & match, the selected day, 17 full trip cards). They are now
+// three tabs, like the phone's; the tab bar sits in the sticky strip with the airline chips, so it is always in reach.
+function resultTabs(box, view, tabs) {
+  const panes = tabs.map(([k, , kids]) => h("div", { class: "res-pane", "data-pane": k }, kids));
+  const bar = h("div", { class: "res-tabs", role: "tablist", "aria-label": "Results" }, tabs.map(([k, label]) =>
+    h("button", { type: "button", role: "tab", "data-tab": k, onclick: () => show(k, true) }, label)));
+  function show(k, scroll) {
+    view.deskTab = k;
+    $$("[data-tab]", bar).forEach(b => b.setAttribute("aria-selected", String(b.dataset.tab === k)));
+    panes.forEach(p => { p.hidden = p.dataset.pane !== k; });
+    const sticky = $("#air-sticky"), top = box.getBoundingClientRect().top + scrollY - sticky.offsetHeight - 8;
+    if (scroll && scrollY > top) window.scrollTo({ top });
+  }
+  box.append(...panes);
   const sticky = $("#air-sticky");
-  const go = el => window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - sticky.offsetHeight - 12, behavior: "smooth" });
-  sticky.append(h("nav", { class: "res-jump", "aria-label": "Jump to a part of the results" }, h("span", { class: "af-label" }, "Jump to"),
-    h("button", { type: "button", class: "pill", onclick: () => window.scrollTo({ top: $("#results").offsetTop - 12, behavior: "smooth" }) }, "↑ Top"),
-    parts.filter(([el]) => el).map(([el, label]) => h("button", { type: "button", class: "pill", onclick: () => go(el) }, label))));
-  sticky.hidden = false;
+  sticky.append(bar); sticky.hidden = false;
+  show(view.deskTab || "trips", false);
+}
+// The best few trips as full cards; the rest as one-line rows that open into the full card.
+function topTrips(top, cur, pax, full) {
+  const row = t => {
+    const card = h("div", {});
+    const air = [...new Set(t.legs.flatMap(l => l.segments).map(sg => airlineName(sg.airline_code, sg.airline)))].join(" + ");
+    return h("details", { class: "trip-row", ontoggle: e => { if (e.target.open && !card.firstChild) card.append(tripCard(t, cur, pax)); } },
+      h("summary", {},
+        h("span", { class: "tr-dest" }, t.destination), h("span", { class: "tr-when" }, `${fmtDay(day(t.depart_date))} → ${fmtDay(day(t.return_date))} · ${tripLen(t.nights)}`),
+        h("span", { class: "tr-air" }, `${air} · ${t.stops === 0 ? "direct" : plural(t.stops, "stop")}`), h("span", { class: "tr-price" }, money(t.price, cur))),
+      card);
+  };
+  return h("div", { class: "top-trips" }, h("h3", { class: "sec-h" }, "Top trips"),
+    full ? h("div", { class: "trips" }, top.slice(0, full).map(t => tripCard(t, cur, pax))) : null,
+    top.length > full ? h("div", { class: "trip-rows" }, full ? h("h3", { class: "sec-h" }, `More trips (${top.length - full})`) : null, top.slice(full).map(row)) : null);
 }
 
 // Destination order = colour identity: requested destinations first (fixed), then any other route labels.

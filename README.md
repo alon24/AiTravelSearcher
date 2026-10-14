@@ -68,8 +68,11 @@ direct flights. Tap a card for its flights and booking buttons; Back returns to 
 match are tabs, and a bar at the bottom holds Search, Trips, Days, Ask Skyhop and the Trip builder.
 
 **Lost? Press ?** (top of every screen). It opens Help: a guided tour of the screen you are on, tours of the others
-(results, Trip builder, Ask Skyhop) and quick answers. The first visit starts the welcome tour by itself. On a computer,
-the long results page has a **Jump to** row at the top (Compare, Price by day, Mix & match, Selected day, Top picks).
+(results, Trip builder, Ask Skyhop) and quick answers. The first visit starts the welcome tour by itself.
+
+**On a computer** the results are three tabs, kept at the top while you scroll: **Trips** (the best picks or the
+destination x length comparison, the top three trips in full and the rest as one-line rows you click to open),
+**Price by day** (the chart and the selected day) and **Mix & match**.
 
 ### 2. What happens when you click "Find flights"
 

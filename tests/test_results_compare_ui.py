@@ -166,6 +166,7 @@ def test_a_single_combination_keeps_the_three_picks(page):
 
 def test_mix_and_match_rows_have_bold_airline_names_and_readable_site_buttons(results):
     p = results
+    p.click("[data-tab=mix]")
     p.wait_for_selector(".mm-row")
     weights = p.locator(".mm-air").evaluate_all("els => els.map(e => parseInt(getComputedStyle(e).fontWeight))")
     assert weights and min(weights) >= 800
@@ -420,6 +421,7 @@ def test_without_the_extension_a_known_airline_link_opens_its_own_search_for_the
 
 def test_a_failed_connection_check_says_why_instead_of_vanishing(results):
     p = results
+    p.click("[data-tab=mix]")
     p.wait_for_selector(".mm-row")
     p.evaluate("""() => { const real = api;
         window.api = (path, o) => path === '/api/itinerary/check' ? Promise.reject(new Error('server restarted')) : real(path, o); }""")

@@ -26,17 +26,16 @@ const Help = (() => {
       { el: ["#chat-launch"], title: "Ask Skyhop", text: "Rather type it? Describe the trip in your own words and Skyhop runs the search for you." },
       { el: [".help-btn"], title: "Help is always here", text: "Lost on any screen? Press ? for a tour of that screen and quick answers." },
     ] },
-    results: { title: "Reading the results", blurb: "Picks, the price chart, filters and how to book", steps: [
+    results: { title: "Reading the results", blurb: "The best picks, the three views, and how to book", steps: [
       { el: [".res-head"], title: "Your search", text: "What you searched, and how many prices were checked. Edit changes the search; Search again fetches fresh prices." },
-      { el: [".res-jump"], title: "Jump around", text: "The results are long. These links take you straight to each part, and stay at the top while you scroll." },
+      { el: [".res-tabs"], title: "Three views", text: "Trips has the best picks and the top trips. Price by day shows the price for each departure day. Mix & match lets you pick each flight yourself." },
       { el: ["#air-sticky .ab", "#air-sticky"], title: "Airlines", text: "The airlines found on this route, cheapest first. Choose Only or Exclude on one to filter the results at once." },
       { el: [".m-tabs"], title: "Three views", text: "Trips lists every trip, Days shows the price for each departure day, and Mix & match lets you pick each flight yourself." },
       { el: [".m-picks .m-card", ".picks", ".cmp"], title: "The best picks", text: "Cheapest, best value (price weighed against travel time) and fastest. Open one to see its flights and the buttons to book them." },
       { el: [".m-tools"], title: "Filter the list", text: "Tap a destination, a trip length or Direct to narrow the list, and sort it the way you like." },
-      { el: [".res-chart"], title: "Price by departure day", text: "Each column is the trip leaving that day. Click a column to see that day's trip below." },
-      { el: [".res-mix"], title: "Mix & match", text: "Every flight on the day you picked. Choose any outbound with any return and the total updates." },
+      { el: [".trip-rows"], title: "More trips", text: "The next best trips, one line each. Click a line to open its flights." },
       { el: [".m-nav"], title: "Getting around", text: "Search takes you back to edit the trip, Trips and Days switch views, and Trip opens your Trip builder." },
-      { el: [".card.trip .actions"], title: "Book it", text: "Skyhop never sells tickets. The airline buttons open the airline's own site with the flight filled in. You can also add the flights to the Trip builder or save them to Travel Hub." },
+      { el: [".res-pane:not([hidden]) .card.trip .actions", ".card.trip .actions"], title: "Book it", text: "Skyhop never sells tickets. The airline buttons open the airline's own site with the flight filled in. You can also add the flights to the Trip builder or save them to Travel Hub." },
     ] },
     builder: { title: "Trip builder", blurb: "Build one trip from flights you collect", open: () => Builder.open(), steps: [
       { el: ["#tb .tb-head"], title: "Trip builder", text: "Your own trip, one leg at a time. Add flights from any search with “Add to Trip builder”, or add a leg here and pick from every flight that day." },
