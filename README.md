@@ -67,6 +67,10 @@ best value, fastest, cheapest direct) followed by every trip as a short card you
 direct flights. Tap a card for its flights and booking buttons; Back returns to the list. The price chart and Mix &
 match are tabs, and a bar at the bottom holds Search, Trips, Days, Ask Skyhop and the Trip builder.
 
+**Lost? Press ?** (top of every screen). It opens Help: a guided tour of the screen you are on, tours of the others
+(results, Trip builder, Ask Skyhop) and quick answers. The first visit starts the welcome tour by itself. On a computer,
+the long results page has a **Jump to** row at the top (Compare, Price by day, Mix & match, Selected day, Top picks).
+
 ### 2. What happens when you click "Find flights"
 
 ```mermaid

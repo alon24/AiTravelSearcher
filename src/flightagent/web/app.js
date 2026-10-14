@@ -701,7 +701,7 @@ function renderResult(row, opts = {}) {
     h("button", { type: "button", "data-t": t, "aria-pressed": String(view.tab === t), onclick: () => { view.tab = t; syncTabs(); redraw(); } }, label));
   const syncMetric = () => { metricBtns.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.m === view.metric))); redraw(); drawDetail(); };
   const syncTabs = () => tabBtns.forEach(b => b.setAttribute("aria-pressed", String(b.dataset.t === view.tab)));
-  const chartPanel = h("div", { class: "card panel" },
+  const chartPanel = h("div", { class: "card panel res-chart" },
     h("div", { class: "panel-head" },
       h("div", {}, h("h3", {}, "Price by departure day"),
         h("p", {}, "Each column is the trip leaving that day. Click one for details.")),
@@ -709,15 +709,18 @@ function renderResult(row, opts = {}) {
     legendHost, chartHost, tableHost);
 
   const mixHost = h("div", { class: "mm" });
-  const mixPanel = h("div", { class: "card panel" }, h("div", { class: "panel-head" }, h("div", {}, h("h3", {}, "Mix & match flights"),
+  const mixPanel = h("div", { class: "card panel res-mix" }, h("div", { class: "panel-head" }, h("div", {}, h("h3", {}, "Mix & match flights"),
     h("p", {}, "Every flight for the day you picked on the chart. Choose any outbound with any return: the total and the time between them update."))));
   const detailHost = h("div", { class: "trips" });
   const selectedDay = h("div", {}, h("h3", { class: "sec-h" }, "Selected day"), detailHost);
   if (phone) Mobile.results(box, { res, q, cur, pax: paxCount(q), state: (view.mobile ||= {}), days: [chartPanel, selectedDay], mix: [mixPanel, mixHost] });
   else {
     box.append(chartPanel, mixPanel, mixHost, selectedDay);
-    if (res.top.length) box.append(h("div", {}, h("h3", { class: "sec-h" }, "Top picks overall"),
-      h("div", { class: "trips" }, res.top.map(t => tripCard(t, cur, paxCount(q))))));
+    const topAll = res.top.length ? h("div", {}, h("h3", { class: "sec-h" }, "Top picks overall"),
+      h("div", { class: "trips" }, res.top.map(t => tripCard(t, cur, paxCount(q))))) : null;
+    if (topAll) box.append(topAll);
+    jumpBar([[$(".picks, .cmp", box), useCompare ? "Compare" : "Best picks"], [chartPanel, "Price by day"], [mixPanel, "Mix & match"],
+      [selectedDay, "Selected day"], [topAll, "Top picks overall"]]);
   }
 
   function select(date) { view.sel = date; if (view.pickOpen) { view.pickOpen = null; syncPicks(); } redraw(); drawDetail(); }
@@ -746,6 +749,16 @@ function renderResult(row, opts = {}) {
   new ResizeObserver(() => { if (view.tab === "chart" && chartHost.clientWidth && Math.abs(chartHost.clientWidth - lastW) > 2) redraw(); }).observe(chartHost);
   redraw(); drawDetail(); syncPicks();
   if (!opts.keepScroll) box.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// Desktop results run to many screens: a "Jump to" row in the sticky strip (with the airline chips) reaches each part.
+function jumpBar(parts) {
+  const sticky = $("#air-sticky");
+  const go = el => window.scrollTo({ top: el.getBoundingClientRect().top + scrollY - sticky.offsetHeight - 12, behavior: "smooth" });
+  sticky.append(h("nav", { class: "res-jump", "aria-label": "Jump to a part of the results" }, h("span", { class: "af-label" }, "Jump to"),
+    h("button", { type: "button", class: "pill", onclick: () => window.scrollTo({ top: $("#results").offsetTop - 12, behavior: "smooth" }) }, "↑ Top"),
+    parts.filter(([el]) => el).map(([el, label]) => h("button", { type: "button", class: "pill", onclick: () => go(el) }, label))));
+  sticky.hidden = false;
 }
 
 // Destination order = colour identity: requested destinations first (fixed), then any other route labels.
@@ -1574,6 +1587,7 @@ async function init() {
   Mobile.init({ onLayoutChange: () => { if (currentRow && currentRow.id === current && currentRow.status === "done") renderResult(currentRow, { keepScroll: true }); } });
   Finder.init();
   Chat.init();
+  Help.init();
   openSharedSearch();
   openHubSearch();
   refreshHistory(); runEstimate();
