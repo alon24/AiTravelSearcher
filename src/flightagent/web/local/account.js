@@ -1,7 +1,7 @@
 /* Signing in with Google, and talking to Skyhop's Cloudflare Worker (worker/), which holds the SerpApi and OpenRouter
    keys for the GitHub Pages build. Only active when runtime.js names a Worker and a Google OAuth client (build_pages.py
    writes both from GitHub variables); otherwise the page stays on demo fares. The Google access token is kept until it
-   expires (about an hour) so a reload, on a phone too, doesn't ask again. Skyhop is one of a suite on alon24.github.io
+   expires (about an hour) and is then renewed quietly (renew), so a reload, on a phone too, doesn't ask again. Skyhop is one of a suite on alon24.github.io
    with Travel Hub AI (alon24/travel-hub) and MyMaps AI, all on the same Google client: whichever app you sign in to,
    the others on this origin use that sign-in (HUB below) until it expires or you sign out. */
 (function (root) {
@@ -16,7 +16,9 @@
   const rt = () => root.SKYHOP_RUNTIME || {};
   const configured = () => !!(rt().workerUrl && rt().googleClientId);
 
+  const LAST = "skyhop.google.last";   // who signed in last, kept past the token's hour (until sign-out) so it can be renewed quietly
   let session = load();     // {token, until, email, scopes}
+  let renewing = null;      // a silent renewal in flight
   let health = null;        // the Worker's /health for this session: {gflights, serpapi, chat, trips, user, guest}
   let trip = null;          // the shared trip on screen (trip.js): a guest's AI and fares are billed to it
   let checked = null;
@@ -44,8 +46,16 @@
   }
   function save(s) {
     session = s;
-    try { s ? root.localStorage.setItem(KEY, JSON.stringify(s)) : root.localStorage.removeItem(KEY); } catch { /* private mode */ }
+    try {
+      s ? root.localStorage.setItem(KEY, JSON.stringify(s)) : root.localStorage.removeItem(KEY);
+      if (s && s.email) root.localStorage.setItem(LAST, s.email);
+    } catch { /* private mode */ }
+    schedule();
   }
+  function lastEmail() {
+    try { return root.localStorage.getItem(LAST) || (JSON.parse(root.localStorage.getItem(KEY)) || {}).email || (JSON.parse(root.localStorage.getItem(HUB)) || {}).email || null; } catch { return null; }
+  }
+  function forget() { try { root.localStorage.removeItem(LAST); } catch { /* private mode */ } }
   const who = () => (session && session.until > Date.now() && health && (health.user || health.guest)) || null;
   const signedIn = () => !!who();
   const allowed = () => signedIn() && !!health.user;     // on ALLOWED_EMAILS: may spend the keys outside a shared trip
@@ -58,7 +68,8 @@
     const r = await fetch(rt().workerUrl.replace(/\/+$/, "") + path, { ...opts, headers });
     let j = null;
     try { j = await r.json(); } catch { /* not JSON */ }
-    if (r.status === 401 && session) {        // the token expired or was revoked: tell the page once
+    if (r.status === 401 && session && !opts.renewed && !renewing && await renew()) return get(path, { ...opts, renewed: true });
+    if (r.status === 401 && session) {        // the token expired or was revoked and can't be renewed: tell the page once
       dropFromHub(session.token);
       save(null);
       if (health) health = { ...health, user: null, guest: null };
@@ -72,7 +83,7 @@
   function check(force = false) {
     if (!configured()) return Promise.resolve(null);
     if (!checked || force) {
-      checked = get("/health").then(h => {
+      checked = (session || !lastEmail() ? Promise.resolve() : renew()).then(() => get("/health")).then(h => {
         health = h; unreachable = null;
         if (session && !(h.user || h.guest)) { dropFromHub(session.token); save(null); }    // expired or revoked
         return h;
@@ -95,14 +106,14 @@
   }
 
   /** Google's consent popup for these scopes; resolves with {token, until, scopes}. */
-  async function requestToken(scope, hint) {
+  async function requestToken(scope, hint, silent = false) {
     if (root.SkyhopNative) return appToken(scope, hint);
     await loadGis();
     const answer = await new Promise((ok, no) => {
       root.google.accounts.oauth2.initTokenClient({ client_id: rt().googleClientId, scope, ...(hint ? { login_hint: hint } : {}),
         callback: r => (r.error ? no(new Error(r.error_description || r.error)) : ok(r)),
         error_callback: e => no(new Error(e && e.type === "popup_closed" ? "Sign-in was cancelled" : `Google sign-in failed (${(e && e.type) || "no reason given"})`)),
-      }).requestAccessToken();
+      }).requestAccessToken(silent ? { prompt: "", hint } : undefined);
     });
     return { token: answer.access_token, until: Date.now() + ((Number(answer.expires_in) || 3600) - 60) * 1000,
       scopes: String(answer.scope || scope).split(/\s+/) };
@@ -131,6 +142,30 @@
     const raw = btoa(String.fromCharCode(...new TextEncoder().encode(JSON.stringify(t)))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
     return `skyhop://signed-in?t=${raw}`;
   }
+
+  /** A new token without asking: Google gives one when the person is still signed in to Google and already approved
+      Skyhop (no popup, or one that closes by itself). False when that needs a real click; the page then signs out. */
+  function renew() {
+    const email = session ? session.email : lastEmail();
+    if (!email || !configured() || root.SkyhopNative) return Promise.resolve(false);
+    return (renewing = renewing || requestToken(SIGN_IN, email, true).then(async t => {
+      save({ ...t, email });
+      const h = await get("/health", { renewed: true });
+      if (!h || !(h.user || h.guest)) throw new Error("not on the list");
+      health = h; unreachable = null; checked = Promise.resolve(h);
+      shareWithHub(session);
+      return true;
+    }).catch(() => { save(null); return false; }).finally(() => { renewing = null; }));
+  }
+  let timer = null;
+  /** Renew a minute or two before the token runs out, and when the tab comes back (phones freeze timers). */
+  function schedule() {
+    root.clearTimeout(timer);
+    if (session) timer = root.setTimeout(() => { renew().then(ok => { if (!ok) root.dispatchEvent(new CustomEvent("skyhop-signed-out")); }); }, Math.max(0, session.until - Date.now() - 60_000));
+  }
+  if (root.document) root.document.addEventListener("visibilitychange", () => {
+    if (root.document.visibilityState === "visible" && session && session.until - Date.now() < 120_000) renew();
+  });
 
   /** Google's sign-in popup, then the Worker's verdict on the token. Resolves with the account's email. */
   async function signIn() {
@@ -162,8 +197,11 @@
       fetch(REVOKE, { method: "POST", mode: "no-cors", body: new URLSearchParams({ token: session.token }) }).catch(() => {});
     }
     save(null);
+    forget();
     if (health) health = { ...health, user: null, guest: null };
   }
+
+  schedule();
 
   L.account = {
     configured, check, signIn, signOut, get, signedIn, driveToken, hasDrive,

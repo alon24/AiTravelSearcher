@@ -235,6 +235,14 @@ def test_an_unreachable_worker_says_why_and_keeps_the_sign_in(page, worker):
     page.wait_for_function("document.querySelector('#mode-badge-desk').textContent === 'LIVE'")
 
 
+def test_an_expired_token_is_renewed_quietly_on_reload(page, worker):
+    page.evaluate("""() => { localStorage.setItem('skyhop.google', JSON.stringify({token: 'old', until: Date.now() - 1000, email: 'ilan@example.com', scopes: []}));
+                            localStorage.setItem('skyhop.google.last', 'ilan@example.com'); }""")
+    page.reload()
+    page.wait_for_function("document.querySelector('#mode-badge-desk').textContent === 'LIVE'")
+    assert page.evaluate("JSON.parse(localStorage.getItem('skyhop.google')).token") == "tok-1", "no click: a new token replaced the old one"
+
+
 def test_a_token_that_expires_mid_session_signs_out(page, worker):
     _sign_in(page)
     worker["user"] = None                     # Google no longer vouches for the token
@@ -329,6 +337,9 @@ def test_a_hub_signed_in_as_someone_else_is_left_alone(page, worker):
 
 
 def test_an_expired_or_refused_hub_sign_in_is_not_used(page, worker):
+    # Google can't renew quietly here (it would need a click)
+    page.route("https://accounts.google.com/gsi/client", lambda r: r.fulfill(content_type="text/javascript", body="""window.google = { accounts: { oauth2: {
+      initTokenClient: c => ({ requestAccessToken: () => setTimeout(() => c.error_callback({ type: "popup_failed_to_open" }), 0) }) } } };"""))
     _hub(page, {"token": "tok-1", "expires": page.evaluate("Date.now()") + 30_000, "email": "ilan@example.com"})
     page.reload()
     page.wait_for_function("typeof readForm === 'function' && !!ac.from")
