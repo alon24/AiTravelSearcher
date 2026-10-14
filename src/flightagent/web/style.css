@@ -774,3 +774,33 @@ td.air-names { white-space: normal; min-width: 110px; }
 .vf { flex-basis: 100%; border-radius: 12px; padding: 10px 12px; background: var(--card-2); color: var(--ink-2); font-size: 14px; }
 .vf ul { margin: 6px 0 0; padding-left: 18px; } .vf.confirmed { background: var(--ok-bg); color: var(--ok-ink); }
 .vf.price_differs, .vf.error { background: var(--bad-bg); color: var(--bad-ink); } .vf.not_found { background: var(--warn-bg); color: var(--warn-ink); }
+
+/* ---- help: the ? panel and guided tours (help.js) */
+.help-btn { font-weight: 800; font-size: 17px; }
+.res-jump { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.air-sticky .ab + .res-jump { margin-top: 10px; }
+.help-wrap .tb-scrim { z-index: 85; }
+.tb.help { z-index: 86; width: min(460px, 100vw); }
+.help-tour { display: grid; gap: 3px; text-align: left; border: 1.5px solid var(--line-2); background: var(--card); border-radius: 16px; padding: 13px 15px; color: var(--ink); font: inherit; cursor: pointer; }
+.help-tour:hover { border-color: var(--accent); background: var(--accent-soft); }
+.help-tour.here { border-color: var(--accent); background: var(--accent-soft); }
+.help-tour b { font-size: 15px; } .help-tour span { color: var(--ink-2); font-size: 13px; }
+.help-h { margin: 10px 0 0; font-size: 12px; font-weight: 800; color: var(--ink-2); letter-spacing: .04em; text-transform: uppercase; }
+.help-faq { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 11px 14px; }
+.help-faq summary { font-weight: 700; cursor: pointer; } .help-faq p { margin: 8px 0 0; color: var(--ink-2); font-size: 14px; }
+.tour { position: fixed; inset: 0; z-index: 95; }
+.tour-hole { position: fixed; border-radius: 14px; box-shadow: 0 0 0 9999px rgb(8 20 16 / .62); outline: 3px solid var(--accent); pointer-events: none; transition: all .2s ease; }
+.tour.centred .tour-hole { left: 50%; top: 50%; width: 0; height: 0; outline: 0; }
+.tour-tip { position: fixed; background: var(--card); color: var(--ink); border: 1px solid var(--line-2); border-radius: 18px; padding: 16px 18px; box-shadow: var(--shadow-lg); display: grid; gap: 8px; transition: top .2s ease, left .2s ease; }
+.tour.centred .tour-tip { left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(400px, calc(100vw - 24px)); }
+.tour-tip h3 { margin: 0; font-size: 18px; letter-spacing: -.01em; } .tour-tip p { margin: 0; color: var(--ink-2); font-size: 14.5px; line-height: 1.45; }
+.tour-count { font-size: 12px; font-weight: 800; color: var(--accent-ink); letter-spacing: .04em; text-transform: uppercase; }
+.tour-nav { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-top: 4px; }
+.tour-nav > :first-child { margin-right: auto; }
+.tour-nav .btn.primary { padding: 9px 18px; font-size: 14px; }
+.tour-nav .btn { white-space: nowrap; width: auto; flex: none; }
+.topbar .mode-badge { white-space: nowrap; }
+@media (max-width: 420px) { .topbar { gap: 6px; } .topbar .mode-badge { font-size: 11.5px; padding: 4px 8px; } }
+.topbar .icon-btn { flex: none; }
+@media (max-width: 440px) { .topbar:has(.account-btn:not([hidden])) .brand span:last-child { display: none; } }
+@media (max-width: 380px) { .topbar .brand span:last-child { display: none; } .topbar .icon-btn { width: 36px; height: 36px; } }

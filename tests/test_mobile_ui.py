@@ -3,6 +3,7 @@ for its flights, full screen), the chart and Mix & match in tabs, and a bottom b
 import re
 
 import pytest
+from conftest import TOUR_SEEN
 
 pytest.importorskip("playwright.sync_api")
 
@@ -227,6 +228,7 @@ def test_on_a_touch_screen_delete_is_shown_without_hovering(base_url):
     with sync_playwright() as pw:
         b = pw.chromium.launch()
         p = b.new_context(viewport=PHONE, is_mobile=True, has_touch=True).new_page()
+        p.add_init_script(TOUR_SEEN)
         p.goto(base_url + "/")
         p.wait_for_function("typeof readForm === 'function' && !!ac.from")
         assert p.evaluate("matchMedia('(hover: none)').matches")

@@ -3,6 +3,9 @@ import threading
 
 import pytest
 
+# Marks the welcome tour (web/help.js) as already shown, so it doesn't open over the page under test.
+TOUR_SEEN = "try { localStorage.setItem('skyhop.tour', JSON.stringify('seen')) } catch (e) {}"
+
 
 @pytest.fixture(scope="session")
 def base_url(tmp_path_factory):
@@ -38,6 +41,7 @@ def page(base_url):
     with sync_playwright() as p:
         b = p.chromium.launch()
         pg = b.new_page(viewport={"width": 1600, "height": 1000})
+        pg.add_init_script(TOUR_SEEN)   # the first-visit tour would cover the page; test_help_ui.py covers it
         pg.goto(base_url + "/")
         pg.evaluate("localStorage.clear()")
         pg.reload()
