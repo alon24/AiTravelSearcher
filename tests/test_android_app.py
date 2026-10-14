@@ -42,3 +42,9 @@ def test_the_java_bridge_has_every_call_the_scripts_make():
     for call in ("SkyhopShim.done(", "SkyhopShim.fromAirline(", "__skyhopBridge.reply("):
         assert call in JAVA
 
+
+
+def test_the_app_knows_the_commit_it_was_built_from(monkeypatch):
+    """The page compares this with the newest APK's release notes to say when the phone's app is out of date."""
+    monkeypatch.setenv("GITHUB_SHA", "0123456789abcdef")
+    assert 'window.SKYHOP_BUILD = "0123456";' in bundle()

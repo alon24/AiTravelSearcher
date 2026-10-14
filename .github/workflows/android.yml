@@ -9,7 +9,6 @@ name: Android app
 on:
   push:
     branches: [main, "claude/**"]
-    paths: [android/**, browser-extension/**, tools/build_android.py, .github/workflows/android.yml]
   workflow_dispatch:
 
 permissions:
