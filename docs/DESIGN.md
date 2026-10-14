@@ -595,6 +595,23 @@ unchanged; turning the window wide or narrow re-renders the results):
   the source of truth, and replaces those floating buttons on phones.
 - Tests: `tests/test_mobile_ui.py`.
 
+### Help, guided tours and "Jump to" (2026-10-14)
+
+ilan: help on every screen, maybe a wizard that explains how to do things, and a way to find your way around the screens.
+`web/help.js`:
+- **? button** in the top bar (phone) and page header (desktop) opens a Help panel: "Tour this screen" for the screen you are
+  on (search, results, Trip builder, Ask Skyhop), the other tours, and quick answers (demo vs real prices, booking happens on
+  the airline's site, open-jaw, self-transfer, past searches, Travel Hub).
+- **Tours** are lists of steps pointing at real elements (spotlight + bubble, Back/Next, arrows and Escape). A step whose
+  element isn't on screen right now (hidden wizard page, the phone's off-canvas side bar, chat not configured) is skipped, so
+  one script serves desktop and phone, before and after a search. The Trip builder and chat tours open their drawer first.
+- **Welcome tour** starts once on a first plain visit (`localStorage["skyhop.tour"]`). A Travel Hub or shared link (any
+  `?query` or `#hash`) opens straight on its search, so the cross-app flow and the Hub demo recorder are not interrupted.
+  Tests set that key in `conftest.py` (`TOUR_SEEN`).
+- **Jump to:** the desktop results run to ~16,000px for a two-city search (measured 2026-10-14). A row of links in the sticky
+  airline strip reaches Compare / Best picks, Price by day, Mix & match, Selected day and Top picks overall.
+- Tests: `tests/test_help_ui.py`.
+
 ### "Check on <airline> site" for every airline (Sept 2026)
 
 Every airline gets the button, in the trips table, Mix & match, trip cards, the Trip builder and the unpriced-flights list (`siteButton()` in
