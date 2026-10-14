@@ -25,11 +25,12 @@
     // "to" and "back" may list several airports ("a whole country": LIS,OPO,FAO); a bad code drops the whole list
     const codes = k => { const c = code(k).split(",").map(x => x.trim()).filter(Boolean); return c.length && c.every(x => IATA.test(x)) ? [...new Set(c)].slice(0, 8) : []; };
     if (!IATA.test(code("from")) || !codes("to").length || !DAY.test(q.get("start") || "") || !DAY.test(q.get("end") || "")) return null;
-    const nights = Math.max(1, Math.min(60, parseInt(q.get("nights"), 10) || 0));
+    // nights=3 or a range nights=3-4 (the hub's "3 or 4 nights"); each end is clamped to 1..60
+    const [a, b = a] = (q.get("nights") || "").split("-").slice(0, 2).map(x => Math.max(1, Math.min(60, parseInt(x, 10) || 0)));
     const adults = Math.max(1, Math.min(9, parseInt(q.get("adults"), 10) || 1));
     const kids = (q.get("children") || "").split(",").filter(Boolean).map(Number).filter(a => Number.isInteger(a) && a >= 0 && a <= 17);
     const form = { from: [code("from")], to: codes("to"), back: codes("back"), start: q.get("start"), end: q.get("end"), adults, kids };
-    if (q.get("nights")) Object.assign(form, { nmin: nights, nmax: nights, lenMode: "exact", unit: "nights" });
+    if (q.get("nights")) Object.assign(form, { nmin: Math.min(a, b), nmax: Math.max(a, b), lenMode: a === b ? "exact" : "range", unit: "nights" });
     const trip = (q.get("trip") || "").match(/^[\w-]{1,64}$/) ? q.get("trip") : null;
     return { form, context: { trip, hub: safeHub(q.get("hub") || "") || DEFAULT_HUB } };
   }
