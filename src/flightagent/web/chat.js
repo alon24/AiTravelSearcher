@@ -143,7 +143,7 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
       request: brief ? brief.request : null };
     if (brief) {
       convo.messages.push({ role: "system", content: `The user is continuing from this saved trip brief. Keep its conditions unless they change them.\n\n${briefText(brief)}` },
-        { role: "assistant", content: `Continuing "${brief.title}". What has changed? New dates, another city, a different budget?` });
+        { role: "assistant", content: tx("Continuing \"{t}\". What has changed? New dates, another city, a different budget?", { t: brief.title }) });
       if (brief.request) { writeForm(requestToForm(brief.request)); onFormChange(); }
     }
   }
@@ -186,7 +186,7 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
         await persist(); render();
       });
     } catch (e) {
-      convo.messages.push({ role: "assistant", content: `Sorry, I couldn't answer: ${e.message}`, failed: true });
+      convo.messages.push({ role: "assistant", content: tx("Sorry, I couldn't answer: {m}", { m: tw(e.message) }), failed: true });
     } finally { sending = false; persist(); render(); }
   }
 
@@ -204,7 +204,7 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
           else if (m.content) await Trip.post("ai", m.content);
         }, true);
       }
-    } catch (e) { toast(e.message); } finally { sending = false; render(); }
+    } catch (e) { toast(tw(e.message)); } finally { sending = false; render(); }
   }
 
   /** Turn this conversation into a shared trip and hand out its invite link. */
@@ -214,32 +214,32 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
     try {
       const messages = convo.messages.flatMap(m => m.card ? [{ kind: "search", author: "ai", text: "", data: m.card }]
         : visible(m) && !m.failed ? [{ kind: m.role === "user" ? "user" : "ai", author: m.role === "user" ? "" : "ai", text: m.content }] : []);
-      const t = await Trip.create({ title: convo.title || "Shared trip", messages, request: convo.request });
+      const t = await Trip.create({ title: convo.title || tr("Shared trip"), messages, request: convo.request });
       await invite(t.id);
-    } catch (e) { toast(e.message); } finally { sending = false; render(); }
+    } catch (e) { toast(tw(e.message)); } finally { sending = false; render(); }
   }
 
   async function invite(id) {
-    const url = Trip.link(id), text = "Plan this trip with me on Skyhop (sign in with Google to join):";
+    const url = Trip.link(id), text = tr("Plan this trip with me on Skyhop (sign in with Google to join):");
     try {
-      if (navigator.share) await navigator.share({ title: "Skyhop trip", text, url });
-      else { await navigator.clipboard.writeText(`${text} ${url}`); toast("Invite link copied: anyone with it can join after signing in"); }
+      if (navigator.share) await navigator.share({ title: tr("Skyhop trip"), text, url });
+      else { await navigator.clipboard.writeText(`${text} ${url}`); toast(tr("Invite link copied: anyone with it can join after signing in")); }
     } catch { /* cancelled */ }
   }
 
   async function openTrip(id) {
     pendingTrip = null;
     if (!SkyhopLocal.account.signedIn()) { pendingTrip = id; open(); return; }
-    try { await Trip.join(id); } catch (e) { toast(`Couldn't open that trip: ${e.message}`); Trip.forget(id); }
+    try { await Trip.join(id); } catch (e) { toast(tx("Couldn't open that trip: {m}", { m: tw(e.message) })); Trip.forget(id); }
     open(); refreshMode();
   }
 
   // ---------------------------------------------------------------- briefs
   function briefText(b) {
     const list = (title, xs) => (xs && xs.length ? `\n## ${title}\n${xs.map(x => `- ${x}`).join("\n")}\n` : "");
-    return `# ${b.title}\n\n_Skyhop trip brief, ${new Date(b.created).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}_\n\n${b.summary}\n`
-      + list("What I'm looking for", b.conditions) + list("Best options found", b.best_options) + list("Next steps", b.next_steps)
-      + (b.request ? `\nOpen this search in Skyhop: ${shareLink(b.request)}\n` : "");
+    return `# ${b.title}\n\n_${tr("Skyhop trip brief")}, ${new Date(b.created).toLocaleDateString(I18n.locale, { day: "numeric", month: "long", year: "numeric" })}_\n\n${b.summary}\n`
+      + list(tr("What I'm looking for"), b.conditions) + list(tr("Best options found"), b.best_options) + list(tr("Next steps"), b.next_steps)
+      + (b.request ? `\n${tr("Open this search in Skyhop:")} ${shareLink(b.request)}\n` : "");
   }
 
   async function summarize() {
@@ -264,8 +264,8 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
       else convo.messages.push({ role: "assistant", content: "", hidden: true, briefId: brief.id });
       if (SkyhopLocal.account.hasDrive()) saveToDrive(brief, false);
     } catch (e) {
-      if (t) toast(`Couldn't summarize: ${e.message}`);
-      else convo.messages.push({ role: "assistant", content: `Sorry, I couldn't summarize: ${e.message}`, failed: true });
+      if (t) toast(tx("Couldn't summarize: {m}", { m: tw(e.message) }));
+      else convo.messages.push({ role: "assistant", content: tx("Sorry, I couldn't summarize: {m}", { m: tw(e.message) }), failed: true });
     } finally { sending = false; if (!t) persist(); render(); }
   }
 
@@ -275,8 +275,8 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
       if (!token) return;
       brief.drive = await SkyhopLocal.drive.save(token, brief, briefText(brief));
       await briefs.put(brief.id, brief);
-      toast("Saved to Google Drive");
-    } catch (e) { toast(e.message); }
+      toast(tr("Saved to Google Drive"));
+    } catch (e) { toast(tw(e.message)); }
     render();
   }
 
@@ -284,7 +284,7 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
     const text = briefText(brief);
     try {
       if (navigator.share) await navigator.share({ title: brief.title, text });
-      else { await navigator.clipboard.writeText(text); toast("Brief copied: paste it anywhere"); }
+      else { await navigator.clipboard.writeText(text); toast(tr("Brief copied: paste it anywhere")); }
     } catch { /* cancelled */ }
   }
 
@@ -307,8 +307,8 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
   const needsSignIn = () => !SkyhopLocal.account.signedIn();
   const routeLabel = a => `${a.origin || readForm().from[0] || "TLV"} → ${(a.destinations || []).join(", ")}`;
   const when = a => (a.window_start && a.window_end ? ` · ${fmtShort(day(a.window_start))} – ${fmtShort(day(a.window_end))}` : "")
-    + (a.min_nights ? ` · ${a.min_nights === a.max_nights ? plural(a.min_nights, "night") : `${a.min_nights}–${a.max_nights} nights`}` : "");
-  function searchingCard(args) { return h("div", { class: "msg tool busy" }, h("b", {}, "🔎 Searching "), routeLabel(args), when(args), "…"); }
+    + (a.min_nights ? ` · ${a.min_nights === a.max_nights ? plural(a.min_nights, "night") : tx("{a}–{b} nights", { a: a.min_nights, b: a.max_nights })}` : "");
+  function searchingCard(args) { return h("div", { class: "msg tool busy" }, h("b", {}, tr("🔎 Searching"), " "), routeLabel(args), when(args), "…"); }
 
   /** Fill the form with a search from the chat and run it (a shared trip's members each run it on their own page). */
   function showSearch(request) {
@@ -324,7 +324,7 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
 
   /** Open the picker under a search card: a new MyMaps AI map, or one the user already has. */
   async function mapIt(card, title) {
-    try { picker = { card, title, token: await SkyhopLocal.account.driveToken(), maps: [], which: "", share: false }; } catch (e) { toast(e.message); return; }
+    try { picker = { card, title, token: await SkyhopLocal.account.driveToken(), maps: [], which: "", share: false }; } catch (e) { toast(tw(e.message)); return; }
     render();
     const p = picker;
     p.maps = await SkyhopLocal.mymaps.list(p.token).catch(() => []);     // a new map still works without the list
@@ -343,21 +343,21 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
       picker = null;
       if (Trip.active()) await Trip.post("map", map.title, map);
       else { convo.messages.push({ role: "assistant", content: "", hidden: true, map }); await persist(); }
-    } catch (e) { toast(e.message); p.busy = false; }
+    } catch (e) { toast(tw(e.message)); p.busy = false; }
     render();
   }
 
   function pickerView(p) {
     return h("div", { class: "map-pick" },
       h("select", { "aria-label": "Which map", onchange: e => { p.which = e.target.value; } },
-        h("option", { value: "" }, `New map: ${p.title}`), p.maps.map(m => h("option", { value: m.id, selected: m.id === p.which }, `Add to: ${m.name}`))),
+        h("option", { value: "" }, tx("New map: {t}", { t: p.title })), p.maps.map(m => h("option", { value: m.id, selected: m.id === p.which }, tx("Add to: {t}", { t: m.name })))),
       h("label", {}, h("input", { type: "checkbox", checked: p.share, onchange: e => { p.share = e.target.checked; } }), " Anyone with the link can view it"),
-      h("div", { class: "actions" }, h("button", { type: "button", class: "btn small accent", disabled: p.busy, onclick: () => makeMap(p) }, p.busy ? "Making the map…" : "Make map"),
+      h("div", { class: "actions" }, h("button", { type: "button", class: "btn small accent", disabled: p.busy, onclick: () => makeMap(p) }, tr(p.busy ? "Making the map…" : "Make map")),
         h("button", { type: "button", class: "btn small ghost", onclick: () => { picker = null; render(); } }, "Cancel")));
   }
 
   function mapCard(m) {
-    return h("div", { class: "msg tool" }, h("div", {}, "🗺 ", h("b", {}, m.title), m.shared ? " · anyone with the link can view" : ""),
+    return h("div", { class: "msg tool" }, h("div", {}, "🗺 ", h("b", {}, m.title), m.shared ? ` · ${tr("anyone with the link can view")}` : ""),
       h("a", { class: "btn small", href: m.url, target: "_blank", rel: "noopener" }, "Open in MyMaps AI ↗"));
   }
 
@@ -366,12 +366,12 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
     const prices = [...Object.values(out.cheapest_by_destination || {}), ...(out.trips || []).map(t => t.price)];
     const from = prices.length ? Math.min(...prices) : null;
     return h("div", { class: "msg tool" }, h("div", {}, h("b", {}, "🔎 "), routeLabel(args), when(args)),
-      out.error ? h("div", { class: "bad" }, out.error)
-        : out.needs_confirmation ? h("div", {}, `Needs ${out.lookups} paid lookups: say yes to go ahead.`)
-        : h("div", { class: "tool-foot" }, from != null ? h("span", {}, "from ", h("b", {}, money(from, out.currency)), out.demo ? " · demo prices" : "") : "No trips found",
+      out.error ? h("div", { class: "bad" }, tw(out.error))
+        : out.needs_confirmation ? h("div", {}, tx("Needs {n} paid lookups: say yes to go ahead.", { n: out.lookups }))
+        : h("div", { class: "tool-foot" }, from != null ? h("span", {}, "from ", h("b", {}, money(from, out.currency)), out.demo ? ` · ${tr("demo prices")}` : "") : tr("No trips found"),
           h("span", { class: "actions" },
             canMap() && (args.destinations || []).length && !(picker && picker.card === card) ? h("button", { type: "button", class: "btn small",
-              onclick: () => mapIt(card, Trip.active() ? Trip.current().title : (convo && convo.title) || `Trip to ${args.destinations.join(", ")}`) }, "🗺 Map it") : null,
+              onclick: () => mapIt(card, Trip.active() ? Trip.current().title : (convo && convo.title) || tx("Trip to {dest}", { dest: args.destinations.join(", ") })) }, "🗺 Map it") : null,
             h("button", { type: "button", class: "btn small", onclick: () => showSearch(shared ? request : null) }, shared ? "Open results" : "Show results"))),
       picker && picker.card === card ? pickerView(picker) : null);
   }
@@ -381,14 +381,14 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
     return h("div", { class: "msg brief" },
       h("div", { class: "brief-title" }, "📝 ", b.title), opts.full ? h("p", {}, b.summary) : null,
       opts.full && b.best_options.length ? h("ul", {}, b.best_options.map(x => h("li", {}, x))) : null,
-      h("div", { class: "brief-meta" }, new Date(b.created).toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
-        b.drive ? h("a", { href: b.drive.link, target: "_blank", rel: "noopener" }, " · in Google Drive ↗") : " · on this device"),
+      h("div", { class: "brief-meta" }, new Date(b.created).toLocaleDateString(I18n.locale, { day: "numeric", month: "short" }),
+        b.drive ? h("a", { href: b.drive.link, target: "_blank", rel: "noopener" }, ` · ${tr("in Google Drive ↗")}`) : ` · ${tr("on this device")}`),
       h("div", { class: "actions" },
         h("button", { type: "button", class: "btn small accent", onclick: () => { start(b); render(); els.input.focus(); } }, "Continue"),
         h("button", { type: "button", class: "btn small", onclick: () => share(b) }, "Share"),
         drive && !b.drive && SkyhopLocal.account.signedIn() ? h("button", { type: "button", class: "btn small", onclick: () => saveToDrive(b) }, "Save to Drive") : null,
-        opts.full ? null : h("button", { type: "button", class: "btn small ghost", "aria-label": `Delete brief ${b.title}`, onclick: async () => {
-          if (!confirm(`Delete the brief "${b.title}" from this device?`)) return;
+        opts.full ? null : h("button", { type: "button", class: "btn small ghost", "aria-label": tx("Delete brief {t}", { t: b.title }), onclick: async () => {
+          if (!confirm(tx("Delete the brief \"{t}\" from this device?", { t: b.title }))) return;
           await briefs.delete(b.id); driveBriefs = driveBriefs.filter(x => x.id !== b.id); render();
         } }, "Delete")));
   }
@@ -415,7 +415,7 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
 
   function tripView(t) {
     const me = SkyhopLocal.account.email(), url = Trip.link(t.id);
-    return [h("label", { class: "invite-link" }, "Invite link · anyone with it can join after signing in with Google",
+    return [h("label", { class: "invite-link" }, tr("Invite link · anyone with it can join after signing in with Google"),
       h("input", { readonly: true, value: url, "aria-label": "Invite link", onfocus: e => e.target.select() })), ...t.messages.map(m => m.kind === "search" ? toolCard(m.data, true)
       : m.kind === "brief" ? briefCard({ ...m.data, drive: null }, { full: true })
       : m.kind === "map" ? mapCard(m.data)
@@ -425,16 +425,16 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
 
   function header() {
     const t = Trip.active() ? Trip.current() : null, canShare = SkyhopLocal.account.allowed() && SkyhopLocal.account.trips();
-    $("#chat-title").textContent = t ? `👥 ${t.title}` : pendingTrip ? "Join a shared trip" : "Ask Skyhop";
-    $("#chat-sub").textContent = t ? `With ${t.members.map(Trip.name).join(", ")}. Write to the group, or press ✨ to ask Skyhop.`
-      : "Tell me where, when and what matters. I search, show the results beside this chat, and remember it all.";
+    $("#chat-title").textContent = t ? `👥 ${t.title}` : tr(pendingTrip ? "Join a shared trip" : "Ask Skyhop");
+    $("#chat-sub").textContent = t ? tx("With {names}. Write to the group, or press ✨ to ask Skyhop.", { names: t.members.map(Trip.name).join(", ") })
+      : tr("Tell me where, when and what matters. I search, show the results beside this chat, and remember it all.");
     $("#chat-summarize").disabled = sending || !(t ? t.messages.length : convo && convo.messages.some(m => m.role === "user"));
     $("#chat-new").hidden = !!t; $("#chat-new").disabled = sending || !convo;
     $("#chat-share").hidden = !!t || !canShare; $("#chat-share").disabled = sending || !convo || !convo.messages.some(m => m.role === "user");
     $("#chat-invite").hidden = $("#chat-leave").hidden = !t;
     els.ask.hidden = !t;
-    els.input.placeholder = t ? "Message the group, or press ✨ to ask Skyhop" : "e.g. Portugal for a week in late November, direct only, under ₪2000";
-    els.signin.textContent = pendingTrip ? "Sign in with Google to join" : "Sign in with Google to chat";
+    els.input.placeholder = tr(t ? "Message the group, or press ✨ to ask Skyhop" : "e.g. Portugal for a week in late November, direct only, under ₪2000");
+    els.signin.textContent = tr(pendingTrip ? "Sign in with Google to join" : "Sign in with Google to chat");
   }
 
   let renderSeq = 0;
@@ -458,7 +458,7 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
         : visible(m) ? h("div", { class: `msg ${m.role === "user" ? "me" : "ai"}${m.failed ? " bad" : ""}` }, m.content) : null);
     }
     if (seq !== renderSeq) return;
-    els.body.replaceChildren(...kids.filter(Boolean), extra || (sending ? h("div", { class: "msg ai typing", "aria-label": "Skyhop is thinking" }, "•••") : ""));
+    els.body.replaceChildren(...kids.filter(Boolean), extra || (sending ? h("div", { class: "msg ai typing", "aria-label": tr("Skyhop is thinking") }, "•••") : ""));
     els.body.scrollTop = els.body.scrollHeight;
   }
 
@@ -485,7 +485,7 @@ Answer in plain text, 2-5 short lines, no tables or headings: the best pick with
     $("#chat-invite").addEventListener("click", () => invite(Trip.current().id));
     $("#chat-leave").addEventListener("click", () => { Trip.leave(); convo = null; refreshMode(); render(); });
     els.signin.addEventListener("click", async () => {
-      try { await SkyhopLocal.account.signIn(); } catch (e) { toast(e.message); return render(); }
+      try { await SkyhopLocal.account.signIn(); } catch (e) { toast(tw(e.message)); return render(); }
       if (pendingTrip) await openTrip(pendingTrip); else { await refreshMode(); render(); }
     });
     const take = () => { const t = els.input.value; els.input.value = ""; return t; };

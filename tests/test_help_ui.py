@@ -100,8 +100,9 @@ def test_a_hebrew_browser_gets_the_tour_in_hebrew_and_can_switch(base_url):
         assert p.text_content(".tour-count").endswith(" מתוך 10")
         p.click(".tour-next")
         assert p.inner_text(".tour-tip h3") == "לאן"
-        p.click(".tour-tip .help-lang [lang=en]")
-        assert p.inner_text(".tour-tip h3") == "Where", "switching language keeps the step"
+        p.click(".tour-tip .help-lang [lang=en]")   # the page reloads in English and the tour starts again
+        p.wait_for_selector(".tour-tip .help-lang")
+        assert p.inner_text(".tour-tip h3") == "Welcome to Skyhop"
         assert p.locator(".tour-tip").get_attribute("dir") == "ltr"
         p.keyboard.press("Escape")
         p.click(".main-head .help-btn")

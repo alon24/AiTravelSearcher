@@ -11,9 +11,8 @@ const Mobile = (() => {
   // ---------------------------------------------------------------- trips
   const tripKey = t => t.legs.map(l => l.segments.map(s => `${s.airline_code}${s.flight_number}@${s.departs}`).join("+")).join("|");
   const airlinesText = t => [...new Map(t.legs.flatMap(l => l.segments).map(s => [s.airline_code, airlineName(s.airline_code, s.airline)])).values()].join(" + ");
-  const stopsText = n => (n === 0 ? "direct" : plural(n, "stop"));
   const lenWord = n => (unit === "days" ? plural(n + 1, "day") : plural(n, "night"));
-  const kindLabel = t => ({ open_jaw: "Open-jaw", multi_stop: "Multi-city" }[t.kind]);
+  const kindLabel = t => tr({ open_jaw: "Open-jaw", multi_stop: "Multi-city" }[t.kind]);
 
   /** Every distinct trip the search ranked: the best per destination x length, the cheapest and best value of each day, and the top list. */
   function allTrips(res) {
@@ -45,12 +44,12 @@ const Mobile = (() => {
   function card(t, cur, pax, labels = []) {
     const out = t.legs[0];
     return h("button", { type: "button", class: "m-card" + (labels.length ? " pick" : ""), "aria-haspopup": "dialog", onclick: () => openTrip(t, cur, pax) },
-      labels.length ? h("span", { class: "m-labels" }, labels.join(" · ")) : null,
+      labels.length ? h("span", { class: "m-labels" }, labels.map(tr).join(" · ")) : null,
       h("span", { class: "m-top" },
         h("span", { class: "m-dest" }, t.destination, kindLabel(t) ? h("span", { class: "badge run" }, kindLabel(t)) : null, t.self_transfer ? h("span", { class: "badge warn" }, "Self-transfer") : null),
         h("span", { class: "m-price" }, money(t.price, cur))),
       h("span", { class: "m-line" }, `${fmtDay(day(t.depart_date))} → ${fmtDay(day(t.return_date))} · ${lenWord(t.nights)}`),
-      h("span", { class: "m-line sub" }, `${airlinesText(t)} · ${stopsText(t.stops)} · ${hm(out.duration_min)} out`),
+      h("span", { class: "m-line sub" }, tx("{air} · {stops} · {t} out", { air: airlinesText(t), stops: stopsText(t.stops), t: hm(out.duration_min) })),
       origNote(t.price, cur, "orig block"));
   }
 
@@ -59,7 +58,7 @@ const Mobile = (() => {
   function openTrip(t, cur, pax) {
     closeTrip(false);
     const back = h("button", { type: "button", class: "btn", onclick: () => closeTrip() }, "‹ Back");
-    sheet = h("div", { class: "m-sheet", role: "dialog", "aria-modal": "true", "aria-label": `Trip to ${t.destination}` },
+    sheet = h("div", { class: "m-sheet", role: "dialog", "aria-modal": "true", "aria-label": tx("Trip to {dest}", { dest: t.destination }) },
       h("div", { class: "m-sheet-head" }, back, h("b", {}, `${t.destination} · ${money(t.price, cur)}`)),
       h("div", { class: "m-sheet-body" }, tripCard(t, cur, pax)));
     document.body.append(sheet);
@@ -84,7 +83,7 @@ const Mobile = (() => {
     const tripsPane = h("div", { class: "m-pane", "data-pane": "trips" });
     const daysPane = h("div", { class: "m-pane", "data-pane": "days" }, days);
     const mixPane = h("div", { class: "m-pane", "data-pane": "mix" }, mix);
-    const tabs = [["trips", `Trips (${trips.length})`], ["days", "Days"], ["mix", "Mix & match"]];
+    const tabs = [["trips", tx("Trips ({n})", { n: trips.length })], ["days", "Days"], ["mix", "Mix & match"]];
     const tabBar = h("div", { class: "m-tabs", role: "tablist" }, tabs.map(([k, label]) =>
       h("button", { type: "button", role: "tab", "data-tab": k, onclick: () => showTab(k) }, label)));
     showTab = k => {
@@ -111,13 +110,13 @@ const Mobile = (() => {
           lens.length > 1 ? lens.map(n => chip(lenWord(n), st.lens.has(n), () => toggle(st.lens, n))) : null,
           chip("Direct", st.direct, () => { st.direct = !st.direct; st.shown = PAGE; drawList(); })),
         h("div", { class: "m-tools" },
-          h("label", { class: "cmp-sort" }, "Sort ", h("select", { onchange: e => { st.sort = e.target.value; drawList(); } },
+          h("label", { class: "cmp-sort" }, tr("Sort"), " ", h("select", { onchange: e => { st.sort = e.target.value; drawList(); } },
             [["price", "Price (lowest)"], ["best", "Best value"], ["travel", "Shortest travel"], ["date", "Departure date"]].map(([v, t]) => h("option", { value: v, selected: st.sort === v }, t)))),
-          h("span", { class: "badge run m-count" }, rows.length === trips.length ? plural(rows.length, "trip") : `${rows.length} of ${trips.length} trips`)),
+          h("span", { class: "badge run m-count" }, rows.length === trips.length ? plural(rows.length, "trip") : tx("{n} of {m} trips", { n: rows.length, m: trips.length }))),
         rows.length ? h("div", { class: "m-rows" }, rows.slice(0, st.shown).map(t => card(t, cur, pax)))
           : h("div", { class: "note" }, "No trips match these filters. Tap a highlighted chip to clear it."),
         rows.length > st.shown ? h("button", { type: "button", class: "btn m-more", onclick: () => { st.shown += PAGE; drawList(); } },
-          `Show ${Math.min(PAGE, rows.length - st.shown)} more (${rows.length - st.shown} left)`) : null);
+          tx("Show {n} more ({m} left)", { n: Math.min(PAGE, rows.length - st.shown), m: rows.length - st.shown })) : null);
     }
     tripsPane.append(
       h("h3", { class: "m-h" }, "Top picks"),
@@ -130,9 +129,7 @@ const Mobile = (() => {
   // ---------------------------------------------------------------- search wizard
   const STEPS = ["Where", "When", "Who", "Review"];
   let at = 1, wzHead, wzNav, wzReview;
-  /** Which step a validation error from toRequest() belongs to. */
-  const stepOfError = msg => (/flying from|destination/.test(msg) ? 1 : /date|night|Trip length/.test(msg) ? 2 : 3);
-  const formError = () => toRequest(readForm()).error || "";
+  const formError = () => toRequest(readForm());
 
   function wizardTo(n) {
     if (!wzHead) return;   // writeForm() runs once before init()
@@ -140,33 +137,33 @@ const Mobile = (() => {
     $("#form").dataset.at = at;
     $("#step-panel").classList.toggle("wz-last", at === STEPS.length);
     $$("button", wzHead).forEach((b, i) => { b.setAttribute("aria-current", String(i + 1 === at)); b.classList.toggle("done", i + 1 < at); });
-    $(".wz-title", wzHead).textContent = `Step ${at} of ${STEPS.length} · ${STEPS[at - 1]}`;
+    $(".wz-title", wzHead).textContent = tx("Step {at} of {n} · {name}", { at, n: STEPS.length, name: tr(STEPS[at - 1]) });
     $(".wz-back", wzNav).hidden = at === 1;
     $(".wz-next", wzNav).hidden = at === STEPS.length;
     $(".wz-now", wzNav).hidden = at === STEPS.length;
-    $(".wz-next", wzNav).textContent = `Next: ${STEPS[at] || ""}`;
+    $(".wz-next", wzNav).textContent = tx("Next: {name}", { name: tr(STEPS[at] || "") });
     if (at === STEPS.length) drawReview();
     showFormError("");
   }
   /** Back to the first step that still needs something, or the review when the form is complete (an edit, a link from Travel Hub). */
-  function wizardReset() { const err = formError(); wizardTo(err ? stepOfError(err) : STEPS.length); }
+  function wizardReset() { const e = formError(); wizardTo(e.error ? e.step : STEPS.length); }
   function next() {
-    const err = formError();
-    if (err && stepOfError(err) <= at) { wizardTo(stepOfError(err)); showFormError(err); return; }
+    const e = formError();
+    if (e.error && e.step <= at) { wizardTo(e.step); showFormError(e.error); return; }
     wizardTo(at + 1);
   }
   function drawReview() {
     const f = readForm();
-    const when = `${fmtShort(day(f.start))} – ${fmtShort(day(f.end))} · ${lenMode === "any" ? "any length that fits" : lenRange(f.nmin, f.nmax)}`;
-    const who = `${plural(f.adults, "adult")}${f.kids.length ? ` + ${plural(f.kids.length, "child")}` : ""} · ${f.stops === 0 ? "direct only" : `up to ${plural(f.stops, "stop")}`}`;
+    const when = `${fmtShort(day(f.start))} – ${fmtShort(day(f.end))} · ${lenMode === "any" ? tr("any length that fits") : lenRange(f.nmin, f.nmax)}`;
+    const who = `${plural(f.adults, "adult")}${f.kids.length ? ` + ${plural(f.kids.length, "child")}` : ""} · ${f.stops === 0 ? tr("direct only") : tx("up to {n}", { n: plural(f.stops, "stop") })}`;
     wzReview.replaceChildren(...[[1, `${f.from[0] || "?"} → ${f.to.join(", ") || "?"}`], [2, when], [3, who]].map(([n, text]) =>
-      h("button", { type: "button", class: "wz-row", onclick: () => wizardTo(n) }, h("span", { class: "k" }, STEPS[n - 1]), h("span", { class: "v" }, text), h("span", { class: "c" }, "Change"))),
+      h("button", { type: "button", class: "wz-row", onclick: () => wizardTo(n) }, h("span", { class: "k" }, tr(STEPS[n - 1])), h("span", { class: "v" }, text), h("span", { class: "c" }, "Change"))),
       h("button", { type: "button", class: "btn ghost wz-reset", onclick: () => $("#new-search").click() }, "Start over"));
   }
   function initWizard() {
     const form = $("#form");
     wzHead = h("div", { class: "wz-head" }, h("div", { class: "wz-title" }),
-      h("div", { class: "wz-dots" }, STEPS.map((s, i) => h("button", { type: "button", "aria-label": `Step ${i + 1}: ${s}`, onclick: () => (i + 1 <= at ? wizardTo(i + 1) : next()) }, h("b", {}, i + 1), ` ${s}`))));
+      h("div", { class: "wz-dots" }, STEPS.map((s, i) => h("button", { type: "button", "aria-label": tx("Step {n}: {name}", { n: i + 1, name: tr(s) }), onclick: () => (i + 1 <= at ? wizardTo(i + 1) : next()) }, h("b", {}, i + 1), ` ${tr(s)}`))));
     wzReview = h("div", { class: "wz-review", "data-wstep": "4" });
     wzNav = h("div", { class: "wz-nav" },
       h("button", { type: "button", class: "btn wz-back", onclick: () => wizardTo(at - 1) }, "‹ Back"),

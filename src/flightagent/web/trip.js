@@ -55,7 +55,7 @@ const Trip = (() => {
   async function update(fields) { await call(`/trips/${trip.id}`, { method: "PATCH", body: fields }); await refresh(); }
 
   const short = email => (email === "ai" ? "Skyhop" : String(email).split("@")[0]);
-  const name = email => (email === acct().email() ? "You" : short(email));
+  const name = email => (email === acct().email() ? tr("You") : short(email));
 
   /** The trip's conversation in the model's format: who said what, Skyhop's answers, and what its searches found. */
   function history() {

@@ -4,8 +4,8 @@
 const Finder = (() => {
   let originAc, airportsAc, busy = false, last = null;
 
-  const routeChip = r => h("span", { class: "rt" + (r.nonstop ? " ns" : ""), title: `Seen on ${r.dates.map(d => fmtShort(day(d))).join(", ")}${r.flights.length ? " · " + r.flights.join(", ") : ""}` },
-    `${r.airport} · ${r.nonstop ? "nonstop" : "with a stop"}${r.cheapest != null ? ` · from ${money(r.cheapest, currentCurrency)}` : ""}`);
+  const routeChip = r => h("span", { class: "rt" + (r.nonstop ? " ns" : ""), title: tx("Seen on {dates}", { dates: r.dates.map(d => fmtShort(day(d))).join(", ") }) + (r.flights.length ? " · " + r.flights.join(", ") : "") },
+    `${r.airport} · ${tr(r.nonstop ? "nonstop" : "with a stop")}${r.cheapest != null ? ` · ${tx("from {p}", { p: money(r.cheapest, currentCurrency) })}` : ""}`);
   let currentCurrency = "ILS";
 
   function showResult(host, res, label) {
@@ -13,19 +13,19 @@ const Finder = (() => {
     currentCurrency = res.currency;
     const dates = res.dates.map(d => fmtShort(day(d))).join(", ");
     const head = h("div", { class: "res-sub" },
-      h("span", { class: "badge ok" }, `${plural(res.airlines.length, "airline")} found`),
-      h("span", {}, `${label} · dates checked: ${dates} · ${res.airports_checked.length} airports asked, ${res.airports_with_flights.length} with flights`),
+      h("span", { class: "badge ok" }, tx("{n} found", { n: plural(res.airlines.length, "airline") })),
+      h("span", {}, tx("{label} · dates checked: {dates} · {n} airports asked, {m} with flights", { label, dates, n: res.airports_checked.length, m: res.airports_with_flights.length })),
       h("span", { class: "badge run" }, `${res.elapsed_s}s`));
     const notes = [];
-    if (res.trimmed) notes.push("This country has many airports, so only the well-known ones were checked. List airports to check others.");
-    if (res.airports_with_flights.length) notes.push(`Airports with flights: ${res.airports_with_flights.join(", ")}.`);
-    notes.push("Based on what Google Flights lists for those dates. An airline that flies other days may not appear.");
+    if (res.trimmed) notes.push(tr("This country has many airports, so only the well-known ones were checked. List airports to check others."));
+    if (res.airports_with_flights.length) notes.push(tx("Airports with flights: {list}.", { list: res.airports_with_flights.join(", ") }));
+    notes.push(tr("Based on what Google Flights lists for those dates. An airline that flies other days may not appear."));
     host.replaceChildren(head, h("p", { class: "air-help" }, notes.join(" ")),
       res.airlines.length ? h("div", { class: "air-list" }, res.airlines.map(a => h("div", { class: "fnd-row" },
         h("span", { class: "air-name" }, h("span", { class: "an" }, a.name), h("span", { class: "ac2" }, a.code)),
         h("span", { class: "routes" }, a.routes.map(routeChip)),
         h("button", { type: "button", class: "btn small ghost", title: "Use only this airline in the search form", onclick: () => {
-          ac.air.set([a.code]); ($$("input[name=airmode]").find(r => r.value === "only") || {}).checked = true; onFormChange(); window.scrollTo({ top: 0, behavior: "smooth" }); toast(`Search form set to ${a.name} only`); } }, "Only this")))) 
+          ac.air.set([a.code]); ($$("input[name=airmode]").find(r => r.value === "only") || {}).checked = true; onFormChange(); window.scrollTo({ top: 0, behavior: "smooth" }); toast(tx("Search form set to {name} only", { name: a.name })); } }, "Only this")))) 
         : h("div", { class: "note" }, "No flights were listed for those airports on those dates."));
   }
   const toast = msg => { const t = h("div", { class: "toast", role: "status" }, msg); document.body.append(t); setTimeout(() => t.classList.add("show"), 10); setTimeout(() => { t.classList.remove("show"); setTimeout(() => t.remove(), 300); }, 2400); };
@@ -58,7 +58,7 @@ const Finder = (() => {
         const res = await post("/api/explore", { origin, country: airports.length ? "" : c, airports, direction, date: date.value, adults: f.adults, currency: f.currency });
         const where = airports.length ? airports.join(", ") : c;
         showResult(out, res, direction === "to" ? `${origin} → ${where}` : `${where} → ${origin}`);
-      } catch (err) { out.replaceChildren(h("div", { class: "note bad" }, err.message)); }
+      } catch (err) { out.replaceChildren(h("div", { class: "note bad" }, tw(err.message))); }
       busy = false; go.disabled = false;
     } },
       h("div", { class: "fnd-fields" },
