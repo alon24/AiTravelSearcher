@@ -606,7 +606,10 @@ ilan: help on every screen, maybe a wizard that explains how to do things, a way
 - **Tours** are lists of steps pointing at real elements (spotlight + bubble, Back/Next, arrows and Escape). A step whose
   element isn't on screen right now (hidden wizard page, the phone's off-canvas side bar, chat not configured) is skipped, so
   one script serves desktop and phone, before and after a search. The Trip builder and chat tours open their drawer first.
-- **Welcome tour** starts once on a first plain visit (`localStorage["skyhop.tour"]`). A Travel Hub or shared link (any
+- **English or Hebrew** (ilan, 2026-10-14): the browser's language by default, or the one picked in Help or on a tour bubble
+  (`localStorage["skyhop.helpLang"]`); Hebrew is right-to-left. Only Help and the tours are translated, not the app itself.
+- **Welcome tour** starts on a plain visit until it is finished (Done) or turned off: Skip and Escape only close it for now,
+  "Don't show this again" stops it, and a switch in Help turns it back on (`localStorage["skyhop.tour"]`). A Travel Hub or shared link (any
   `?query` or `#hash`) opens straight on its search, so the cross-app flow and the Hub demo recorder are not interrupted.
   Tests set that key in `conftest.py` (`TOUR_SEEN`).
 - **Results tabs (desktop):** the results were one page of ~16,000px for a two-city search (picks or the compare matrix,

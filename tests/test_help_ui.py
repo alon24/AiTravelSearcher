@@ -62,7 +62,49 @@ def test_the_tour_spotlights_each_element_and_can_be_skipped(fresh):
     assert fresh.inner_text(".tour-tip h3") == "Welcome to Skyhop"
     fresh.click(".tour-skip")
     assert fresh.locator(".tour").count() == 0
-    assert fresh.evaluate("JSON.parse(localStorage.getItem('skyhop.tour'))") == "seen"
+    fresh.reload()
+    fresh.wait_for_selector(".tour")   # Skip only closes it: it comes back next visit
+
+
+def test_dont_show_again_stops_the_welcome_tour(fresh):
+    fresh.wait_for_selector(".tour")
+    fresh.click(".tour-next")
+    fresh.click(".tour-never")
+    assert fresh.locator(".tour").count() == 0
+    fresh.reload()
+    fresh.wait_for_function("typeof Help === 'object' && !!ac.from")
+    fresh.wait_for_timeout(700)
+    assert fresh.locator(".tour").count() == 0
+    fresh.click(".main-head .help-btn")
+    auto = fresh.locator(".help-auto")
+    assert not auto.is_checked(), "Help shows it is off, and can turn it back on"
+    fresh.locator(".help-auto-row").click()
+    fresh.reload()
+    fresh.wait_for_selector(".tour")
+
+
+def test_a_hebrew_browser_gets_the_tour_in_hebrew_and_can_switch(base_url):
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        p = b.new_context(locale="he-IL", viewport={"width": 1400, "height": 900}).new_page()
+        p.goto(base_url + "/")
+        p.wait_for_selector(".tour")
+        tip = p.locator(".tour-tip")
+        assert tip.get_attribute("dir") == "rtl" and p.inner_text(".tour-tip h3") == "ברוכים הבאים ל-Skyhop"
+        assert p.text_content(".tour-count").endswith(" מתוך 10")
+        p.click(".tour-next")
+        assert p.inner_text(".tour-tip h3") == "לאן"
+        p.click(".tour-tip .help-lang [lang=en]")
+        assert p.inner_text(".tour-tip h3") == "Where", "switching language keeps the step"
+        assert p.locator(".tour-tip").get_attribute("dir") == "ltr"
+        p.keyboard.press("Escape")
+        p.click(".main-head .help-btn")
+        assert p.locator(".help").get_attribute("dir") == "ltr", "the choice is remembered"
+        p.click(".help .help-lang [lang=he]")
+        assert p.locator(".help").get_attribute("dir") == "rtl" and "סיור במסך הזה" in p.inner_text(".help-tour.here")
+        assert p.locator(".help-faq summary").first.inner_text() == "המחירים אמיתיים?"
+        b.close()
 
 
 def test_escape_closes_the_tour(fresh):
@@ -71,6 +113,7 @@ def test_escape_closes_the_tour(fresh):
     assert fresh.inner_text(".tour-tip h3") == "Where"
     fresh.keyboard.press("Escape")
     assert fresh.locator(".tour").count() == 0
+    assert fresh.evaluate("localStorage.getItem('skyhop.tour')") is None, "Escape is a skip, not a 'never'"
 
 
 @pytest.mark.parametrize("link", ["?from=TLV&to=LIS&start=2026-11-13&end=2026-11-22&nights=3", "#trip=abc123"], ids=["travel-hub", "invite"])
