@@ -174,7 +174,7 @@ def test_desktop_results_are_three_tabs_with_the_top_trips_as_rows(page):
     row = page.locator(".trip-row").first
     assert row.locator("article.trip").count() == 0, "a row's full card is built when it opens"
     row.locator("summary").click()
-    assert row.locator("article.trip .hub-save").is_visible()
+    row.locator("article.trip .hub-save").wait_for(timeout=3000)   # the card is built on the toggle event, just after the click
     page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
     tabs.nth(1).click()
     assert page.locator(".res-chart").is_visible() and page.locator(".top-trips").is_hidden()
