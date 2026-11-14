@@ -323,6 +323,7 @@ window.SKYHOP_HE = {
     [/ doesn't list /g, " לא מציג את "],
     [/ \(listed without a price\)/g, " (מופיע בלי מחיר)"],
     // errors from the page's services
+    [/This Google account is not on Skyhop's user list yet\. Ask the owner to add it/g, "חשבון Google הזה עדיין לא ברשימת המשתמשים של Skyhop. בקשו מהמנהל להוסיף אותו"],
     [/Sign in again to keep getting live fares/g, "התחברו שוב כדי להמשיך לקבל מחירים חיים"],
     [/Skyhop's server answered (\d+)/g, "השרת של Skyhop ענה $1"],
     [/Couldn't load Google sign-in/g, "לא הצלחנו לטעון את ההתחברות של Google"],
