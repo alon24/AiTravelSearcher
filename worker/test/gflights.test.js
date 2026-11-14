@@ -78,4 +78,5 @@ test("bad queries are refused before Google is asked", async () => {
 test("a guest looks fares up only inside a shared trip", async () => {
   const r = await call("/gflights?origin=TLV&dest=FCO&date=2026-10-05", { GOOGLE_CLIENT_ID: "client-1", ALLOWED_EMAILS: "someone@example.com" });
   assert.equal(r.status, 403);
+  assert.match((await r.json()).error, /not on the user list/);
 });
