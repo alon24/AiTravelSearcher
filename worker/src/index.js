@@ -90,7 +90,7 @@ async function caller(request, env) {
 async function mayspend(request, env, who, kind, n = 1) {
   if (who.allowed) return null;
   const trip = request.headers.get("X-Trip");
-  if (!validTripId(trip) || !env.TRIPS) return error("sign in with an allowed Google account", 403);
+  if (!validTripId(trip) || !env.TRIPS) return error(`${who.email} is not on the user list yet; ask the admin to add this Google account`, 403);
   const r = await tripStub(env, trip)("/spend", { kind, n });
   if (r.status === 404) return error("no such trip", 404);
   return (await r.json()).ok ? null : error("this trip has used up today's allowance; try again tomorrow", 429);
