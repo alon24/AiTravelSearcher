@@ -3,7 +3,7 @@
    (web/local/gflights.js). No key and no credits, but Google may refuse or change the page, so the page falls back
    to SerpApi when this fails. The query is the `tfs` protobuf of Google's own links. */
 
-import { isCityOnly } from "./airports.js";
+import { CITY_AIRPORTS, isCityOnly } from "./airports.js";
 
 const URL_BASE = "https://www.google.com/travel/flights";
 const CODE_RE = /^[A-Z]{3}$/;
@@ -47,6 +47,9 @@ export function gflightsQuery(q) {
     maxStops: num("max_stops", 1, 0, 3), carryOn: num("carry_on_bags", 0, 0, 2), checked: num("checked_bags", 0, 0, 4) };
   const currency = (q.get("currency") || "USD").toUpperCase(), returnDay = q.get("return_date") || null;
   if (!CODE_RE.test(origin) || !CODE_RE.test(dest)) return { error: "origin and dest must be 3-letter codes" };
+  // Google answers a metro code (BUH, LON) with its landing page, so ask for the metro's main airport (OTP, LHR)
+  const airport = c => (isCityOnly(c) ? CITY_AIRPORTS[c].split(",")[0] : c);
+  query.origin = airport(origin); query.dest = airport(dest);
   if (!DAY_RE.test(day)) return { error: "date must be YYYY-MM-DD" };
   if (returnDay && !(DAY_RE.test(returnDay) && returnDay >= day)) return { error: "return_date must be YYYY-MM-DD, on or after date" };
   query.returnDay = returnDay;
