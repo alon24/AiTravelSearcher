@@ -75,6 +75,7 @@
       if (health) health = { ...health, user: null, guest: null };
       root.dispatchEvent(new CustomEvent("skyhop-signed-out"));
     }
+    if (r.status === 403 && j && /allowed Google account/.test(j.error)) throw new Error("This Google account is not on Skyhop's user list yet. Ask the owner to add it");
     if (!r.ok) throw new Error(r.status === 401 ? "Sign in again to keep getting live fares" : (j && j.error) || `Skyhop's server answered ${r.status}`);
     return j;
   }

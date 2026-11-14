@@ -120,7 +120,7 @@ const Compare = (() => {
 
     function tripRow(t, groupMin) {
       const out = t.legs[0], back = t.legs[t.legs.length - 1], open = st.open.has(t);
-      const tr = h("tr", { class: "cmp-tr" + (open ? " open" : ""), tabindex: "0", "aria-expanded": String(open), title: "Click for every flight, layover and the Trip builder",
+      const rowEl = h("tr", { class: "cmp-tr" + (open ? " open" : ""), tabindex: "0", "aria-expanded": String(open), title: "Click for every flight, layover and the Trip builder",
         onclick: () => { toggle(st.open, t); drawTable(); },
         onkeydown: e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(st.open, t); drawTable(); } } },
         h("td", { class: "c-dest" }, h("i", { style: `background:${colorOf(t.destination)}`, "aria-hidden": "true" }), h("b", {}, t.destination)),
@@ -130,7 +130,7 @@ const Compare = (() => {
         h("td", { class: "c-info" }, h("div", { class: t.stops === 0 ? "ok" : "warn" }, t.stops === 0 ? tr("Nonstop") : plural(t.stops, "stop")),
           h("div", { class: "sub" }, `${hm(out.duration_min)} / ${hm(back.duration_min)}`)),
         h("td", { class: "c-act" }, siteButtons(t)));
-      return open ? [tr, h("tr", { class: "cmp-detail" }, h("td", { colspan: "7" }, tripCard(t, cur, pax)))] : [tr];
+      return open ? [rowEl, h("tr", { class: "cmp-detail" }, h("td", { colspan: "7" }, tripCard(t, cur, pax)))] : [rowEl];
     }
 
     function drawTable() {
