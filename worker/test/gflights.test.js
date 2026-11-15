@@ -79,3 +79,9 @@ test("a guest looks fares up only inside a shared trip", async () => {
   const r = await call("/gflights?origin=TLV&dest=FCO&date=2026-10-05", { GOOGLE_CLIENT_ID: "client-1", ALLOWED_EMAILS: "someone@example.com" });
   assert.equal(r.status, 403);
 });
+
+test("a metro code is searched as its main airport, because Google answers BUH with its landing page", () => {
+  const url = q => new URL(gflightsQuery(new URLSearchParams(q)).url).searchParams.get("tfs");
+  assert.equal(url("origin=TLV&dest=BUH&date=2026-12-07"), url("origin=TLV&dest=OTP&date=2026-12-07"));
+  assert.equal(url("origin=LON&dest=TLV&date=2026-12-07"), url("origin=LHR&dest=TLV&date=2026-12-07"));
+});
